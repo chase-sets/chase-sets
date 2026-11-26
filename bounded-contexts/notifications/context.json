@@ -230,6 +230,35 @@
     }
   ],
   "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-notifications",
+          "routePath": "account/notifications",
+          "routeType": "route",
+          "sourceContext": "notifications",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "notifications",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        }
+      ]
+    }
   ],
   "mutationConsistencyInventory": [
     {
@@ -253,7 +282,7 @@
         "tests": [
           "bounded-contexts/notifications/features/notification-center/api/api.test.ts proves mark-read, mark-all-read, and preference writes return committed snapshots.",
           "bounded-contexts/notifications/features/notification-center/api/client.test.ts proves the API client exposes the mutation snapshots to UI callers.",
-          "bounded-contexts/notifications/features/notification-center/ui/notification-center.test.tsx proves the account notification-center route reconciles from committed snapshots and preserves current state when write calls fail."
+          "deployables/corten-pilot/marketplace/src/tests.rs mark_read_draws_the_feed_the_api_answered_with_and_without_a_script_redirects_to_it and a_channels_switch_turns_it_the_other_way_and_draws_the_switch_the_api_answered_with prove the Corten marketplace's notification center draws the feed or switch each write answered with, and keeps the current feed with a refusal when a write fails."
         ]
       }
     },
@@ -271,8 +300,7 @@
       "proof": {
         "authoritativeResponse": "Discovery's account Product Alert action runs the Discovery pause, resume, or delete command, whose response carries the committed alert snapshot, before redirecting; Notifications adds no Product Alert command of its own.",
         "tests": [
-          "bounded-contexts/notifications/features/notification-center/ui/notification-center.test.tsx proves each control submits its intent and alert id to the account Product Alert action and follows its return to the refreshed settings view.",
-          "deployables/marketplace/app/routes/notification-center-compatibility.test.tsx proves a pause through the real Discovery action returns to the Product alerts settings section with the paused alert."
+          "deployables/corten-pilot/marketplace/src/tests.rs marketplaces_product_alerts_action_changes_the_alert_it_names_then_shows_the_alerts proves each control's intent and alert id reach the Product Alert command and return to the Product alerts settings with the write's receipt."
         ]
       }
     },
@@ -294,6 +322,44 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "notifications",
+      "label": "Notifications",
+      "labelKey": "notifications.shell.notifications.label",
+      "icon": "bell",
+      "href": "/account/notifications",
+      "activation": "route",
+      "order": 90,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
+      "placement": "utility"
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "notifications",
+      "label": "Alerts",
+      "icon": "bell",
+      "href": "/account/notifications",
+      "activation": "route",
+      "order": 90,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
+      "placement": "utility",
+      "packingPriority": 600
+    }
   ],
   "directoryIntent": {
     "notification-center": {

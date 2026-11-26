@@ -1,6 +1,6 @@
 import type {
+  BcContributedRoute,
   BcMarketplaceRouteModule,
-  BcRouteModule,
   PortableDataOperations,
   RouteAuthorization,
   RouteAvailability,
@@ -9,7 +9,7 @@ import type {
   UnsupportedMobileRoute,
 } from "@chase-sets/bounded-context-module";
 
-type MarketplaceRouteCandidate = BcRouteModule &
+type MarketplaceRouteCandidate = BcContributedRoute &
   Readonly<{
     delivery?: RouteDelivery;
     authorization?: RouteAuthorization;
@@ -33,11 +33,11 @@ export function assertMarketplaceRouteContract(
   if (route.sourceContext !== contextName) {
     throw new Error(`Marketplace route '${routeKey}' must name its owning context as sourceContext.`);
   }
-  if (route.delivery === "web-resource-only" && route.pageComponentExport !== undefined) {
-    throw new Error(`Web resource marketplace route '${routeKey}' cannot declare a page component export.`);
-  }
-  if (route.delivery !== "web-resource-only" && !isNonEmptyString(route.pageComponentExport)) {
-    throw new Error(`Marketplace route '${routeKey}' must identify its page component export.`);
+  // The Corten marketplace serves these routes, so a record is metadata only.
+  if (route.fileExport !== undefined || route.pageComponentExport !== undefined) {
+    throw new Error(
+      `Marketplace route '${routeKey}' is metadata only and cannot name a route module or page component.`,
+    );
   }
   if (!route.availability || route.availability.web !== true) {
     throw new Error(`Marketplace route '${routeKey}' must remain explicitly available on web.`);

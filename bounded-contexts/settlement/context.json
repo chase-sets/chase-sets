@@ -595,6 +595,209 @@
           "section": "commerce"
         }
       ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-desk-money",
+          "routePath": "account/desk/money",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-desk-payout",
+          "routePath": "account/desk/payouts/:payoutId",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-desk-settings",
+          "routePath": "account/desk/settings",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-payout-setup",
+          "routePath": "account/payouts/setup",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-payout",
+          "routePath": "account/payouts/:payoutId",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-payouts",
+          "routePath": "account/payouts",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-settlement",
+          "routePath": "account/settlement",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-wallet-adjustment",
+          "routePath": "account/wallet/adjustments/:reference",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -623,6 +826,21 @@
       "visibility": "signed-in",
       "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
       "requiredPermissionsMatch": "any"
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "money",
+      "label": "Seller money",
+      "labelKey": "settlement.shell.money.label",
+      "icon": "wallet",
+      "href": "/account/desk/money",
+      "order": 180,
+      "visibility": "signed-in",
+      "requiredPermissions": ["payouts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 500
     }
   ],
   "directoryIntent": {
@@ -883,8 +1101,7 @@
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx"
+        "post-form:bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-desk-money",
@@ -893,7 +1110,6 @@
       "proof": {
         "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, retry and run-reconciliation return reconciliation progress, and confirm-payout preserves the createPayout commit receipt via navigateAfterWrite.",
         "tests": [
-          "bounded-contexts/settlement/routes/marketplace/account-payouts-route.test.ts",
           "bounded-contexts/settlement/features/payouts/api/route.test.ts",
           "bounded-contexts/settlement/features/payouts/ui/payout-detail-page.test.tsx",
           "bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.test.tsx"
@@ -909,8 +1125,7 @@
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-setup.tsx"
+        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-desk-settings",
@@ -919,7 +1134,6 @@
       "proof": {
         "authoritativeResponse": "account-payout-setup refresh returns payoutReadiness action data from refreshPayoutSetup, and provider exit stores the same API snapshot locally while triggering route revalidation as a secondary correction path.",
         "tests": [
-          "bounded-contexts/settlement/routes/marketplace/account-payout-setup-route-action.test.ts",
           "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.test.tsx",
           "bounded-contexts/settlement/features/payout-readiness/api/runtime.test.ts"
         ]

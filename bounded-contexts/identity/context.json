@@ -611,8 +611,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
-          "bounded-contexts/identity/tests/account-route-loader.test.ts"
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
         ]
       }
     },
@@ -1145,8 +1144,7 @@
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#4",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:Hb573b8e06471#1",
-        "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/identity/routes/marketplace/account.tsx"
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1"
       ],
       "portableSurfaces": [
         "bounded-contexts/identity/features/accounts/ui/portable-route.ts#mutatePortableAccountRoute"
@@ -1256,8 +1254,7 @@
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#6",
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#7",
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#8",
-        "route-action:bounded-contexts/identity/routes/admin/users-detail.tsx",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
+        "route-action:bounded-contexts/identity/routes/admin/users-detail.tsx"
       ],
       "visibleDestination": {
         "routeId": "users-detail",
@@ -1347,8 +1344,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3"
       ],
       "visibleDestination": {
         "routeId": "account-security",
@@ -1360,8 +1356,7 @@
           "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
           "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
           "bounded-contexts/identity/tests/account-security-page.test.tsx",
-          "bounded-contexts/identity/features/account-management/api/account-management.db.test.ts",
-          "deployables/marketplace/e2e/account-management-interruption.spec.ts"
+          "bounded-contexts/identity/features/account-management/api/account-management.db.test.ts"
         ]
       }
     },
@@ -1371,8 +1366,7 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#4",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#4"
       ],
       "visibleDestination": {
         "routeId": "account-security",
@@ -1444,8 +1438,7 @@
       "surfaces": [
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#5",
-        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#6",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#6"
       ],
       "visibleDestination": {
         "routeId": "account-team",
@@ -1494,8 +1487,7 @@
       "surfaces": [
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#4",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#4"
       ],
       "visibleDestination": {
         "routeId": "account-team",
@@ -1520,8 +1512,7 @@
         "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#4",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-shipping-addresses.tsx"
+        "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#4"
       ],
       "visibleDestination": {
         "routeId": "account-shipping-addresses",
@@ -1543,8 +1534,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/identity/features/consents/ui/consent-history-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/identity/routes/marketplace/account-consents.tsx"
+        "post-form:bounded-contexts/identity/features/consents/ui/consent-history-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-consents",
@@ -1609,7 +1599,6 @@
         "tests": [
           "bounded-contexts/identity/features/preferences/api/route.test.ts proves closed request validation and authenticated User isolation.",
           "bounded-contexts/identity/features/preferences/api/runtime.db.test.ts proves atomic receipt/business writes, complete-history replay and bounded concurrency.",
-          "deployables/marketplace/app/routes/layout.test.tsx proves the real preference recovery states; bounded-contexts/identity/support/shell-support/ui/user-preferences-account-menu.test.tsx proves User generation isolation.",
           "bounded-contexts/identity/support/shell-support/api/client.test.ts proves identity-preference-write-caller-inventory over tracked and unignored production callers, separately from the shipped app.put census."
         ]
       }
@@ -1958,6 +1947,130 @@
           "section": "access"
         }
       ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account",
+          "routePath": "account",
+          "routeType": "route",
+          "sourceContext": "identity",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["accounts.view"]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Authenticated account pages are not canonical public documents."
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "portableDataOperations": {
+            "load": true,
+            "mutation": true
+          }
+        },
+        {
+          "routeId": "account-consents",
+          "routePath": "account/consents",
+          "routeType": "route",
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-shipping-addresses",
+          "routePath": "account/shipping-addresses",
+          "routeType": "route",
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-security",
+          "routePath": "account/security",
+          "routeType": "route",
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-team",
+          "routePath": "account/team",
+          "routeType": "route",
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -2020,6 +2133,71 @@
       "order": 60,
       "visibility": "signed-in",
       "requiredPermissions": ["security.manage"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
+      "key": "account",
+      "label": "Account",
+      "icon": "user",
+      "href": "/account",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "account-menu",
+      "label": "Account",
+      "icon": "user",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 450,
+      "children": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "account",
+      "label": "Account",
+      "icon": "user",
+      "href": "/account",
+      "parentKey": "account-menu",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 0
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
+      "key": "security",
+      "label": "Security",
+      "icon": "settings",
+      "href": "/account/security",
+      "order": 220,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
+      "key": "consents",
+      "label": "Consent History",
+      "icon": "clock",
+      "href": "/account/consents",
+      "order": 230,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"]
     }
   ],
   "directoryIntent": {

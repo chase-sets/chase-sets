@@ -567,7 +567,6 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
           "bounded-contexts/pricing/features/repricing-policies/ui/policy-editor-drawer.test.tsx",
           "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
         ]
@@ -601,7 +600,6 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
           "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
         ]
       }
@@ -628,7 +626,6 @@
       "proof": {
         "authoritativeResponse": "The existing enqueueDryRun atomically persists the request and job; GET never enqueues and reads completed summaries by current body hash.",
         "tests": [
-          "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
           "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-loader.db.test.ts",
           "bounded-contexts/pricing/features/pricing-health/tests/apply-goal.db.test.ts"
         ]
@@ -657,33 +654,6 @@
         "tests": [
           "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts",
           "bounded-contexts/pricing/features/repricing-policies/tests/policy-activation.db.test.ts"
-        ]
-      }
-    },
-    {
-      "id": "pricing.seller-desk-repricing-controls",
-      "owner": "pricing",
-      "risk": "important",
-      "strategy": "fresh-read",
-      "surfaces": [
-        "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
-        "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx"
-      ],
-      "visibleDestination": {
-        "routeId": "account-desk-repricing",
-        "apiContextName": "pricing",
-        "apiRoutePath": "/account/repricing-policies",
-        "readModelTables": ["pricing_repricing_policies"],
-        "description": "Policy command responses contain folded aggregate state and commit metadata. Seller Desk policy redirects carry that metadata into a bounded fresh read. Policy-list membership and policy-detail existence depend on pricing_repricing_policies, owned by pricing-repricing-policy-projection; returned policy bodies are folded from owned aggregates. Halt state is read directly from its aggregate and is not protected by a policy-projection wait. Pending and permanent recovery follow the shared freshness contract.",
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
-        }
-      },
-      "proof": {
-        "tests": [
-          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
-          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
         ]
       }
     },
@@ -739,8 +709,7 @@
       "proof": {
         "authoritativeResponse": "enqueueRecommendationJob persists and returns the durable job public snapshot; the account route reloads that snapshot by jobId before rendering post-write recommendation controls.",
         "tests": [
-          "bounded-contexts/pricing/features/recommendations/api/route.test.ts",
-          "bounded-contexts/pricing/tests/account-repricing-route.test.ts"
+          "bounded-contexts/pricing/features/recommendations/api/route.test.ts"
         ]
       }
     },
@@ -772,8 +741,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.tsx:H2df726441e2a#2",
-        "route-action:bounded-contexts/pricing/routes/marketplace/account-repricing.tsx"
+        "post-form:bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.tsx:H2df726441e2a#2"
       ],
       "visibleDestination": {
         "routeId": "account-repricing",
@@ -782,7 +750,6 @@
       "proof": {
         "authoritativeResponse": "The route action redirects with jobId, the loader fetches the durable job snapshot, and the list page disables refresh/apply/dismiss controls until terminal status triggers a page refetch.",
         "tests": [
-          "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
           "bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.test.tsx"
         ]
       }
@@ -824,6 +791,125 @@
   ],
   "deployableContributions": [
     {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-desk-pricing-health",
+          "routePath": "account/desk/pricing-health",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["pricing.view"] },
+          "canonicalLink": { "kind": "route-derived" },
+          "availability": { "web": true, "mobile": false },
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": { "query": { "policyId": { "kind": "value", "maxLength": 256 } } }
+        },
+        {
+          "routeId": "account-repricing",
+          "routePath": "account/repricing",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-desk-repricing",
+          "routePath": "account/desk/repricing",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-desk-repricing-policy",
+          "routePath": "account/desk/repricing/:policyId",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-bulk-reprice",
+          "routePath": "account/bulk-reprice",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        }
+      ]
+    },
+    {
       "deployable": "public-web",
       "routes": [
         {
@@ -837,6 +923,18 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "repricing",
+      "label": "Pricing",
+      "icon": "chart",
+      "href": "/account/repricing",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": ["pricing.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    }
   ],
   "directoryIntent": {
     "pricing-health": {

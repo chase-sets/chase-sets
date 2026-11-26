@@ -756,8 +756,7 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx"
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-imports",
@@ -766,7 +765,6 @@
       "proof": {
         "authoritativeResponse": "createImportBatch and commitImportBatch return InventoryImportBatchJobStatus snapshots; the import page subscribes to the job event stream and navigates only after a completed terminal snapshot includes the batch result.",
         "tests": [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
           "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
           "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts"
         ]
@@ -808,8 +806,7 @@
       "proof": {
         "authoritativeResponse": "The marketplace create route returns the command-owned listing id, version, and fee-quote fingerprint, and publish returns the published version; the redirect carries those receipts via the marketplace post-write token, so the inventory item surface performs no post-write read of an inventory projection.",
         "tests": [
-          "bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-new-route.test.ts"
+          "bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.test.tsx"
         ]
       }
     },
@@ -821,8 +818,7 @@
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
-        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
-        "route-action:bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx"
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-restock-decisions",
@@ -854,8 +850,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx"
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-item",
@@ -872,9 +867,7 @@
         }
       },
       "proof": {
-        "tests": [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
-        ]
+        "tests": []
       }
     },
     {
@@ -885,8 +878,7 @@
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-item",
@@ -903,9 +895,7 @@
         }
       },
       "proof": {
-        "tests": [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
-        ]
+        "tests": []
       }
     },
     {
@@ -914,9 +904,7 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1"
       ],
       "visibleDestination": {
         "apiContextName": "inventory",
@@ -935,7 +923,6 @@
       "proof": {
         "authoritativeResponse": "recordOfflineSale returns the committed Inventory command receipt and typed applied/refused outcome. The detail loader and list's receipt-gated getItem read observe the Inventory item projection before a completed quantity is rendered.",
         "tests": [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
           "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx",
           "bounded-contexts/inventory/features/inventory-items/ui/inventory-item-pages.test.tsx"
         ]
@@ -949,8 +936,7 @@
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H44ef8e2f59ba#1",
         "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H5134385a04e6#1",
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1",
-        "route-action:bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-locations",
@@ -965,9 +951,7 @@
         }
       },
       "proof": {
-        "tests": [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
-        ]
+        "tests": []
       }
     },
     {
@@ -1014,6 +998,167 @@
   },
   "deployableContributions": [
     {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-inventory",
+          "routePath": "account/inventory",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-inventory-imports",
+          "routePath": "account/inventory/imports",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-inventory-import",
+          "routePath": "account/inventory/imports/:batchId",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-inventory-locations",
+          "routePath": "account/inventory/locations",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-inventory-item",
+          "routePath": "account/inventory/items/:itemId",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "ledgerKind": {
+                "kind": "value",
+                "maxLength": 13,
+                "values": [
+                  "hold-placed",
+                  "hold-released",
+                  "hold-consumed"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "routeId": "account-inventory-restock-decisions",
+          "routePath": "account/inventory/restock-decisions",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        }
+      ]
+    },
+    {
       "deployable": "admin-web",
       "routes": [
         {
@@ -1041,6 +1186,74 @@
       "requiredPermissions": [
         "recovered-inventory.view"
       ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
+      "key": "inventory",
+      "label": "Inventory",
+      "labelKey": "inventory.shell.inventory.label",
+      "icon": "package",
+      "href": "/account/inventory",
+      "parentKey": "selling-workspace",
+      "order": 100,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
+      "packingPriority": 0
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
+      "key": "inventory-imports",
+      "label": "Import",
+      "labelKey": "inventory.shell.inventoryImports.label",
+      "icon": "package",
+      "href": "/account/inventory/imports",
+      "parentKey": "selling-workspace",
+      "order": 110,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
+      "packingPriority": 0
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
+      "key": "inventory-restock-decisions",
+      "label": "Restock",
+      "icon": "package",
+      "href": "/account/inventory/restock-decisions",
+      "parentKey": "selling-workspace",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {
@@ -1126,7 +1339,6 @@
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
       "expectedConsumers": [
         "import-batches",
-        "inventory-items",
         "recovered-items",
         "restock-decisions",
         "storage-locations"

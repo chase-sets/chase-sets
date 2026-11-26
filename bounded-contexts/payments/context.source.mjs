@@ -346,29 +346,6 @@ export const contextManifest = {
   readAfterWriteRouteInventory: payments.readAfterWriteRouteInventory,
   mutationConsistencyInventory: [
     {
-      id: "payments.terms-accept-to-wallet-status-fresh-read",
-      owner: "payments",
-      risk: "critical",
-      strategy: "fresh-read",
-      surfaces: [
-        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb08a81ecfd73#1",
-      ],
-      visibleDestination: {
-        routeId: "account-payment-new",
-        apiContextName: "payments",
-        apiRoutePath: "/account/checkout/status",
-        readModelTables: ["payments_order_inputs"],
-        transientRecovery: {
-          kinds: "refreshable-catching-up",
-          behavior:
-            "Terms acceptance carries Identity's receipt. The matching Payments readFreshnessRoutes entry also declares targetContextName identity and readModelTable identity_consent_current_states; the exact-dependency gate waits on that Identity projection before this status read. This inventory table list names the Payments-owned dependency only. Timeout retains orders and manual recovery without restoring wallet eligibility.",
-        },
-      },
-      proof: {
-        tests: ["bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx"],
-      },
-    },
-    {
       id: "payments.wallet-funding-command-snapshots",
       owner: "payments",
       risk: "critical",
@@ -402,38 +379,7 @@ export const contextManifest = {
       proof: {
         authoritativeResponse:
           "The Payments runtime builds the returned payment detail from the same command path that creates the processor payment session; the platform API attaches the Payments commit receipt headers to the response.",
-        tests: [
-          "bounded-contexts/payments/features/payments/api/route.test.ts",
-          "bounded-contexts/payments/tests/account-payment-new-route.test.tsx",
-          "bounded-contexts/payments/features/payments/ui/routes/guest-payment-claim-action.test.ts",
-        ],
-      },
-    },
-    {
-      id: "payments.create-to-detail-fresh-read",
-      owner: "payments",
-      risk: "critical",
-      strategy: "fresh-read",
-      surfaces: [
-        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb2c20eae8fce#1",
-        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx",
-      ],
-      visibleDestination: {
-        routeId: "account-payment",
-        apiContextName: "payments",
-        apiRoutePath: "/account/payments/:id",
-        readModelTables: ["payments_payment_pages"],
-        transientRecovery: {
-          kinds: "refreshable-catching-up",
-          behavior:
-            "Payment creation redirects carry the Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and renders preparing-payment recovery while the receipt is fresh.",
-        },
-      },
-      proof: {
-        tests: [
-          "bounded-contexts/payments/tests/account-payment-new-route.test.tsx",
-          "bounded-contexts/payments/features/payments/ui/routes/guest-payment-claim-action.test.ts",
-        ],
+        tests: ["bounded-contexts/payments/features/payments/api/route.test.ts"],
       },
     },
     {
@@ -443,7 +389,6 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/payments/features/payments/ui/account-payment/account-payment-page.tsx:Hb08a81ecfd73#1",
-        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
       ],
       visibleDestination: {
         routeId: "account-payment",
@@ -457,7 +402,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/payments/features/payments/ui/routes/guest-payment-claim-action.test.ts"],
+        tests: [],
       },
     },
     {
@@ -480,26 +425,6 @@ export const contextManifest = {
         authoritativeResponse:
           "The API serializes only user-visible setup and saved-method fields from Payments-owned rows after the provider/setup command completes; reconcile also returns the authoritative saved-method list snapshot.",
         tests: ["bounded-contexts/payments/features/payments/api/route.test.ts"],
-      },
-    },
-    {
-      id: "payments.method-route-snapshots",
-      owner: "payments",
-      risk: "important",
-      strategy: "snapshot-return",
-      surfaces: [
-        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#2",
-        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
-      ],
-      visibleDestination: {
-        description:
-          "The saved payment methods route renders action-returned Payments snapshots for default, remove, setup reconciliation, and reconcile results instead of depending on realtime or a stale loader after mutation.",
-      },
-      proof: {
-        authoritativeResponse:
-          "The route action returns the sanitized saved-method list from Payments immediately after the mutation, and the component prefers that action snapshot over stale loader data. Each setup, default and remove form carries its own Saved Checkout Instrument Attempt id and keeps an unconfirmed outcome across later revalidations.",
-        tests: ["bounded-contexts/payments/tests/account-payment-methods-route.test.tsx"],
       },
     },
     {

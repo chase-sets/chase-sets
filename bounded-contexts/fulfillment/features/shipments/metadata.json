@@ -257,8 +257,7 @@
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
-        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#8",
-        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment.tsx"
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#8"
       ],
       "visibleDestination": {
         "routeId": "account-sale-shipment",
@@ -279,10 +278,7 @@
         }
       },
       "proof": {
-        "tests": [
-          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-route.test.ts",
-          "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
-        ]
+        "tests": ["bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"]
       }
     },
     {
@@ -312,10 +308,7 @@
         }
       },
       "proof": {
-        "tests": [
-          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing-route.test.ts",
-          "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
-        ]
+        "tests": ["bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"]
       }
     },
     {
@@ -324,8 +317,7 @@
       "risk": "important",
       "strategy": "optimistic-with-correction",
       "surfaces": [
-        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1",
-        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing.tsx"
+        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1"
       ],
       "visibleDestination": {
         "routeId": "account-sale-shipment-packing",
@@ -333,10 +325,7 @@
       },
       "proof": {
         "correction": "shipment-packing-page.tsx applies the requested packed quantity optimistically, ignores stale command responses for superseded per-line requests, reconciles to the returned line confirmedQuantity snapshot, rolls back failed latest writes, and keeps complete-packing disabled while writes are in flight.",
-        "tests": [
-          "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx",
-          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing-route.test.ts"
-        ]
+        "tests": ["bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx"]
       }
     },
     {
@@ -352,10 +341,7 @@
       },
       "proof": {
         "authoritativeResponse": "shipment-mutation-boundary.tsx addresses the Fulfillment mutation-recovery route with the retained owner key in the header and classifies only its bounded response.",
-        "tests": [
-          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts",
-          "deployables/marketplace/e2e/shipment-mutation-recovery.spec.ts"
-        ]
+        "tests": ["bounded-contexts/fulfillment/features/shipments/api/route.test.ts"]
       }
     }
   ],
@@ -487,7 +473,6 @@
     {
       "routeId": "account-sale-shipment-packing-slips",
       "routePath": "account/sales/shipments/packing-slips",
-      "fileExport": "./routes/marketplace/account-sale-shipment-packing-slips",
       "routeType": "route",
       "placement": "root",
       "sourceContext": "fulfillment",
@@ -504,7 +489,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#5238",
@@ -514,7 +498,6 @@
     {
       "routeId": "account-sale-shipment-packing",
       "routePath": "account/sales/shipments/:shipmentId/packing",
-      "fileExport": "./routes/marketplace/account-sale-shipment-packing",
       "routeType": "route",
       "sourceContext": "fulfillment",
       "delivery": "server-only",
@@ -530,7 +513,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#5238",
@@ -540,7 +522,6 @@
     {
       "routeId": "account-shipment",
       "routePath": "account/shipments/:shipmentId",
-      "fileExport": "./routes/marketplace/account-shipment",
       "routeType": "route",
       "sourceContext": "fulfillment",
       "delivery": "server-only",
@@ -555,7 +536,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#5238",
@@ -568,7 +548,6 @@
     {
       "routeId": "account-shipments",
       "routePath": "account/shipments",
-      "fileExport": "./routes/marketplace/account-shipments",
       "routeType": "route",
       "sourceContext": "fulfillment",
       "delivery": "server-only",
@@ -584,7 +563,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#5238",
@@ -594,7 +572,6 @@
     {
       "routeId": "account-sale-shipment",
       "routePath": "account/sales/shipments/:shipmentId",
-      "fileExport": "./routes/marketplace/account-sale-shipment",
       "routeType": "route",
       "sourceContext": "fulfillment",
       "delivery": "server-only",
@@ -610,7 +587,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#5238",
@@ -620,7 +596,6 @@
     {
       "routeId": "account-sale-shipments",
       "routePath": "account/sales/shipments",
-      "fileExport": "./routes/marketplace/account-sale-shipments",
       "routeType": "route",
       "sourceContext": "fulfillment",
       "delivery": "server-only",
@@ -636,7 +611,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#5238",
@@ -669,8 +643,7 @@
     "surfaces": [
       "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#1",
       "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#2",
-      "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3",
-      "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipments.tsx"
+      "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3"
     ],
     "visibleDestination": {
       "description": "The fulfillment command center dispatches each named shipment action to the seller shipment command endpoints, which return authoritative command snapshots with shipment id and aggregate version. The work-ordered queue re-derives from those snapshots on reload and is treated as refreshable operational context, not a claimed inline read."

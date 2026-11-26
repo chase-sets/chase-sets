@@ -544,8 +544,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/client.ts:PUT Hc62954b23f06#1",
-        "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1",
-        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.tsx"
+        "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1"
       ],
       "visibleDestination": {
         "routeId": "seller-shipping-setup",
@@ -554,7 +553,7 @@
       "proof": {
         "authoritativeResponse": "The request client returns the setup API command result unchanged. The action returns that snapshot, while the loader reads the current committed source so later support revocation remains visible.",
         "tests": [
-          "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx"
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.test.tsx"
         ]
       }
     },
@@ -622,8 +621,7 @@
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
-        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#8",
-        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment.tsx"
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#8"
       ],
       "visibleDestination": {
         "routeId": "account-sale-shipment",
@@ -645,7 +643,6 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-route.test.ts",
           "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
         ]
       }
@@ -678,7 +675,6 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing-route.test.ts",
           "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
         ]
       }
@@ -689,8 +685,7 @@
       "risk": "important",
       "strategy": "optimistic-with-correction",
       "surfaces": [
-        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1",
-        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing.tsx"
+        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1"
       ],
       "visibleDestination": {
         "routeId": "account-sale-shipment-packing",
@@ -699,8 +694,7 @@
       "proof": {
         "correction": "shipment-packing-page.tsx applies the requested packed quantity optimistically, ignores stale command responses for superseded per-line requests, reconciles to the returned line confirmedQuantity snapshot, rolls back failed latest writes, and keeps complete-packing disabled while writes are in flight.",
         "tests": [
-          "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx",
-          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing-route.test.ts"
+          "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx"
         ]
       }
     },
@@ -718,8 +712,7 @@
       "proof": {
         "authoritativeResponse": "shipment-mutation-boundary.tsx addresses the Fulfillment mutation-recovery route with the retained owner key in the header and classifies only its bounded response.",
         "tests": [
-          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts",
-          "deployables/marketplace/e2e/shipment-mutation-recovery.spec.ts"
+          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts"
         ]
       }
     },
@@ -760,8 +753,7 @@
       "surfaces": [
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#1",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#2",
-        "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3",
-        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipments.tsx"
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3"
       ],
       "visibleDestination": {
         "description": "The fulfillment command center dispatches each named shipment action to the seller shipment command endpoints, which return authoritative command snapshots with shipment id and aggregate version. The work-ordered queue re-derives from those snapshots on reload and is treated as refreshable operational context, not a claimed inline read."
@@ -788,6 +780,181 @@
     }
   },
   "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "seller-shipping-setup",
+          "routePath": "sell/shipping-setup",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Owner-scoped shipping setup is not a public canonical page."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#11113",
+            "reason": "Shipping setup is delivered on the marketplace web route."
+          }
+        },
+        {
+          "routeId": "account-sale-shipment-packing-slips",
+          "routePath": "account/sales/shipments/packing-slips",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-sale-shipment-packing",
+          "routePath": "account/sales/shipments/:shipmentId/packing",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-shipment",
+          "routePath": "account/shipments/:shipmentId",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-shipments",
+          "routePath": "account/shipments",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-sale-shipment",
+          "routePath": "account/sales/shipments/:shipmentId",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-sale-shipments",
+          "routePath": "account/sales/shipments",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        }
+      ]
+    },
     {
       "deployable": "admin-web",
       "routes": [
@@ -816,6 +983,43 @@
       "requiredPermissions": [
         "return-intake.view"
       ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "sale-shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
+      "icon": "truck",
+      "href": "/account/sales/shipments",
+      "parentKey": "selling-workspace",
+      "order": 195,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "sale-shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
+      "icon": "truck",
+      "href": "/account/sales/shipments",
+      "parentKey": "selling-workspace",
+      "order": 195,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

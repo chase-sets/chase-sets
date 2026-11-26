@@ -248,7 +248,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Explain itemized Wallet history and notices, the support dispute method, response expectations, and review timing.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-73,157",
+          "deployables/corten-pilot/marketplace/src/money.rs:213-225",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:5-79",
         ],
         openQuestions: [
@@ -257,7 +257,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         assumptions: [
           {
             assertion: "Account holders can view itemized Wallet ledger entries in the account money summary.",
-            evidenceRef: "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-73,157",
+            evidenceRef: "deployables/corten-pilot/marketplace/src/money.rs:213-225",
           },
         ],
       },

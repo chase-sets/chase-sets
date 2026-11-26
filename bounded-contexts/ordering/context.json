@@ -726,8 +726,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/ordering/features/orders/ui/order-detail-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/ordering/routes/account-purchase.tsx"
+        "post-form:bounded-contexts/ordering/features/orders/ui/order-detail-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-purchase",
@@ -741,29 +740,8 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/ordering/tests/account-purchase-route.test.tsx",
           "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx"
         ]
-      }
-    },
-    {
-      "id": "ordering.sale-cancel-fresh-read",
-      "owner": "ordering",
-      "risk": "important",
-      "strategy": "fresh-read",
-      "surfaces": ["route-action:bounded-contexts/ordering/routes/account-sale.tsx"],
-      "visibleDestination": {
-        "routeId": "account-sale",
-        "apiContextName": "ordering",
-        "apiRoutePath": "/account/sales/:id",
-        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Sale cancellation redirects back to sale detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
-        }
-      },
-      "proof": {
-        "tests": ["bounded-contexts/ordering/tests/account-sale-route.test.tsx"]
       }
     },
     {
@@ -879,6 +857,111 @@
           "section": "commerce"
         }
       ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-purchase",
+          "routePath": "account/purchases/:purchaseId",
+          "routeType": "route",
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-purchases",
+          "routePath": "account/purchases",
+          "routeType": "route",
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-sale",
+          "routePath": "account/sales/:orderId",
+          "routeType": "route",
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-sales",
+          "routePath": "account/sales",
+          "routeType": "route",
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -893,6 +976,60 @@
       "order": 75,
       "visibility": "signed-in",
       "requiredPermissions": ["postage-policies.view"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "purchases",
+      "label": "Purchases",
+      "icon": "bag",
+      "href": "/account/purchases",
+      "order": 80,
+      "visibility": "signed-in",
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "sales",
+      "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
+      "icon": "dollar",
+      "href": "/account/sales",
+      "parentKey": "selling-workspace",
+      "order": 190,
+      "visibility": "signed-in",
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "purchases",
+      "label": "Purchases",
+      "icon": "bag",
+      "href": "/account/purchases",
+      "order": 80,
+      "visibility": "signed-in",
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 400
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "sales",
+      "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
+      "icon": "dollar",
+      "href": "/account/sales",
+      "parentKey": "selling-workspace",
+      "order": 190,
+      "visibility": "signed-in",
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {
