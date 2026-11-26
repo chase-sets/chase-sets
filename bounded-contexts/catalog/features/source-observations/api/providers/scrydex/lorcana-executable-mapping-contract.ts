@@ -198,6 +198,23 @@ function scrydexLorcanaCardNormalizedObservation(): CatalogProviderExecutableMap
     "catalog-truth",
     ["normalized-observation", "hash-material", "merge-identity"],
   );
+  const fieldUses = ["normalized-observation", "hash-material"] as const;
+  const cardType = optionalPathExpression("card.supertype", "catalog-truth", fieldUses);
+  const firstInk = optionalPathExpression("card.ink_types[0]", "catalog-truth", fieldUses);
+  const secondInk = optionalPathExpression("card.ink_types[1]", "catalog-truth", fieldUses);
+  const inkColor: CatalogProviderMappingValueExpression = {
+    ...firstInk,
+    selector: {
+      kind: "coalesce",
+      required: false,
+      selectors: [
+        // LorcanaJSON's color joins both inks in source order with a hyphen.
+        { kind: "template", template: "{firstInk}-{secondInk}", values: { firstInk, secondInk }, required: false },
+        firstInk.selector,
+        pathSelector("card.ink_type", false),
+      ],
+    },
+  };
   return {
     outputKind: "lorcana-card-print",
     languageCode: languageExpression(),
@@ -224,8 +241,8 @@ function scrydexLorcanaCardNormalizedObservation(): CatalogProviderExecutableMap
         "hash-material",
       ]),
       rarity: optionalPathExpression("card.rarity", "catalog-truth", ["normalized-observation", "hash-material"]),
-      cardType: optionalPathExpression("card.type", "catalog-truth", ["normalized-observation", "hash-material"]),
-      inkColor: optionalPathExpression("card.ink", "catalog-truth", ["normalized-observation", "hash-material"]),
+      cardType,
+      inkColor,
       releaseDate: optionalPathExpression("card.expansion.release_date", "catalog-truth", [
         "normalized-observation",
         "hash-material",
@@ -253,8 +270,8 @@ function scrydexLorcanaCardNormalizedObservation(): CatalogProviderExecutableMap
           setId: pathExpression("card.expansion.id", "external-reference", ["hash-material"]),
           setName: pathExpression("card.expansion.name", "catalog-truth", ["hash-material"]),
           rarity: optionalPathExpression("card.rarity", "catalog-truth", ["hash-material"]),
-          cardType: optionalPathExpression("card.type", "catalog-truth", ["hash-material"]),
-          ink: optionalPathExpression("card.ink", "catalog-truth", ["hash-material"]),
+          cardType,
+          ink: inkColor,
         },
         "catalog-truth",
         ["hash-material"],

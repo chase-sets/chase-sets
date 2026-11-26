@@ -134,7 +134,6 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::pagination::Pagination,
     platform::ui::radio_group::RadioGroup,
     platform::ui::select::Select,
-    platform::ui::sheet::Sheet,
     platform::ui::steps::Steps,
     platform::ui::textarea::Textarea,
     corten_ui::ComboBox,

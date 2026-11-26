@@ -18,3 +18,22 @@
 .main:focus {
   outline: none;
 }
+/* The section's pages (SectionNav) and <main>. Their element is a navigation's to replace, so it
+   draws no box: its rail, bar and sheet are this one's children. From lg up a section's page has
+   the rail in a 16rem column beside <main> (admin-web's lg:grid-cols-[16rem_minmax(0,1fr)]); the
+   home has no pages and keeps one column. */
+.pages {
+  display: contents;
+}
+@media (--lg) {
+  .body:has(> .pages > *) {
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+}
+/* On a phone, room under the page for the bottom bar. */
+@media not (--wide) {
+  .body:has(> .pages > [data-admin-bottom-nav]) > .main {
+    padding-bottom: calc(var(--space-6) + 4.5rem);
+  }
+}

@@ -151,13 +151,14 @@ describe("synthetic D23 Collection candidate display identity", () => {
   // Provider coordinates mirror the retained D23 shapes; card identities and values are synthetic controls.
   it.each([
     { ink: "Amber", rarity: "Promo", missing: [] },
-    { ink: "Amber / Ruby", rarity: "Promo", missing: [] },
+    { ink: "Amber-Ruby", rarity: "Promo", missing: [] },
     { ink: null, rarity: "Promo", missing: ["ink-color"] },
     { ink: "Amber", rarity: null, missing: ["rarity"] },
     { ink: null, rarity: null, missing: ["ink-color", "rarity"] },
     { ink: "Amber", rarity: "Promo", reviewedInk: "", missing: ["ink-color"] },
     { ink: "Amber", rarity: "Promo", reviewedRarity: "Rare", missing: ["rarity"] },
     { lorcanajson: true, ink: "Steel", rarity: "Special", missing: [] },
+    { lorcanajson: true, ink: "Amber-Ruby", rarity: "Promo", missing: [] },
   ])(
     "resolves or reports $missing (ink $ink, rarity $rarity, reviewed ink $reviewedInk, reviewed rarity $reviewedRarity)",
     async ({ ink, rarity, reviewedInk, reviewedRarity, lorcanajson, missing }) => {
@@ -210,7 +211,7 @@ describe("synthetic D23 Collection candidate display identity", () => {
                 name,
                 number: "1",
                 printed_number: cardNumber,
-                ...(ink === null ? {} : { ink }),
+                ...(ink === null ? {} : { ink_types: ink.split("-") }),
                 ...(rarity === null ? {} : { rarity }),
                 language_code: "en",
                 expansion: { id: setId, code: "D23C24", name: setName },

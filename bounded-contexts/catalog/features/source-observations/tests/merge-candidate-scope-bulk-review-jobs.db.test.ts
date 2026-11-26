@@ -850,7 +850,7 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
             language_code: "EN",
             // The Lorcana display template requires ink and rarity, which Scrydex returns.
             rarity: "Common",
-            ink: "Amber",
+            ink_types: ["Amber"],
             tcgplayer_id: tcgplayerId,
             expansion: { id: "SYN24", code: "SYN24", name: "Synthetic Collection" },
           },

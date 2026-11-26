@@ -5,7 +5,11 @@
     "admin": "Chase Sets Admin",
     "navigation": "Admin sections",
     "section_navigation": "{section} pages",
-    "skip": "Skip to main content"
+    "skip": "Skip to main content",
+    "sections": "Sections",
+    "current_section": "Current section",
+    "more": "More",
+    "close": "Close"
   },
   "section": {
     "access": "Access",

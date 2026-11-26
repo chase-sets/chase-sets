@@ -5,8 +5,8 @@
     "name": "Elsa - Snow Queen",
     "number": "41",
     "printed_number": "41/204",
-    "type": "Character",
-    "ink": "Amethyst",
+    "supertype": "Character",
+    "ink_types": ["Amethyst"],
     "language_code": "en",
     "tcgplayer_id": "1005010",
     "expansion": {

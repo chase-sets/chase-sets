@@ -7,8 +7,8 @@
     "printed_number": "41*/204",
     "rarity": "unclassified-parallel",
     "rarity_code": "UNK",
-    "type": "Character",
-    "ink": "Amethyst",
+    "supertype": "Character",
+    "ink_types": ["Amethyst"],
     "language_code": "en",
     "tcgplayer_id": "1005010",
     "expansion": {
