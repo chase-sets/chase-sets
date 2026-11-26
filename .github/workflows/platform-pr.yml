@@ -86,6 +86,7 @@ jobs:
       catalog_uat_synthetic_required: ${{ steps.gate-plan.outputs.catalog_uat_synthetic_required }}
       corten_marketplace_browser_required: ${{ steps.gate-plan.outputs.corten_marketplace_browser_required }}
       corten_admin_browser_required: ${{ steps.gate-plan.outputs.corten_admin_browser_required }}
+      corten_public_browser_required: ${{ steps.gate-plan.outputs.corten_public_browser_required }}
       corten_pilot_check_required: ${{ steps.gate-plan.outputs.corten_pilot_check_required }}
       build_required: ${{ steps.gate-plan.outputs.build_required }}
       docker_image_required: ${{ steps.gate-plan.outputs.docker_image_required }}
@@ -766,6 +767,95 @@ jobs:
             deployables/admin-web/e2e/support-platform-feedback.spec.ts \
             deployables/admin-web/e2e/support-requests.spec.ts \
             --project=admin-web-chromium --project=admin-web-tablet --shard=${{ matrix.shard }}/3
+
+      # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a
+      # failed run prints each failed test's page snapshot instead: what the pilot drew, by role and text.
+      - name: Print the failed tests' page snapshots
+        if: failure() && steps.specs.outcome == 'failure'
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          find artifacts/playwright/test-results -name error-context.md -print0 2>/dev/null | sort -z | head -z -n 60 |
+            while IFS= read -r -d '' file; do
+              echo "::group::${file#artifacts/playwright/test-results/}"
+              head -c 16000 "$file"
+              echo
+              echo "::endgroup::"
+            done
+
+  # public-web's kept browser specs against the Corten public app, which serves production chasesets.com:
+  # the Corten public binary behind the same ingress shape as production, with the platform API, worker
+  # and seed. Three specs, so one job with no shards. Same image and Rust cache key as the pilot check.
+  corten-public-browser:
+    name: Corten Public Browser Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.corten_public_browser_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # The sandbox Postgres starts from its digest-pinned mirror with Docker Hub unreachable.
+      - uses: ./.github/actions/block-docker-hub
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Export the pilot's text, tokens and nav
+        run: node --import tsx deployables/corten-pilot/scripts/export.mjs
+
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/corten
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            deployables/corten-pilot/target
+          key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
+
+      - name: Build the Corten public app
+        timeout-minutes: 25
+        working-directory: deployables/corten-pilot
+        run: cargo build --locked -p corten-pilot-public
+
+      - name: Resolve Playwright Chromium cache
+        id: browser-cache
+        run: node scripts/playwright-chromium-install.mjs --cache-identity
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.browser-cache.outputs.path }}
+          key: ${{ steps.browser-cache.outputs.key }}
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.browser-cache.outputs.path }}
+          PLAYWRIGHT_INSTALL_SITE: platform-pr-corten-public-browser
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
+        run: node scripts/playwright-chromium-install.mjs
+
+      - name: Run the kept public specs against the Corten public app
+        id: specs
+        timeout-minutes: 15
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.browser-cache.outputs.path }}
+          CHASE_SETS_BROWSER_E2E_SYSTEM: corten-public
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test \
+            deployables/public-web/e2e/landing-disclosure.spec.ts \
+            deployables/public-web/e2e/privacy-policy.spec.ts \
+            deployables/public-web/e2e/public-shell-gutter.spec.ts \
+            --project=public-web-chromium
 
       # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a
       # failed run prints each failed test's page snapshot instead: what the pilot drew, by role and text.
@@ -2260,6 +2350,7 @@ jobs:
       - catalog-uat-synthetic
       - corten-marketplace-browser
       - corten-admin-browser
+      - corten-public-browser
       - corten-pilot-check
       - capture-hermetic-chromium
       - build
@@ -2318,6 +2409,7 @@ jobs:
           require_job "Catalog UAT Synthetic Tests" "${{ needs['catalog-uat-synthetic'].result }}" "${{ needs['change-scope'].outputs.catalog_uat_synthetic_required }}"
           require_job "Corten Marketplace Browser Tests" "${{ needs['corten-marketplace-browser'].result }}" "${{ needs['change-scope'].outputs.corten_marketplace_browser_required }}"
           require_job "Corten Admin Browser Tests" "${{ needs['corten-admin-browser'].result }}" "${{ needs['change-scope'].outputs.corten_admin_browser_required }}"
+          require_job "Corten Public Browser Tests" "${{ needs['corten-public-browser'].result }}" "${{ needs['change-scope'].outputs.corten_public_browser_required }}"
           require_job "Corten Pilot Check" "${{ needs['corten-pilot-check'].result }}" "${{ needs['change-scope'].outputs.corten_pilot_check_required }}"
           capture_required="$(node --input-type=module -e '
           const required = process.env.AC4_E2E_REQUIRED;

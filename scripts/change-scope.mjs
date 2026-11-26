@@ -175,6 +175,16 @@ const cortenAdminBrowserPatterns = [
   /^deployables\/admin-web\/e2e\/support\/(?:admin-e2e|seed-contract-gap)\.ts$/,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
+// The Corten public browser tests run public-web's kept browser specs against the Corten pilot's public
+// app, which serves production. A change to the pilot's public or platform code, its build inputs, those
+// specs or the dev-system target that boots it can turn them red. The specs import no support modules.
+const cortenPublicBrowserPatterns = [
+  /^deployables\/corten-pilot\/(?:public|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
+  /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^deployables\/public-web\/e2e\/[^/]+\.spec\.ts$/,
+  /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
+];
 // The Corten pilot check (corten check) is required for the pilot's marketplace and platform code, its
 // Cargo files, its export and the action that runs it: the Corten marketplace serves production. Every other change runs it
 // advisory in corten-pilot.yml, whose pull_request paths-ignore names these same paths.
@@ -434,6 +444,7 @@ export function classifyChanges({
   let catalogUatSyntheticChanged = false;
   let cortenMarketplaceBrowserChanged = false;
   let cortenAdminBrowserChanged = false;
+  let cortenPublicBrowserChanged = false;
   let cortenPilotCheckChanged = false;
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
@@ -451,6 +462,7 @@ export function classifyChanges({
     cortenMarketplaceBrowserChanged ||=
       matchesAny(filePath, cortenMarketplaceBrowserPatterns) || cortenMarketplaceBrowserSelectedByChangedFile(filePath);
     cortenAdminBrowserChanged ||= matchesAny(filePath, cortenAdminBrowserPatterns);
+    cortenPublicBrowserChanged ||= matchesAny(filePath, cortenPublicBrowserPatterns);
     cortenPilotCheckChanged ||= matchesAny(filePath, cortenPilotCheckPatterns);
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
       if (matchesAny(filePath, patterns)) {
@@ -676,6 +688,7 @@ export function classifyChanges({
     catalogUatSyntheticRequired: catalogUatSyntheticChanged,
     cortenMarketplaceBrowserRequired: cortenMarketplaceBrowserChanged,
     cortenAdminBrowserRequired: cortenAdminBrowserChanged,
+    cortenPublicBrowserRequired: cortenPublicBrowserChanged,
     cortenPilotCheckRequired: cortenPilotCheckChanged,
   };
 }
@@ -780,6 +793,7 @@ function fullScopeForUnavailableChangeSet(workspaces, reason, baseDir) {
     catalogUatSyntheticRequired: true,
     cortenMarketplaceBrowserRequired: true,
     cortenAdminBrowserRequired: true,
+    cortenPublicBrowserRequired: true,
     cortenPilotCheckRequired: true,
   };
 }

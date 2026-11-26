@@ -4288,6 +4288,7 @@ describe("DigitalOcean platform configuration", () => {
       'require_job "Catalog UAT Synthetic Tests" "${{ needs[\'catalog-uat-synthetic\'].result }}" "${{ needs[\'change-scope\'].outputs.catalog_uat_synthetic_required }}"',
       'require_job "Corten Marketplace Browser Tests" "${{ needs[\'corten-marketplace-browser\'].result }}" "${{ needs[\'change-scope\'].outputs.corten_marketplace_browser_required }}"',
       'require_job "Corten Admin Browser Tests" "${{ needs[\'corten-admin-browser\'].result }}" "${{ needs[\'change-scope\'].outputs.corten_admin_browser_required }}"',
+      'require_job "Corten Public Browser Tests" "${{ needs[\'corten-public-browser\'].result }}" "${{ needs[\'change-scope\'].outputs.corten_public_browser_required }}"',
       'require_job "Corten Pilot Check" "${{ needs[\'corten-pilot-check\'].result }}" "${{ needs[\'change-scope\'].outputs.corten_pilot_check_required }}"',
       'require_job "Capture Hermetic Chromium" "${{ needs[\'capture-hermetic-chromium\'].result }}" "$capture_required"',
       'require_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build_required }}"',
@@ -6582,7 +6583,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(playwrightConfig).toContain(
       "const publicWebBaseUrl = process.env.PUBLIC_WEB_URL ?? sandbox.urls.publicWeb;",
     );
-    expect(playwrightConfig).toContain("const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);");
+    expect(playwrightConfig).toContain(
+      "const includePublicWebProject =\n  browserE2eSystemTarget === browserE2eCortenPublicTarget || Boolean(process.env.PUBLIC_WEB_URL);",
+    );
 
     // Negative control: no project may widen its testMatch across deployables,
     // which is how the public-web privacy spec previously answered on the

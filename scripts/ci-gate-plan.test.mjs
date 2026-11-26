@@ -183,6 +183,7 @@ const postBaseGates = [
     capability: "cortenMarketplaceBrowserRequired",
   },
   { id: "corten-admin-browser", name: "Corten Admin Browser Tests", capability: "cortenAdminBrowserRequired" },
+  { id: "corten-public-browser", name: "Corten Public Browser Tests", capability: "cortenPublicBrowserRequired" },
   { id: "corten-pilot-check", name: "Corten Pilot Check", capability: "cortenPilotCheckRequired" },
 ];
 
@@ -496,6 +497,7 @@ describe("shared E2E setup regression and enforcement", () => {
             catalogUatSyntheticRequired: false,
             cortenMarketplaceBrowserRequired: false,
             cortenAdminBrowserRequired: false,
+            cortenPublicBrowserRequired: false,
             cortenPilotCheckRequired: false,
           });
           for (const mode of ["pull-request", "merge-group"]) {
@@ -508,6 +510,7 @@ describe("shared E2E setup regression and enforcement", () => {
                   catalogUatSyntheticRequired: false,
                   cortenMarketplaceBrowserRequired: false,
                   cortenAdminBrowserRequired: false,
+                  cortenPublicBrowserRequired: false,
                   cortenPilotCheckRequired: false,
                 },
               }).gates.find(({ id }) => id === "e2e-tests"),
@@ -1154,6 +1157,7 @@ describe("shared CI gate plan", () => {
       "catalog-uat-synthetic",
       "corten-marketplace-browser",
       "corten-admin-browser",
+      "corten-public-browser",
       "corten-pilot-check",
       "build",
     ]);
@@ -1163,7 +1167,7 @@ describe("shared CI gate plan", () => {
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(21);
+    ).toHaveLength(22);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });
@@ -1417,6 +1421,75 @@ describe("shared CI gate plan", () => {
       name: "Corten Admin Browser Tests",
       result: "${{ needs['corten-admin-browser'].result }}",
       required: "${{ needs['change-scope'].outputs.corten_admin_browser_required }}",
+    });
+  });
+
+  it("selects Corten Public Browser Tests from the pilot's public and platform, its build inputs, public-web's kept specs and the dev-system target", () => {
+    const triggers = [
+      "deployables/corten-pilot/public/src/app.rs",
+      "deployables/corten-pilot/public/static/style.css",
+      "deployables/corten-pilot/platform/src/api.rs",
+      "deployables/corten-pilot/Cargo.toml",
+      "deployables/corten-pilot/Cargo.lock",
+      "deployables/corten-pilot/scripts/export.mjs",
+      "deployables/public-web/e2e/landing-disclosure.spec.ts",
+      "deployables/public-web/e2e/privacy-policy.spec.ts",
+      "deployables/public-web/e2e/public-shell-gutter.spec.ts",
+      "scripts/dev-system.mjs",
+      "scripts/dev-system-config.mjs",
+      "scripts/platform-compose-ingress.mjs",
+      "scripts/browser-e2e-readiness.mjs",
+    ];
+    const nearMisses = [
+      "README.md",
+      "deployables/corten-pilot/README.md",
+      "deployables/corten-pilot/public/NOTES.md",
+      "deployables/corten-pilot/admin/src/app.rs",
+      "deployables/corten-pilot/marketplace/src/checkout.rs",
+      "deployables/corten-pilot/e2e/critical-flows.spec.ts",
+      "deployables/public-web/app/root.tsx",
+      "deployables/admin-web/e2e/access-api-keys.spec.ts",
+      "scripts/dev-system-config.test.mjs",
+    ];
+    for (const [changedFiles, required] of [
+      ...triggers.map((file) => [[file], true]),
+      ...nearMisses.map((file) => [[file], false]),
+    ]) {
+      const scope = classifyChanges({ changedFiles, workspaces });
+      expect(scope.cortenPublicBrowserRequired, changedFiles[0]).toBe(required);
+      for (const scenario of scenarios) {
+        const plan = createCiGatePlan({ ...scenario, scope });
+        expect(
+          plan.gates.find(({ id }) => id === "corten-public-browser"),
+          changedFiles[0],
+        ).toEqual(expectedPostBaseGate("corten-public-browser", scope));
+        expect(ciGatePlanOutputMap(plan).corten_public_browser_required).toBe(String(required));
+      }
+    }
+  });
+
+  it("runs Corten Public Browser Tests only on its scope output, with no secret, on the pilot check's Rust cache", () => {
+    const job = workflowJob(headWorkflow, "corten-public-browser").text;
+    expect(job).toContain("    name: Corten Public Browser Tests\n");
+    expect(workflowCondition(headWorkflow, "corten-public-browser")).toBe(
+      "needs['change-scope'].outputs.corten_public_browser_required == 'true'",
+    );
+    expect(job).not.toMatch(/secrets\./);
+    expect(job).toContain("    runs-on: ubuntu-24.04\n");
+    expect(job).toContain(
+      "key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
+    );
+    expect(job).toContain("run: cargo build --locked -p corten-pilot-public");
+    expect(job).toContain("CHASE_SETS_BROWSER_E2E_SYSTEM: corten-public");
+    expect(job).not.toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(job).toContain("--project=public-web-chromium");
+    expect(job).not.toContain("--shard=");
+    expect(requiredNeeds(headWorkflow)).toContain("corten-public-browser");
+    expect(requiredCalls(headWorkflow)).toContainEqual({
+      helper: "require_job",
+      name: "Corten Public Browser Tests",
+      result: "${{ needs['corten-public-browser'].result }}",
+      required: "${{ needs['change-scope'].outputs.corten_public_browser_required }}",
     });
   });
 
