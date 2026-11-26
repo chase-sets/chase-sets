@@ -6176,6 +6176,9 @@ pub struct SellerListing {
     pub item_subtitle: Option<String>,
     /// "Form: raw | Condition: near-mint".
     pub product_summary: Option<String>,
+    /// A graded card's grading, without its certification number until the seller adds it.
+    #[serde(default)]
+    pub graded_card: Option<GradedCard>,
     /// `null` when the catalog has no shipping measure for the product: it cannot be published.
     pub product_measure_snapshot: Option<serde_json::Value>,
     pub storage_location_name: Option<String>,
@@ -6202,12 +6205,27 @@ pub struct SellerListing {
 }
 
 impl SellerListing {
+    /// A graded card with no certification number yet: it cannot be published until the seller
+    /// adds one (`requiresCertification`).
+    pub fn requires_certification(&self) -> bool {
+        self.graded_card.as_ref().is_some_and(|g| g.certification_number.as_deref().is_none_or(|n| n.is_empty()))
+    }
+
     /// The active photos in their order (`ListingEvidenceReadiness`'s `activePhotos`).
     pub fn active_photos(&self) -> Vec<&ListingPhoto> {
         let mut photos: Vec<_> = self.evidence.iter().filter(|p| p.status == "active").collect();
         photos.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then_with(|| a.photo_id.cmp(&b.photo_id)));
         photos
     }
+}
+
+/// A graded card's grading (`MarketplaceGradedCardDetails`), the fields the page shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GradedCard {
+    pub grading_company: String,
+    pub grade: String,
+    pub certification_number: Option<String>,
 }
 
 /// A listing's photo (`MarketplaceListingPhoto`), the fields the page shows.
@@ -6249,15 +6267,41 @@ struct FeeHistory {
 /// A change to a listing, as its page sends it (marketplace's `account-listing` intents).
 #[derive(Clone, Debug, PartialEq)]
 pub enum ListingCommand {
-    Price { amount: String, currency: String, fee_quote_fingerprint: Option<String> },
-    QuantityCap { cap: u64, fee_quote_fingerprint: Option<String> },
-    PurchaseLimits { per_order: Option<u64>, per_day: Option<u64>, per_customer: Option<u64> },
-    Classify { photo: String, slot_id: Option<String>, view_kind: Option<String>, alt_text: Option<String> },
-    RemovePhoto { photo: String },
-    Reorder { photos: Vec<String> },
-    Publish { fee_quote_fingerprint: Option<String> },
+    Price {
+        amount: String,
+        currency: String,
+        fee_quote_fingerprint: Option<String>,
+    },
+    QuantityCap {
+        cap: u64,
+        fee_quote_fingerprint: Option<String>,
+    },
+    PurchaseLimits {
+        per_order: Option<u64>,
+        per_day: Option<u64>,
+        per_customer: Option<u64>,
+    },
+    Classify {
+        photo: String,
+        slot_id: Option<String>,
+        view_kind: Option<String>,
+        alt_text: Option<String>,
+    },
+    RemovePhoto {
+        photo: String,
+    },
+    Reorder {
+        photos: Vec<String>,
+    },
+    Publish {
+        fee_quote_fingerprint: Option<String>,
+    },
     Pause,
     Withdraw,
+    /// A graded draft's certification number, as the seller typed it.
+    CertificationNumber {
+        number: String,
+    },
 }
 
 /// A prepared Listing change (`ListingRecoveryReference`): the batch Marketplace keeps its
@@ -6510,6 +6554,9 @@ impl SellerListings for Caller<'_> {
             }
             ListingCommand::Pause => (Method::POST, format!("{base}/pause"), json!({})),
             ListingCommand::Withdraw => (Method::POST, format!("{base}/withdraw"), json!({})),
+            ListingCommand::CertificationNumber { number } => {
+                (Method::POST, format!("{base}/certification-number"), json!({ "certificationNumber": number }))
+            }
         };
         let mut req = self.request(method, &path, MARKETPLACE);
         if let Some(attempt) = attempt {

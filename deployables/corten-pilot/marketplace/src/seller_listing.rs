@@ -4,9 +4,11 @@
 //! quantity cap, the purchase limits, publish, pause and withdraw, and a draft's photos (add,
 //! classify, replace, remove and reorder). A write that applied goes back to the page with its
 //! receipt (`afterWrite`) and what came of the evidence (`evidenceEvent`), as marketplace's
-//! does; one refused is the page again with the API's words. Each write but the photos' is a
-//! Listing change Marketplace prepares from its form's `SubmitKey` (`listing_recovery`) and is
-//! sent under the batch id it answers, so a form sent again applies once. The page after it names
+//! does; one refused is the page again with the API's words. Each write but the photos' and a
+//! graded draft's certification number is a Listing change Marketplace prepares from its form's
+//! `SubmitKey` (`listing_recovery`) and is sent under the batch id it answers, so a form sent
+//! again applies once; the certification number is sent under the form's own `SubmitKey`, as
+//! marketplace's action sends it. The page after it names
 //! the change (`listingRecovery`) and says what came of it; one whose answer was lost reads it
 //! back. While the page names a change, every write, the photos' too, is prepared against it, and
 //! one it does not offer to enter again is not sent. When the listing cannot be read, a page
@@ -33,7 +35,7 @@ use crate::{
     items::Raw,
     listing_new::LIMITS,
     listing_recovery::{self, Change, Next},
-    text::{Pilot, SellerListingMsg},
+    text::{Pilot, SellerListingMsg, SellerListingsMsg},
     uploads::{self, Over},
     views::{self, Layout},
 };
@@ -80,6 +82,8 @@ pub struct ListingForm {
     /// Replace photo's file input.
     pub listing_photo: String,
     pub preview: String,
+    /// A graded draft's certification number.
+    pub certification_number: String,
     /// The form's attempt, drawn with it: the same form sent again is the same Listing attempt
     /// (marketplace's `ListingCommandForm`). The photo forms send none.
     pub attempt: Option<SubmitKey>,
@@ -104,6 +108,7 @@ pub struct Edits {
     pub preview: Option<TermsPreview>,
     pub quantity_cap: Option<String>,
     pub limits: Option<[String; 3]>,
+    pub certification_number: Option<String>,
     /// The form's message (the "Update Listing" banner) and the fields' own.
     pub errors: Errors,
     pub alt_text: Option<AltTextRefused>,
@@ -138,13 +143,15 @@ impl ListingScreen {
     }
 
     /// Publish is off for a listing active or withdrawn, without a currency or a shipping
-    /// measure, or without the evidence its policy requires (`publishDisabled`).
+    /// measure, without the evidence its policy requires, or graded without its certification
+    /// number (`publishDisabled`).
     pub fn publish_disabled(&self) -> bool {
         let l = &self.listing;
         matches!(l.status.as_str(), "active" | "withdrawn")
             || l.price_currency_code.is_none()
             || l.product_measure_snapshot.is_none()
             || !l.evidence_readiness.ready
+            || l.requires_certification()
     }
 
     /// The fee quote a price write sends: the preview's, else the listing's.
@@ -225,7 +232,7 @@ async fn render(
     }
     let screen = ListingScreen { listing, fees, edits, recovery, naming: naming.map(str::to_owned) };
     let title = screen.listing.item_title.clone().unwrap_or_else(|| screen.listing.catalog_catalog_item_id.clone());
-    let view = html! { <views::SellerListingPage t={t} p={req.t()} r={req.t()} id={id} screen={&screen} /> };
+    let view = html! { <views::SellerListingPage t={t} p={req.t()} r={req.t()} s={req.t()} id={id} screen={&screen} /> };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={&title} head={()}>{view}</Layout>
     };
@@ -351,7 +358,12 @@ fn some(text: &str) -> Option<String> {
 }
 
 /// The command a form sends, or the fields it got wrong.
-fn command(form: &ListingForm, listing: Option<&SellerListing>, p: Pilot) -> Result<ListingCommand, Errors> {
+fn command(
+    form: &ListingForm,
+    listing: Option<&SellerListing>,
+    p: Pilot,
+    s: SellerListingsMsg,
+) -> Result<ListingCommand, Errors> {
     let f = ListingForm::FIELDS;
     let mut errors = Errors::new();
     let fingerprint = some(&form.fee_quote_fingerprint);
@@ -401,6 +413,12 @@ fn command(form: &ListingForm, listing: Option<&SellerListing>, p: Pilot) -> Res
         "publish" => ListingCommand::Publish { fee_quote_fingerprint: fingerprint },
         "pause" => ListingCommand::Pause,
         "withdraw" => ListingCommand::Withdraw,
+        // Sent as typed: Marketplace drops its spaces and checks it against the grading company.
+        "set-certification-number" if form.certification_number.trim().is_empty() => {
+            errors.add(f.certification_number, s.error_certification_number_required());
+            return Err(errors);
+        }
+        "set-certification-number" => ListingCommand::CertificationNumber { number: form.certification_number.clone() },
         _ => {
             errors.add_form(p.check_attempt());
             return Err(errors);
@@ -451,6 +469,7 @@ fn kept(form: &ListingForm, errors: Errors) -> Edits {
             edits.price_currency_code = typed(&form.price_currency_code);
         }
         "update-quantity-cap" => edits.quantity_cap = typed(&form.quantity_cap),
+        "set-certification-number" => edits.certification_number = typed(&form.certification_number),
         "update-purchase-limits" => {
             edits.limits = Some([
                 form.max_units_per_order.clone(),
@@ -507,6 +526,11 @@ async fn refused(
                     Some(AltTextRefused { photo: form.photo_id.clone(), text: form.alt_text.clone(), message, field_level });
                 StatusCode::UNPROCESSABLE_ENTITY
             }
+            // The certification number's refusal is its field's, as marketplace's says it.
+            (_, _, Some(message)) if form.intent == "set-certification-number" => {
+                edits.errors.add(ListingForm::FIELDS.certification_number, message);
+                error.status().filter(|s| *s == StatusCode::CONFLICT).unwrap_or(StatusCode::UNPROCESSABLE_ENTITY)
+            }
             (_, _, Some(message)) => {
                 edits.errors.add_form(message);
                 error.status().filter(|s| *s == StatusCode::CONFLICT).unwrap_or(StatusCode::UNPROCESSABLE_ENTITY)
@@ -555,7 +579,7 @@ pub(crate) async fn write(
         },
         _ => None,
     };
-    let command = match command(&form, listing.as_ref(), req.t()) {
+    let command = match command(&form, listing.as_ref(), req.t(), req.t()) {
         Ok(command) => command,
         Err(errors) => {
             return render(
@@ -575,6 +599,9 @@ pub(crate) async fn write(
     };
     let photos =
         matches!(command, ListingCommand::Classify { .. } | ListingCommand::RemovePhoto { .. } | ListingCommand::Reorder { .. });
+    // Marketplace does not prepare a certification number: like a photo write, it is prepared only
+    // from a page naming a change, and then sent under the form's own attempt.
+    let certification = matches!(command, ListingCommand::CertificationNumber { .. });
     let change = Change {
         intent: &form.intent,
         attempt: form.attempt.as_ref().map(SubmitKey::as_str),
@@ -582,12 +609,16 @@ pub(crate) async fn write(
         listing_ids: &[],
         fields: listing_recovery::command_fields(&command),
     };
-    let reference = match gate(&caller, &place, change, !photos).await {
+    let reference = match gate(&caller, &place, change, !photos && !certification).await {
         Ok(Gate::Send(reference)) => reference,
         Ok(Gate::Show(recovery)) => return shown(&req, &viewer, &config, &headers, &id, &place, &form, recovery, false).await,
         Err(_) => return sign_in(&req),
     };
-    let attempt = reference.as_ref().map(|reference| reference.batch_id.as_str());
+    let attempt = match &reference {
+        Some(reference) => Some(reference.batch_id.as_str()),
+        None if certification => form.attempt.as_ref().map(SubmitKey::as_str),
+        None => None,
+    };
     match (caller.listing_command(&id, &command, attempt).await, &reference) {
         (Ok(receipt), Some(reference)) => {
             LISTING.navigated(receipt.as_ref(), None);
