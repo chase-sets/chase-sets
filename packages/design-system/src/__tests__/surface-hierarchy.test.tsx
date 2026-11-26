@@ -1124,7 +1124,6 @@ describe("composed Card intent", () => {
   it("classifies every Card root exactly once with ruled intent after every spread", () => {
     const intent: Record<string, "tinted" | "elevated"> = {
       PriceBreakdown: "tinted",
-      ListingPurchasePanel: "elevated",
       OrderIntentSummary: "tinted",
       OrderProtectionModule: "tinted",
       PaymentRecoveryPanel: "tinted",
@@ -1135,7 +1134,6 @@ describe("composed Card intent", () => {
       OfferCard: "elevated",
       MarketplaceDashboardPanel: "tinted",
       SearchFilterPanel: "tinted",
-      AccountTrustCard: "elevated",
       RatingDistribution: "tinted",
       ActorIdentityCue: "tinted",
       DetailPanel: "tinted",

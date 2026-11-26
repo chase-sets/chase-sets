@@ -48,7 +48,7 @@ describe("standalone browser e2e probe", () => {
     await writeFile(
       path.join(outputDirectory, "lifecycle.json"),
       JSON.stringify({
-        services: ["marketplace", "platform-api", "platform-worker"].map((name, index) => ({
+        services: ["admin-web", "platform-api", "platform-worker"].map((name, index) => ({
           name,
           spawnedAt: "2023-11-14T22:13:20.000Z",
           pid: 6200 + index,
@@ -62,7 +62,7 @@ describe("standalone browser e2e probe", () => {
         outcome: "ready",
         playwrightSpecsRun: 0,
         readinessTimeline: [
-          ...["marketplace", "platform-api", "platform-worker"].map((component) => ({
+          ...["admin-web", "platform-api", "platform-worker"].map((component) => ({
             phase: "service-readiness",
             component,
             ready: true,

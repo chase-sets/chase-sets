@@ -57,7 +57,13 @@ import { validateChannelConnectionContractProvenance } from "./channel-connectio
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
-import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import {
+  listWorkspacePackages,
+  loadContextSourceManifest,
+  METADATA_ONLY_WEB_HOSTS,
+  repoRoot,
+  workspaceRoots,
+} from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 import {
@@ -1419,7 +1425,7 @@ export function isAllowedDeployableBoundedContextImport(relativeFile, specifier,
   }
 
   if (
-    /^deployables\/(admin-web|marketplace|corten-pilot)\/e2e\/(?:[^/]+\/)*[^/]+\.spec\.ts$/.test(normalizedFile) &&
+    /^deployables\/(admin-web|corten-pilot)\/e2e\/(?:[^/]+\/)*[^/]+\.spec\.ts$/.test(normalizedFile) &&
     normalizedFile.split("/").every((segment) => segment !== "." && segment !== "..") &&
     targetContext?.packageName === targetContext?.packageJson?.name &&
     targetContext?.packageName === targetContext?.manifest?.packageName &&
@@ -1472,6 +1478,17 @@ function isAllowedContextImporter(relativeFile) {
     relativeFile.endsWith("/seed.ts") ||
     relativeFile.endsWith("/seed.test.ts")
   );
+}
+
+// A context whose route contributions mount route modules must export ./routes/* publicly. A metadata-only
+// host's contributions name no route module, so they alone do not require the export.
+export function findRoutesExportViolation(manifest) {
+  const mountsRouteModules = (manifest.deployableContributions ?? []).some(
+    (contribution) => !METADATA_ONLY_WEB_HOSTS.includes(contribution?.deployable),
+  );
+  return mountsRouteModules && !(manifest.publicExports ?? []).includes("./routes/*")
+    ? "contexts with route contributions must export ./routes/* publicly"
+    : null;
 }
 
 export function findAuthOwnershipViolations(manifest) {
@@ -2319,9 +2336,8 @@ export async function runStructureCheck(options = {}) {
       }
     }
 
-    if ((manifest.deployableContributions?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./routes/*")) {
-      addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
-    }
+    const routesExportViolation = findRoutesExportViolation(manifest);
+    if (routesExportViolation) addPathViolation(`${root}/context.json`, routesExportViolation);
 
     if ((manifest.publicExports ?? []).includes("./integration/*")) {
       addPathViolation(
@@ -3067,6 +3083,23 @@ export async function runStructureCheck(options = {}) {
 
           if (route.placement !== undefined && route.placement !== "root" && route.placement !== "layout") {
             addPathViolation(routeLabel, "placement must be 'root' or 'layout' when provided");
+          }
+
+          if (METADATA_ONLY_WEB_HOSTS.includes(contribution.deployable)) {
+            // The host's pages are served elsewhere; the record keeps only its
+            // link-catalog identity and must not name a module.
+            if (route.fileExport !== undefined || route.pageComponentExport !== undefined) {
+              addPathViolation(
+                routeLabel,
+                `${contribution.deployable} is a metadata-only host; its routes must not name fileExport or pageComponentExport`,
+              );
+            }
+            routesByDeployable.get(contribution.deployable)?.push({
+              ...route,
+              packageName,
+              sourceContext: manifest.contextName,
+            });
+            continue;
           }
 
           if (typeof route.fileExport !== "string" || !route.fileExport.startsWith("./routes/")) {

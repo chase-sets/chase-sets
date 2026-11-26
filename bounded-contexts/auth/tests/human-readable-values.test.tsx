@@ -22,10 +22,6 @@ const expectedHitsByFile = {
   "features/sessions/ui/session-detail-page.tsx": 4,
   "features/sessions/ui/session-list-page.tsx": 10,
   "features/sign-in/ui/sign-in-page.tsx": 9,
-  "routes/marketplace/account-agents-consent.tsx": 2,
-  "routes/marketplace/account-agents-detail.tsx": 2,
-  "routes/marketplace/account-sessions.tsx": 1,
-  "routes/marketplace/invite.tsx": 2,
   "support/route-support/magic-link-landing.tsx": 1,
 } as const;
 
@@ -33,7 +29,6 @@ const machineOnlyFiles = new Set([
   "features/invitation-acceptance/ui/invitation-acceptance-page.tsx",
   "features/registration/ui/register-page.tsx",
   "features/sign-in/ui/sign-in-page.tsx",
-  "routes/marketplace/account-sessions.tsx",
   "support/route-support/magic-link-landing.tsx",
 ]);
 const machineOnlyLine =
@@ -142,22 +137,9 @@ describe("Auth human-readable values", () => {
     );
     const partition = hits.map((hit) => ({ ...hit, disposition: classify(hit) }));
 
-    expect(hits).toHaveLength(54);
+    expect(hits).toHaveLength(47);
     expect(counts).toEqual(expectedHitsByFile);
     expect(partition).toHaveLength(hits.length);
-    expect(
-      partition
-        .filter((hit) => hit.file === "routes/marketplace/account-agents-consent.tsx")
-        .map((hit) => hit.disposition),
-    ).toEqual(["MACHINE_ONLY", "MACHINE_ONLY"]);
-    expect(
-      partition
-        .filter((hit) => hit.file === "routes/marketplace/account-agents-detail.tsx")
-        .map((hit) => hit.disposition),
-    ).toEqual(["MACHINE_ONLY", "MACHINE_ONLY"]);
-    expect(
-      partition.filter((hit) => hit.file === "routes/marketplace/invite.tsx").map((hit) => hit.disposition),
-    ).toEqual(["MACHINE_ONLY", "MACHINE_ONLY"]);
     expect(
       partition
         .filter((hit) => hit.file === "features/registration/ui/guest-payment-claim-error-boundary.tsx")

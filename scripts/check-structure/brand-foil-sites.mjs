@@ -432,15 +432,6 @@ function componentTestExpressions(source) {
   ]);
 }
 const nameArray = () => `[${lexicalLaw.stops.map((stop) => JSON.stringify(property(stop))).join(", ")}]`;
-function evidenceExpressions(source) {
-  return nodeExpressions(source, [
-    nodeRule(
-      "foilCandidates.return",
-      [...bodyPath("foilCandidates"), syntax("ReturnStatement", "statements[]")],
-      `return ${nameArray()}.map((name) => hexToRgbString(fixture[mode][name]!.candidate),);`,
-    ),
-  ]);
-}
 function representationExpressions(source) {
   const owner = expectationPath(
     "raster generator literal parity",
@@ -497,7 +488,7 @@ const definitionContracts = {
   validator: [["variable:lexicalLaw", "2e15fa7f758e9239f3ff704eca1e8e51dd98683377e2565e7c63a0b45f79f4b9"]],
   tests: [
     ["function:lexicalCases", "b4e371f26eba92ed72df7a77130442b208405e3a325b494851b409e53c014642"],
-    ["function:misplacedUses", "b6414e0dc1e3ce83a6701c123e18a06c3a8f91fb30da800480353c8a85fc62cf"],
+    ["function:misplacedUses", "22d358e1ffc65a51972cd1c900bf29a4d0ff3612811122e3bc7f9fdb6ac5bcf0"],
   ],
 };
 const definitionPaths = {
@@ -571,12 +562,6 @@ export const brandFoilRegistry = [
     validate: componentTestExpressions,
   },
   {
-    path: "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
-    role: "verification",
-    counts: [3, 0, 0],
-    validate: evidenceExpressions,
-  },
-  {
     path: "scripts/check-structure/brand-mark-representations.test.mjs",
     role: "verification",
     counts: [9, 0, 0],
@@ -597,7 +582,7 @@ export const brandFoilRegistry = [
   {
     path: "scripts/check-structure/brand-foil-sites.test.mjs",
     role: "detector-definition",
-    counts: [13, 11, 2],
+    counts: [12, 11, 2],
     validate: (source) => definitionExpressions(source, definitionContracts.tests),
   },
   {

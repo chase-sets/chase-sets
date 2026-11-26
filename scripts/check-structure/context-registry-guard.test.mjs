@@ -13,12 +13,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
-import { CONTEXT_REGISTRY_HOST_ARMS, contextManifestContributesToApiHost, repoRoot } from "../lib/repo.mjs";
+import {
+  CONTEXT_REGISTRY_HOST_ARMS,
+  contextManifestContributesToApiHost,
+  METADATA_ONLY_WEB_HOSTS,
+  repoRoot,
+} from "../lib/repo.mjs";
 import {
   CONTEXT_REGISTRIES,
   RETIRED_CONTEXT_REGISTRY_PATHS,
   validateContextRegistries,
 } from "./context-registry-guard.mjs";
+import { findRoutesExportViolation } from "./run.mjs";
 
 const apiPath = "deployables/platform-api/src/context-registry.ts";
 const workerPath = "deployables/platform-worker/src/context-registry.ts";
@@ -26,9 +32,12 @@ const adminPath = "deployables/admin-web/app/context-registry.ts";
 const marketplacePath = "deployables/marketplace/app/context-registry.ts";
 const publicPath = "deployables/public-web/app/context-registry.ts";
 const retiredMessage =
-  "retired generated context registry must not exist; context registries are the five hand-authored context-registry.ts modules";
+  "retired generated context registry must not exist; context registries are the hand-authored context-registry.ts modules";
 
 const tempRoots = [];
+// Synthetic trees exercise marketplace-web as an ordinary web host with a
+// registry; the real tree keeps it metadata only.
+const syntheticRoots = new Set();
 
 afterEach(() => {
   for (const rootDir of tempRoots.splice(0)) rmSync(rootDir, { recursive: true, force: true });
@@ -118,6 +127,7 @@ function contextFiles(rows) {
 
 function syntheticTree(rows, registries) {
   const rootDir = tempRoot();
+  syntheticRoots.add(rootDir);
   writeFiles(rootDir, {
     ...contextFiles(rows),
     [apiPath]: nodeRegistry("apiContextRegistry", registries.api ?? []),
@@ -188,17 +198,19 @@ function copyRealTree() {
     }
   }
   for (const registry of CONTEXT_REGISTRIES) {
+    if (METADATA_ONLY_WEB_HOSTS.includes(registry.hostName)) continue;
     writeFiles(rootDir, { [registry.path]: readFileSync(path.join(repoRoot, registry.path), "utf8") });
   }
   return rootDir;
 }
 
 function violationsFor(rootDir, options = {}) {
-  return validateContextRegistries({ repoRoot: rootDir, ...options }).violations;
+  const hostOptions = syntheticRoots.has(rootDir) ? { metadataOnlyHosts: [] } : {};
+  return validateContextRegistries({ repoRoot: rootDir, ...hostOptions, ...options }).violations;
 }
 
 describe("context registry guard on the real tree", () => {
-  it("binds all five registries to admitted discovery with no violation", () => {
+  it("binds every registry to admitted discovery and keeps the metadata-only host registry-free", () => {
     const result = validateContextRegistries();
 
     expect(result.violations).toEqual([]);
@@ -211,7 +223,12 @@ describe("context registry guard on the real tree", () => {
     ]);
     for (const registry of result.registries) {
       expect(registry.expected.length, registry.path).toBeGreaterThan(0);
-      expect(registry.actual, registry.path).toEqual(registry.expected);
+      if (registry.metadataOnly) {
+        expect(registry.hostName, registry.path).toBe("marketplace-web");
+        expect(registry.actual, registry.path).toBeNull();
+      } else {
+        expect(registry.actual, registry.path).toEqual(registry.expected);
+      }
     }
   });
 
@@ -453,14 +470,14 @@ describe("structural mutants of the real registries", () => {
     const rootDir = copyRealTree();
     replaceOnce(
       rootDir,
-      marketplacePath,
+      publicPath,
       'import pricingManifest from "@chase-sets/pricing/context";',
       `import pricingManifest from "${specifier}";`,
     );
 
     expect(violationsFor(rootDir)).toEqual([
-      `${marketplacePath}: web registries import only "<package>/context" manifests; "${specifier}" is forbidden`,
-      `${marketplacePath}: "pricing" manifest pricingManifest is not an imported binding`,
+      `${publicPath}: web registries import only "<package>/context" manifests; "${specifier}" is forbidden`,
+      `${publicPath}: "pricing" manifest pricingManifest is not an imported binding`,
     ]);
   });
 
@@ -468,15 +485,15 @@ describe("structural mutants of the real registries", () => {
     const rootDir = copyRealTree();
     replaceOnce(
       rootDir,
-      marketplacePath,
+      publicPath,
       'import pricingManifest from "@chase-sets/pricing/context";',
       'const pricingManifest = (await import("@chase-sets/pricing/context")).default;',
     );
 
     expect(violationsFor(rootDir)).toEqual([
-      `${marketplacePath}: dynamic import of "@chase-sets/pricing/context" is forbidden`,
-      `${marketplacePath}: unsupported top-level statement \`const pricingManifest = (await import("@chase-sets/pricing/context")).default;\``,
-      `${marketplacePath}: "pricing" manifest pricingManifest is not an imported binding`,
+      `${publicPath}: dynamic import of "@chase-sets/pricing/context" is forbidden`,
+      `${publicPath}: unsupported top-level statement \`const pricingManifest = (await import("@chase-sets/pricing/context")).default;\``,
+      `${publicPath}: "pricing" manifest pricingManifest is not an imported binding`,
     ]);
   });
 
@@ -520,11 +537,14 @@ describe("retired registry paths", () => {
     ]);
   });
 
-  it("reports the old API file planted beside all five new modules without deleting it", () => {
+  it("reports the old API file planted beside every registry module without deleting it", () => {
     const rootDir = copyRealTree();
     writeFiles(rootDir, { [retiredApi]: "// legacy\n" });
 
-    expect(CONTEXT_REGISTRIES.every((registry) => existsSync(path.join(rootDir, registry.path)))).toBe(true);
+    const registryModules = CONTEXT_REGISTRIES.filter(
+      (registry) => !METADATA_ONLY_WEB_HOSTS.includes(registry.hostName),
+    );
+    expect(registryModules.every((registry) => existsSync(path.join(rootDir, registry.path)))).toBe(true);
     expect(violationsFor(rootDir)).toEqual([`${retiredApi}: ${retiredMessage}`]);
     expect(readFileSync(path.join(rootDir, retiredApi), "utf8")).toBe("// legacy\n");
   });
@@ -552,6 +572,51 @@ describe("retired registry paths", () => {
     expect(violationsFor(rootDir)).toEqual([
       ...RETIRED_CONTEXT_REGISTRY_PATHS.map((file) => `${file}: ${retiredMessage}`),
       `${publicPath}: context registry is missing`,
+    ]);
+  });
+});
+
+describe("metadata-only web hosts", () => {
+  it("requires ./routes/* only from contexts whose contributions mount route modules", () => {
+    const metadataOnly = { deployableContributions: [{ deployable: "marketplace-web", routes: [] }] };
+    expect(findRoutesExportViolation({ ...metadataOnly, publicExports: ["."] })).toBeNull();
+
+    const mounted = { deployableContributions: [{ deployable: "admin-web", routes: [] }] };
+    expect(findRoutesExportViolation({ ...mounted, publicExports: ["."] })).toBe(
+      "contexts with route contributions must export ./routes/* publicly",
+    );
+    expect(findRoutesExportViolation({ ...mounted, publicExports: [".", "./routes/*"] })).toBeNull();
+
+    const both = {
+      deployableContributions: [...metadataOnly.deployableContributions, ...mounted.deployableContributions],
+      publicExports: ["."],
+    };
+    expect(findRoutesExportViolation(both)).toBe("contexts with route contributions must export ./routes/* publicly");
+  });
+  it("names marketplace-web as the only metadata-only host, matching the runtime list", () => {
+    expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web"]);
+    const runtimeSource = readFileSync(path.join(repoRoot, "infrastructure/platform-runtime/web.ts"), "utf8");
+    expect(runtimeSource).toContain(
+      `export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze(${JSON.stringify(METADATA_ONLY_WEB_HOSTS)});`,
+    );
+  });
+
+  it("rejects a context registry written for a metadata-only host", () => {
+    const rootDir = copyRealTree();
+    writeFiles(rootDir, { [marketplacePath]: readFileSync(path.join(repoRoot, publicPath), "utf8") });
+
+    expect(violationsFor(rootDir)).toEqual([
+      `${marketplacePath}: marketplace-web is a metadata-only host; its contributions name no route module, so it must have no context registry`,
+    ]);
+  });
+
+  it("still reports a missing registry for every host that is not flagged", () => {
+    const missingAdmin = copyRealTree();
+    rmSync(path.join(missingAdmin, adminPath));
+    expect(violationsFor(missingAdmin)).toEqual([`${adminPath}: context registry is missing`]);
+
+    expect(violationsFor(copyRealTree(), { metadataOnlyHosts: [] })).toEqual([
+      `${marketplacePath}: context registry is missing`,
     ]);
   });
 });

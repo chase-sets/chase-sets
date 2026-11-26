@@ -20,8 +20,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/client.ts:PUT Hc62954b23f06#1",
-        "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1",
-        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.tsx"
+        "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1"
       ],
       "visibleDestination": {
         "routeId": "seller-shipping-setup",
@@ -29,9 +28,7 @@
       },
       "proof": {
         "authoritativeResponse": "The request client returns the setup API command result unchanged. The action returns that snapshot, while the loader reads the current committed source so later support revocation remains visible.",
-        "tests": [
-          "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx"
-        ]
+        "tests": ["bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.test.tsx"]
       }
     },
     {
@@ -61,7 +58,6 @@
     {
       "routeId": "seller-shipping-setup",
       "routePath": "sell/shipping-setup",
-      "fileExport": "./routes/seller-shipping-setup",
       "routeType": "route",
       "sourceContext": "fulfillment",
       "delivery": "server-only",
@@ -76,7 +72,6 @@
         "web": true,
         "mobile": false
       },
-      "pageComponentExport": "default",
       "unsupportedMobile": {
         "owner": "fulfillment",
         "followUp": "#11113",

@@ -107,7 +107,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   deployables: Object.freeze({
     "admin-web": "runtime",
     "agent-apps": "runtime",
-    marketplace: "runtime",
     "marketplace-seed-testing": "seed-machinery",
     // Not deployed (deployables/corten-pilot/AGENTS.md). `runtime` keeps a pilot change in the
     // isolated lane, the least the registry asks of a deployable, instead of failing closed.

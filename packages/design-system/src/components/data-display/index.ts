@@ -65,7 +65,6 @@ export { ProductMediaImage, type ProductMediaImageProps, type ResponsiveImageSou
 export {
   ProductOptions,
   productOptionsFromSummary,
-  formatProductImageAltText,
   formatProductOptionsAriaLabel,
   formatProductOptionsText,
   type ProductOptionDisplayValue,

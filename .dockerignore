@@ -10,8 +10,17 @@ node_modules
 **/*.tfstate
 **/*.tfstate.*
 infrastructure/digitalocean
-# The Corten pilot is not deployed and is not part of the platform image (deployables/corten-pilot/AGENTS.md).
+# The Corten pilot is built into its own images (Dockerfile.corten-*), not this one. The Privacy
+# policy compile in the build stage still reads the pilot sources its facts cite, so exactly those
+# files come back for it; the runtime stage deletes them again. A cited path this file excludes
+# fails scripts/docker-build-context-cited-evidence.test.mjs.
 deployables/corten-pilot
+!deployables/corten-pilot/marketplace/src/app.rs
+!deployables/corten-pilot/marketplace/src/views/checkout_page.js
+!deployables/corten-pilot/marketplace/src/views/connect_surface.js
+!deployables/corten-pilot/marketplace/src/views/payment_entry.js
+!deployables/corten-pilot/marketplace/src/views/payment_setup.js
+!deployables/corten-pilot/marketplace/src/views/stripe.js
 .env
 .env.*
 !.env.example

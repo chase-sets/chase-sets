@@ -526,9 +526,11 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the glossary citation re-pins to the lines that hold the Order, Self-Service Purchase
     // Cancellation, Listing Evidence, Review, Report, Reported Content, Moderation Queue and Support Request
     // entries today.
+    // Re-derived for the Wallet history citation's move to the Corten marketplace's money page, after
+    // marketplace-web's money route was deleted.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:3f0ad22043970320a9a7041473104981ce3581e1b1769a8c3dba9a94456caf1b");
+    ).toBe("sha256:a183c9fffc4c074072c902912211bdfc2f3aa55531412cc16f6d56c53fcad56c");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

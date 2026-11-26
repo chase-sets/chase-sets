@@ -32,6 +32,9 @@ const READ_ONLY_EXEMPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
  * fall outside; test files are fixtures, not callers.
  */
 const EXPECTED_PARTITION: Readonly<Record<string, string>> = {
+  // marketplace-web's account-payment-methods route left with the deployable. The
+  // Corten marketplace's payment-methods page is Rust and sends its attempt id
+  // through the Payments HTTP routes classified below.
   "bounded-contexts/payments/features/payments/api/mcp.ts#createSavedCheckoutSetupSession": "attempt-producing",
   "bounded-contexts/payments/features/payments/api/mcp.ts#reconcileSavedCheckoutSetupSession": "setup reconcile",
   "bounded-contexts/payments/features/payments/api/route.ts#createSavedCheckoutSetupSession": "attempt-producing",
@@ -41,16 +44,6 @@ const EXPECTED_PARTITION: Readonly<Record<string, string>> = {
   "bounded-contexts/payments/features/payments/api/route.ts#setSavedCheckoutInstrumentDefault": "attempt-producing",
   "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx#reconcileSavedPaymentSetupSession":
     "setup reconcile",
-  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#createSavedPaymentSetupSession":
-    "attempt-producing",
-  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#reconcilePaymentMethods":
-    "instrument reconcile",
-  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#reconcileSavedPaymentSetupSession":
-    "setup reconcile",
-  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#removePaymentMethod":
-    "attempt-producing",
-  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#setDefaultPaymentMethod":
-    "attempt-producing",
 };
 
 const trackedMethods = new Set([

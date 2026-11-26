@@ -54,7 +54,6 @@ export const combinedCandidatePaths = [
   "packages/design-system/src/brand/chase-sets-logo.svg",
   "packages/design-system/package.json",
   "packages/design-system/src/__tests__/design-system-components.test.tsx",
-  "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
   "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
   "pnpm-lock.yaml",
   "scripts/check-structure/typescript-owner-contexts.json",
@@ -67,10 +66,10 @@ export const combinedCandidatePaths = [
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-one-piece-card-game.png",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-founders.png",
   "scripts/generate-brand-icons.mjs",
-  "deployables/marketplace/public/icons/chase-sets-192.png",
-  "deployables/marketplace/public/icons/chase-sets-512.png",
-  "deployables/marketplace/public/icons/chase-sets-maskable-192.png",
-  "deployables/marketplace/public/icons/chase-sets-maskable-512.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-192.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-512.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-maskable-192.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-maskable-512.png",
   "deployables/admin-web/public/icons/chase-sets-admin-192.png",
   "deployables/admin-web/public/icons/chase-sets-admin-512.png",
   "deployables/admin-web/public/icons/chase-sets-admin-maskable-192.png",
@@ -127,10 +126,10 @@ export const repositorySourceOutputs = [
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-disney-lorcana.png",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-one-piece-card-game.png",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/chase-sets-og-founders.png",
-  "deployables/marketplace/public/icons/chase-sets-192.png",
-  "deployables/marketplace/public/icons/chase-sets-512.png",
-  "deployables/marketplace/public/icons/chase-sets-maskable-192.png",
-  "deployables/marketplace/public/icons/chase-sets-maskable-512.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-192.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-512.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-maskable-192.png",
+  "deployables/corten-pilot/marketplace/static/icons/chase-sets-maskable-512.png",
   "deployables/admin-web/public/icons/chase-sets-admin-192.png",
   "deployables/admin-web/public/icons/chase-sets-admin-512.png",
   "deployables/admin-web/public/icons/chase-sets-admin-maskable-192.png",
@@ -139,11 +138,11 @@ export const repositorySourceOutputs = [
 // repository-source-outputs:end
 
 const cardPaths = repositorySourceOutputs.filter((p) => p.includes("chase-sets-og-"));
-const iconPaths = repositorySourceOutputs.filter((p) => p.includes("/public/icons/"));
+const iconPaths = repositorySourceOutputs.filter((p) => /\/icons\/chase-sets-[\w-]+\.png$/.test(p));
 
 // Pinned by exact order, not just membership: combinedCandidatePathDigest is a
 // sorted-set digest and cannot see index position, so a swap across the
-// index-7/index-10 boundary (see the boundary-swap mutant test below)
+// index-6/index-9 boundary (see the boundary-swap mutant test below)
 // preserves the set, the digest, and every count/omission control while
 // silently exchanging which paths the vector-only and raster-only positive
 // controls exercise. This ordered pin is what actually catches that swap.
@@ -154,7 +153,6 @@ const vectorExclusivePrefix = [
   "packages/design-system/src/brand/chase-sets-logo.svg",
   "packages/design-system/package.json",
   "packages/design-system/src/__tests__/design-system-components.test.tsx",
-  "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
   "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
 ];
 
@@ -218,7 +216,7 @@ export function validateRepositoryInventory(inventory) {
 
   const vectors = inventory.filter((m) => /\/brand\/chase-sets-logo\.(tsx|svg)$/.test(m));
   const generators = inventory.filter((m) => m.endsWith(".mjs"));
-  const icons = inventory.filter((m) => m.includes("/public/icons/"));
+  const icons = inventory.filter((m) => /\/icons\/chase-sets-[\w-]+\.png$/.test(m));
   const cards = inventory.filter((m) => m.includes("chase-sets-og-"));
   if (vectors.length !== 2 || generators.length !== 2 || icons.length !== 8 || cards.length !== 7) {
     errors.push(`decomposition ${vectors.length}/${generators.length}/${icons.length}/${cards.length} !== 2/2/8/7`);
@@ -290,10 +288,6 @@ export const committedCallers = [
   "deployables/corten-pilot/public/src/site.rs",
   "deployables/corten-pilot/public/src/tests.rs",
   "deployables/corten-pilot/scripts/export.mjs",
-  "deployables/marketplace/app/pwa/service-worker-source.ts",
-  "deployables/marketplace/app/routes/favicon.ts",
-  "deployables/marketplace/app/routes/manifest.ts",
-  "deployables/marketplace/app/routes/ssr.test.tsx",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40078269313.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40191794836.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40217094516.json",
@@ -401,7 +395,7 @@ function sha256(buffer) {
 // Cases
 // ---------------------------------------------------------------------------
 
-const combinedCandidatePathDigest = "4d7e8b70515e9d671d47d3a6de2da83873a46fbfdb64c97880832164d3e262f1";
+const combinedCandidatePathDigest = "8632e2c5d75f830ff660a23e8e6787d0d17e311ffa78e32995316b146fe8533e";
 
 function pathSetDigest(paths) {
   return createHash("sha256")
@@ -410,23 +404,23 @@ function pathSetDigest(paths) {
 }
 
 describe("closed combined candidate path set", () => {
-  it("deep-equals its own sentinel block, is duplicate-free, has length 30, and matches the pinned digest", () => {
+  it("deep-equals its own sentinel block, is duplicate-free, has length 29, and matches the pinned digest", () => {
     const parsed = sliceSentinelJson(selfSource, "combined-candidate-paths");
     console.log(`combinedCandidatePaths as parsed from the sentinel block:\n${JSON.stringify(parsed, null, 2)}`);
     expect(combinedCandidatePaths).toEqual(parsed);
-    expect(combinedCandidatePaths.length).toBe(30);
-    expect(new Set(combinedCandidatePaths).size).toBe(30);
+    expect(combinedCandidatePaths.length).toBe(29);
+    expect(new Set(combinedCandidatePaths).size).toBe(29);
     expect(pathSetDigest(combinedCandidatePaths)).toBe(combinedCandidatePathDigest);
   });
 
-  it("passes the published thirty-path set as a positive control", () => {
+  it("passes the published twenty-nine-path set as a positive control", () => {
     const report = evaluateChangedPathSet(combinedCandidatePaths);
     expect(report.ok).toBe(true);
     expect(report.missing).toEqual([]);
     expect(report.extra).toEqual([]);
   });
 
-  it("refuses each of the 30 one-omitted synthetic sets by naming exactly the omitted path", () => {
+  it("refuses each of the 29 one-omitted synthetic sets by naming exactly the omitted path", () => {
     for (const omitted of combinedCandidatePaths) {
       const synthetic = combinedCandidatePaths.filter((p) => p !== omitted);
       const report = evaluateChangedPathSet(synthetic);
@@ -436,7 +430,7 @@ describe("closed combined candidate path set", () => {
     }
   });
 
-  it("refuses the evidence-manifest omission by name (the exact 30/31 escape)", () => {
+  it("refuses the evidence-manifest omission by name (the exact 29/30 escape)", () => {
     const manifestPath = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
     const synthetic = combinedCandidatePaths.filter((p) => p !== manifestPath);
     const report = evaluateChangedPathSet(synthetic);
@@ -444,42 +438,42 @@ describe("closed combined candidate path set", () => {
     expect(report.missing).toEqual([manifestPath]);
   });
 
-  it("pins the eight-member vector-exclusive prefix by exact ordered equality before constructing subsets", () => {
-    expect(combinedCandidatePaths.slice(0, 8)).toEqual(vectorExclusivePrefix);
+  it("pins the seven-member vector-exclusive prefix by exact ordered equality before constructing subsets", () => {
+    expect(combinedCandidatePaths.slice(0, 7)).toEqual(vectorExclusivePrefix);
   });
 
-  it("fails the vector-exclusive prefix pin under an index-7/index-10 boundary swap that preserves set and digest", () => {
+  it("fails the vector-exclusive prefix pin under an index-6/index-9 boundary swap that preserves set and digest", () => {
     const mutant = [...combinedCandidatePaths];
-    [mutant[7], mutant[10]] = [mutant[10], mutant[7]];
+    [mutant[6], mutant[9]] = [mutant[9], mutant[6]];
     // membership and the sorted-set digest are unchanged: only order moved
     // across the vector/raster boundary
     expect(new Set(mutant)).toEqual(new Set(combinedCandidatePaths));
     expect(mutant.length).toBe(combinedCandidatePaths.length);
     expect(pathSetDigest(mutant)).toBe(combinedCandidatePathDigest);
     // the ordered prefix pin exposes exactly the exchanged path identities
-    expect(mutant.slice(0, 8)).not.toEqual(vectorExclusivePrefix);
-    expect(mutant[7]).toBe("bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs");
-    expect(mutant[10]).toBe("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
+    expect(mutant.slice(0, 7)).not.toEqual(vectorExclusivePrefix);
+    expect(mutant[6]).toBe("bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs");
+    expect(mutant[9]).toBe("infrastructure/playwright-evidence/responsive-evidence-manifest.json");
   });
 
-  it("refuses the pure vector-only ten-path candidate by naming all twenty omitted raster paths", () => {
-    expect(combinedCandidatePaths.slice(0, 8)).toEqual(vectorExclusivePrefix);
-    const vectorExclusive = combinedCandidatePaths.slice(0, 8);
+  it("refuses the pure vector-only nine-path candidate by naming all twenty omitted raster paths", () => {
+    expect(combinedCandidatePaths.slice(0, 7)).toEqual(vectorExclusivePrefix);
+    const vectorExclusive = combinedCandidatePaths.slice(0, 7);
     const shared = ["pnpm-lock.yaml", "scripts/check-structure/typescript-owner-contexts.json"];
     const vectorOnly = [...vectorExclusive, ...shared];
-    expect(vectorOnly.length).toBe(10);
+    expect(vectorOnly.length).toBe(9);
     const report = evaluateChangedPathSet(vectorOnly);
     expect(report.ok).toBe(false);
     expect(report.missing.length).toBe(20);
     console.log(`vector-only candidate refused; omitted raster paths:\n${JSON.stringify(report.missing, null, 2)}`);
   });
 
-  it("refuses the pure raster-only twenty-two-path candidate by naming all eight omitted vector paths", () => {
-    const rasterOnly = combinedCandidatePaths.slice(8);
+  it("refuses the pure raster-only twenty-two-path candidate by naming all seven omitted vector paths", () => {
+    const rasterOnly = combinedCandidatePaths.slice(7);
     expect(rasterOnly.length).toBe(22);
     const report = evaluateChangedPathSet(rasterOnly);
     expect(report.ok).toBe(false);
-    expect(report.missing.length).toBe(8);
+    expect(report.missing.length).toBe(7);
     console.log(`raster-only candidate refused; omitted vector paths:\n${JSON.stringify(report.missing, null, 2)}`);
   });
 
@@ -536,13 +530,13 @@ describe("runtime representation inventory", () => {
 });
 
 describe("repository source-output inventory", () => {
-  it("deep-equals its sentinel block, decomposes 2/2/8/7, and is a strict subset of the thirty", () => {
+  it("deep-equals its sentinel block, decomposes 2/2/8/7, and is a strict subset of the twenty-nine", () => {
     const parsed = sliceSentinelJson(selfSource, "repository-source-outputs");
     console.log(`repositorySourceOutputs as parsed:\n${JSON.stringify(parsed, null, 2)}`);
     expect(repositorySourceOutputs).toEqual(parsed);
     const errors = validateRepositoryInventory(repositorySourceOutputs);
     expect(errors).toEqual([]);
-    console.log("repository decomposition: 2 vector sources + 2 generators + 8 icons + 7 cards = 19 (subset of 30)");
+    console.log("repository decomposition: 2 vector sources + 2 generators + 8 icons + 7 cards = 19 (subset of 29)");
   });
 
   it("derives the fifteen raster outputs from the two generators' declared output sets", () => {
@@ -565,7 +559,7 @@ describe("repository source-output inventory", () => {
         const stem = role === "maskable" ? `chase-sets-maskable-${size}.png` : `chase-sets-${size}.png`;
         const adminStem =
           role === "maskable" ? `chase-sets-admin-maskable-${size}.png` : `chase-sets-admin-${size}.png`;
-        derivedIcons.push(`deployables/marketplace/public/icons/${stem}`);
+        derivedIcons.push(`deployables/corten-pilot/marketplace/static/icons/${stem}`);
         derivedIcons.push(`deployables/admin-web/public/icons/${adminStem}`);
       }
     }
@@ -640,10 +634,10 @@ describe("icon framing and digest structure", () => {
     }
     expect(new Set(digests.values()).size).toBe(4);
     for (const size of ["192", "512"]) {
-      expect(digests.get(`deployables/marketplace/public/icons/chase-sets-${size}.png`)).toBe(
+      expect(digests.get(`deployables/corten-pilot/marketplace/static/icons/chase-sets-${size}.png`)).toBe(
         digests.get(`deployables/admin-web/public/icons/chase-sets-admin-${size}.png`),
       );
-      expect(digests.get(`deployables/marketplace/public/icons/chase-sets-maskable-${size}.png`)).toBe(
+      expect(digests.get(`deployables/corten-pilot/marketplace/static/icons/chase-sets-maskable-${size}.png`)).toBe(
         digests.get(`deployables/admin-web/public/icons/chase-sets-admin-maskable-${size}.png`),
       );
     }

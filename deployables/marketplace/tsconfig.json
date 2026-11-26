@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.vitest.json",
-  "compilerOptions": {
-    // TypeScript replaces inherited types; this web project also needs Vite ambient types.
-    "types": ["vite/client", "vitest/globals"]
-  },
-  "include": ["app", "src"],
-  "exclude": ["../../bounded-contexts/**/*.test.ts", "../../bounded-contexts/**/*.test.tsx"]
-}

@@ -42,6 +42,10 @@ type InventoryEntry = Readonly<{
 
 const SAFEGUARD_BY_DECIDER = "the owner decider runs the safeguard before append";
 
+// marketplace-web's review, listing, public-account and sell-list route modules
+// left with the deployable. The Corten marketplace's pages are Rust and author
+// through the same HTTP routes below, where the safeguard and the closed
+// rejection codes apply.
 const inventory: Readonly<Record<string, InventoryEntry>> = {
   "bounded-contexts/marketplace/features/reviews/domain/domain.ts": {
     surface: "domain",
@@ -113,62 +117,15 @@ const inventory: Readonly<Record<string, InventoryEntry>> = {
     classification: "Review submission action through Review HTTP; closed recovery keeps the draft",
     evidence: ["authoredTextRecoveryFromApiError(error.body)"],
   },
-  "bounded-contexts/marketplace/routes/marketplace/account-review.tsx": {
-    surface: "browser",
-    classification: "Review Response action through Review HTTP; closed recovery keeps the draft",
-    evidence: ["authoredTextRecoveryFromApiError(error.body)"],
-  },
-  "bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx": {
-    surface: "browser",
-    classification: "Received Review report delegates to the shared Report HTTP action; report details unchanged",
-    evidence: ["submitReviewReport("],
-  },
-  "bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx": {
-    surface: "browser",
-    classification: "Review summary report delegates to the shared Report HTTP action; report details unchanged",
-    evidence: ["submitReviewReport("],
-  },
-  "bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx": {
-    surface: "browser",
-    classification: "Written Review report delegates to the shared Report HTTP action; report details unchanged",
-    evidence: ["submitReviewReport("],
-  },
-  "bounded-contexts/marketplace/routes/account-listing.tsx": {
-    surface: "browser",
-    classification: "Listing detail classify action through Listing HTTP; closed recovery keeps the description",
-    evidence: ['intent === "classify-photo" ? authoredTextRecoveryFromApiError(error.body) : null'],
-  },
-  "bounded-contexts/marketplace/routes/account-listings-new.tsx": {
-    surface: "browser",
-    classification: "Listing create action uploads evidence through Listing HTTP without a description field",
-    evidence: ["createListingWithPhotos("],
-    absent: ["listingPhotoAltText"],
-  },
   "bounded-contexts/marketplace/support/route-support/review-report-action.ts": {
     surface: "browser",
     classification: "Review report action through Report HTTP; report details unchanged",
     evidence: [".reportReview("],
   },
-  "bounded-contexts/discovery/routes/public-account.tsx": {
-    surface: "browser",
-    classification: "Discovery public profile Review report through Report HTTP; report details unchanged",
-    evidence: ["submitReviewReport(", "@chase-sets/marketplace/server"],
-  },
-  "bounded-contexts/discovery/routes/public-listing.tsx": {
-    surface: "browser",
-    classification: "Discovery public Listing report through Report HTTP; report details unchanged",
-    evidence: ["submitListingReport(", "@chase-sets/marketplace/server"],
-  },
   "bounded-contexts/marketplace/support/route-support/listing-report-action.ts": {
     surface: "browser",
     classification: "Listing report action through Report HTTP; report details unchanged",
     evidence: [".reportListing("],
-  },
-  "bounded-contexts/checkout/routes/account-sell-list.tsx": {
-    surface: "browser",
-    classification:
-      "Checkout Sell List evidence upload through Listing HTTP; the owner route, runtime and decider enforce, Checkout owns its form copy",
-    evidence: ['upload.append("listingPhotoAltText"', "marketplaceApi.addListingPhotos("],
   },
   "bounded-contexts/marketplace/support/runtime-support/seed.ts": {
     surface: "seed",

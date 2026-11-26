@@ -5,7 +5,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildInventoryApi, type InventoryApiEnv } from "../../../api";
 import { createInventoryServices } from "../../../support/runtime-support/services";
 import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
-import { action } from "../../../routes/marketplace/account-inventory-restock-decisions";
 import {
   inventoryMutationFingerprint,
   normalizeInventoryMutationIntent,
@@ -141,49 +140,4 @@ describe("issue-7169-c2-route-isolation: AC2/9/10/11/13 real router and action",
     expect(record).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
   });
-  it.each(["restock", "write-off"])(
-    "forwards the %s form attempt and version without minting a replacement",
-    async (intent) => {
-      const writes: { headers: Headers; body: unknown }[] = [];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-          if (String(input).includes("/api/auth/session"))
-            return Response.json({
-              actor: {
-                sessionId: "ses_c2_synthetic",
-                tenantId: context.tenantId,
-                userId: context.audit.performedByUserId,
-                accountId: choice.accountId,
-                membershipId: "mbr_c2_synthetic",
-                roleKey: "owner",
-                permissions: ["inventory.manage", "inventory.view"],
-              },
-            });
-          writes.push({ headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
-          return Response.json({ id: choice.decisionId, version: 2, status: "recorded" });
-        }),
-      );
-      const form = new FormData();
-      form.set("intent", intent);
-      form.set("decisionId", choice.decisionId);
-      form.set("expectedVersion", "1");
-      form.set("inventoryMutationAttemptId", id);
-      form.set("damageNote", " Damaged ");
-      const response = await action({
-        request: new Request("http://localhost/account/inventory/restock-decisions", { method: "POST", body: form }),
-        params: {},
-        context: undefined,
-      });
-      expect(response).toBeInstanceOf(Response);
-      expect((response as Response).status).toBe(302);
-      expect(writes).toHaveLength(1);
-      expect(writes[0].headers.get("Inventory-Mutation-Attempt")).toBe(id);
-      expect(writes[0].body).toEqual(
-        intent === "restock"
-          ? { expectedVersion: 1, outcome: "restocked" }
-          : { expectedVersion: 1, outcome: "written-off", damageNote: "Damaged" },
-      );
-    },
-  );
 });

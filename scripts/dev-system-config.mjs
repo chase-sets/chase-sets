@@ -70,10 +70,12 @@ export function configuredSandboxPostgresSettings(composeSource) {
   return settings;
 }
 
+// The marketplace host's base definition. It names no workspace: the marketplace is the Corten pilot's,
+// and only the Corten marketplace browser target runs it, through the pilot binary that
+// applyDevTargetEnvOverrides puts in its place.
 export function createMarketplaceDevProcessDefinition(sandbox, sandboxEnvironment) {
   return {
     name: "marketplace",
-    workspace: "@chase-sets/app-marketplace-web",
     env: {
       ...sandboxEnvironment,
       PLATFORM_API_URL: sandbox.urls.platformApi,
@@ -326,7 +328,6 @@ const browserE2eProductionWorkspaces = Object.freeze({
   "platform-api": "@chase-sets/app-platform-api",
   "platform-worker": "@chase-sets/app-platform-worker",
   "admin-web": "@chase-sets/app-admin-web",
-  marketplace: "@chase-sets/app-marketplace-web",
 });
 
 function resolveBrowserE2eProductionCommand(name, platform) {
@@ -339,11 +340,11 @@ function resolveBrowserE2eProductionCommand(name, platform) {
 
 export const browserE2eProductionBuilds = Object.freeze([
   Object.freeze({ name: "admin-web", workspace: "@chase-sets/app-admin-web" }),
-  Object.freeze({ name: "marketplace", workspace: "@chase-sets/app-marketplace-web" }),
 ]);
 
 const browserE2eProductionWebOriginPortOffset = 4;
-const browserE2eIngressWebNames = new Set(browserE2eProductionBuilds.map(({ name }) => name));
+// The web hosts a browser e2e target serves behind an ingress on their public port: admin and the marketplace.
+const browserE2eIngressWebNames = new Set(["admin-web", "marketplace"]);
 
 export const browserE2eDirectCiCommands = Object.freeze({
   "platform-worker": browserE2ePlatformWorkerCiCommand,

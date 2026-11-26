@@ -432,16 +432,16 @@
       "pattern": "/^bounded-contexts\\/auth\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx",
-      "trackedCandidates": 11,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:channels",
       "pattern": "/^bounded-contexts\\/channels\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",
-      "trackedCandidates": 5,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:discovery",
@@ -456,56 +456,56 @@
       "pattern": "/^bounded-contexts\\/fulfillment\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-slips.tsx",
-      "trackedCandidates": 6,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:identity",
       "pattern": "/^bounded-contexts\\/identity\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/identity/routes/marketplace/account-consents.tsx",
-      "trackedCandidates": 5,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:inventory",
       "pattern": "/^bounded-contexts\\/inventory\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
-      "trackedCandidates": 5,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:marketplace",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
-      "trackedCandidates": 6,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:payments",
       "pattern": "/^bounded-contexts\\/payments\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
-      "trackedCandidates": 4,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:platform-operations",
       "pattern": "/^bounded-contexts\\/platform-operations\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx",
-      "trackedCandidates": 2,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:pricing",
       "pattern": "/^bounded-contexts\\/pricing\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
-      "trackedCandidates": 5,
-      "synthetic": false
+      "trackedCandidates": 1,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:public-presence",
@@ -520,8 +520,8 @@
       "pattern": "/^bounded-contexts\\/settlement\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx",
-      "trackedCandidates": 8,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "adminContextRouteSuiteOwnership:auth",
@@ -767,8 +767,8 @@
       "pattern": "/^bounded-contexts\\/channels\\/routes\\/marketplace\\/account-channels-connection\\./",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:1",
@@ -1015,32 +1015,32 @@
       "pattern": "/^bounded-contexts\\/identity\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/identity/routes/marketplace/account-consents.tsx",
-      "trackedCandidates": 5,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:32",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
-      "trackedCandidates": 6,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:33",
       "pattern": "/^bounded-contexts\\/platform-operations\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx",
-      "trackedCandidates": 2,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:34",
       "pattern": "/^bounded-contexts\\/auth\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx",
-      "trackedCandidates": 11,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:35",
@@ -1055,16 +1055,16 @@
       "pattern": "/^bounded-contexts\\/checkout\\/routes\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/checkout/routes/account-cart.tsx",
-      "trackedCandidates": 8,
-      "synthetic": false
+      "trackedCandidates": 1,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:37",
       "pattern": "/^bounded-contexts\\/discovery\\/routes\\/(?:search|public-|account-product-alerts|set\\.)/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/discovery/routes/account-product-alerts.tsx",
-      "trackedCandidates": 5,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:38",
@@ -1079,72 +1079,72 @@
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/account-(?:desk|listing|listings|offer)/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/account-desk.tsx",
-      "trackedCandidates": 8,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:40",
       "pattern": "/^bounded-contexts\\/ordering\\/routes\\/account-(?:purchase|sale)/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/ordering/routes/account-purchase.tsx",
-      "trackedCandidates": 4,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:41",
       "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/account-payment(?:-methods|-new)/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
-      "trackedCandidates": 4,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:42",
       "pattern": "/^bounded-contexts\\/pricing\\/routes\\/marketplace\\/account-repricing/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/pricing/routes/marketplace/account-repricing.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:43",
       "pattern": "/^bounded-contexts\\/settlement\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx",
-      "trackedCandidates": 8,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:44",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/account-listing\\./",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/account-listing.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:45",
       "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/discovery/routes/item-detail-market-history.tsx",
-      "trackedCandidates": 2,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:46",
       "pattern": "/^bounded-contexts\\/checkout\\/routes\\/sell-checkout-session\\./",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/checkout/routes/sell-checkout-session.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:47",
       "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/(?:account-payment|checkout-payment)\\./",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
-      "trackedCandidates": 4,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:48",
@@ -1175,16 +1175,16 @@
       "pattern": "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
-      "trackedCandidates": 2,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:52",
       "pattern": "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     }
   ],
   "cases": [

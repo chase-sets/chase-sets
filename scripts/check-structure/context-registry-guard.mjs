@@ -5,12 +5,15 @@ import {
   CONTEXT_REGISTRY_HOST_ARMS,
   contextManifestContributesToHost,
   listBoundedContextManifests,
+  METADATA_ONLY_WEB_HOSTS,
   repoRoot as defaultRepoRoot,
 } from "../lib/repo.mjs";
 
-// The five hand-authored context registries. Membership and order come only
-// from bounded-context admission (scripts/lib/repo.mjs); each registry is
-// parsed, never evaluated, and no registry text is generated to compare with.
+// The hand-authored context registries, one per host. Membership and order
+// come only from bounded-context admission (scripts/lib/repo.mjs); each
+// registry is parsed, never evaluated, and no registry text is generated to
+// compare with. A host in METADATA_ONLY_WEB_HOSTS keeps its row but has no
+// registry module: its contributions are link metadata only.
 export const CONTEXT_REGISTRIES = Object.freeze(
   [
     {
@@ -422,6 +425,7 @@ function checkMembership(registry, parsed, expected, discovered) {
 export function validateContextRegistries(options = {}) {
   const rootDir = options.repoRoot ?? defaultRepoRoot;
   const arms = options.hostArms ?? CONTEXT_REGISTRY_HOST_ARMS;
+  const metadataOnlyHosts = options.metadataOnlyHosts ?? METADATA_ONLY_WEB_HOSTS;
   const contexts = listBoundedContextManifests({ repoRoot: rootDir });
   const discovered = new Map(contexts.map((context) => [context.contextName, context]));
   const violations = [];
@@ -430,7 +434,7 @@ export function validateContextRegistries(options = {}) {
   for (const retiredPath of RETIRED_CONTEXT_REGISTRY_PATHS) {
     if (existsSync(path.join(rootDir, ...retiredPath.split("/")))) {
       violations.push(
-        `${retiredPath}: retired generated context registry must not exist; context registries are the five hand-authored context-registry.ts modules`,
+        `${retiredPath}: retired generated context registry must not exist; context registries are the hand-authored context-registry.ts modules`,
       );
     }
   }
@@ -444,6 +448,21 @@ export function validateContextRegistries(options = {}) {
       }),
     );
     const filePath = path.join(rootDir, ...registry.path.split("/"));
+    if (metadataOnlyHosts.includes(registry.hostName)) {
+      if (existsSync(filePath)) {
+        violations.push(
+          `${registry.path}: ${registry.hostName} is a metadata-only host; its contributions name no route module, so it must have no context registry`,
+        );
+      }
+      registries.push({
+        path: registry.path,
+        hostName: registry.hostName,
+        metadataOnly: true,
+        expected: expected.map((context) => context.contextName),
+        actual: null,
+      });
+      continue;
+    }
     if (!existsSync(filePath)) {
       violations.push(`${registry.path}: context registry is missing`);
       continue;

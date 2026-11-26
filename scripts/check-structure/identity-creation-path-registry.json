@@ -119,11 +119,6 @@
           "file": "deployables/corten-pilot/e2e/support/auth.ts",
           "symbol": "registerSyntheticAccount",
           "content": "fetch"
-        },
-        {
-          "file": "deployables/marketplace/e2e/support/auth.ts",
-          "symbol": "registerSyntheticAccount",
-          "content": "fetch"
         }
       ]
     },

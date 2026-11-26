@@ -124,12 +124,14 @@ describe("invitation-acceptance-caller-partition", () => {
         2,
       ),
     );
+    // marketplace-web's invite route left with the deployable. The Corten
+    // marketplace's invite page is Rust and accepts through Auth's HTTP route,
+    // which the invitation-routes rows below already classify.
     const actual = callers.map((caller) => `${caller.path}:${caller.kind}`).sort();
     expect(actual).toEqual(
       [
         "bounded-contexts/auth/client.ts:http",
         "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts:owner",
-        "bounded-contexts/auth/routes/marketplace/invite.tsx:journey",
         "bounded-contexts/auth/support/api-support/invitation-routes.ts:http",
         "bounded-contexts/auth/support/api-support/invitation-routes.ts:owner",
         "bounded-contexts/identity/api.ts:http",

@@ -15,9 +15,6 @@ export const discoveryWakeRegistryEntry = registryEntry({
     "customer-feedback:customer-feedback-csat-outcome-fact-projection",
   ],
   routeDependencyIds: [
-    "discovery.item-detail-add-to-cart-semantic-handoff",
-    "discovery.item-detail-add-to-sell-list-semantic-handoff",
-    "discovery.item-detail-checkout-handoff",
     "discovery.item-detail-listing-publication-self-refresh",
     "discovery.item-detail-ship-from-setup-self-refresh",
     "discovery.saved-list-addition-picker-self-refresh",

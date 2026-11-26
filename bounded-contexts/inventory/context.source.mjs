@@ -569,7 +569,6 @@ export const contextManifest = {
       strategy: "snapshot-return",
       surfaces: [
         "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx",
       ],
       visibleDestination: {
         routeId: "account-inventory-imports",
@@ -580,7 +579,6 @@ export const contextManifest = {
         authoritativeResponse:
           "createImportBatch and commitImportBatch return InventoryImportBatchJobStatus snapshots; the import page subscribes to the job event stream and navigates only after a completed terminal snapshot includes the batch result.",
         tests: [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
           "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
           "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
         ],
@@ -625,10 +623,7 @@ export const contextManifest = {
       proof: {
         authoritativeResponse:
           "The marketplace create route returns the command-owned listing id, version, and fee-quote fingerprint, and publish returns the published version; the redirect carries those receipts via the marketplace post-write token, so the inventory item surface performs no post-write read of an inventory projection.",
-        tests: [
-          "bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-new-route.test.ts",
-        ],
+        tests: ["bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.test.tsx"],
       },
     },
     {
@@ -640,7 +635,6 @@ export const contextManifest = {
         "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
-        "route-action:bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx",
       ],
       visibleDestination: {
         routeId: "account-inventory-restock-decisions",
@@ -671,7 +665,6 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
       ],
       visibleDestination: {
         routeId: "account-inventory-item",
@@ -685,7 +678,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"],
+        tests: [],
       },
     },
     {
@@ -697,7 +690,6 @@ export const contextManifest = {
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
       ],
       visibleDestination: {
         routeId: "account-inventory-item",
@@ -711,7 +703,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"],
+        tests: [],
       },
     },
     {
@@ -721,8 +713,6 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
-        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
       ],
       visibleDestination: {
         apiContextName: "inventory",
@@ -740,7 +730,6 @@ export const contextManifest = {
         authoritativeResponse:
           "recordOfflineSale returns the committed Inventory command receipt and typed applied/refused outcome. The detail loader and list's receipt-gated getItem read observe the Inventory item projection before a completed quantity is rendered.",
         tests: [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
           "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx",
           "bounded-contexts/inventory/features/inventory-items/ui/inventory-item-pages.test.tsx",
         ],
@@ -798,7 +787,6 @@ export const contextManifest = {
         {
           routeId: "account-inventory",
           routePath: "account/inventory",
-          fileExport: "./routes/marketplace/account-inventory",
           routeType: "route",
           sourceContext: "inventory",
           delivery: "server-only",
@@ -814,7 +802,6 @@ export const contextManifest = {
             web: true,
             mobile: false,
           },
-          pageComponentExport: "default",
           unsupportedMobile: {
             owner: "inventory",
             followUp: "#5238",
@@ -824,7 +811,6 @@ export const contextManifest = {
         {
           routeId: "account-inventory-imports",
           routePath: "account/inventory/imports",
-          fileExport: "./routes/marketplace/account-inventory-imports",
           routeType: "route",
           sourceContext: "inventory",
           delivery: "server-only",
@@ -840,7 +826,6 @@ export const contextManifest = {
             web: true,
             mobile: false,
           },
-          pageComponentExport: "default",
           unsupportedMobile: {
             owner: "inventory",
             followUp: "#5238",
@@ -850,7 +835,6 @@ export const contextManifest = {
         {
           routeId: "account-inventory-import",
           routePath: "account/inventory/imports/:batchId",
-          fileExport: "./routes/marketplace/account-inventory-imports",
           routeType: "route",
           sourceContext: "inventory",
           delivery: "server-only",
@@ -866,7 +850,6 @@ export const contextManifest = {
             web: true,
             mobile: false,
           },
-          pageComponentExport: "default",
           unsupportedMobile: {
             owner: "inventory",
             followUp: "#5238",
@@ -877,7 +860,6 @@ export const contextManifest = {
         {
           routeId: "account-inventory-item",
           routePath: "account/inventory/items/:itemId",
-          fileExport: "./routes/marketplace/account-inventory-item",
           routeType: "route",
           sourceContext: "inventory",
           delivery: "server-only",
@@ -892,7 +874,6 @@ export const contextManifest = {
             web: true,
             mobile: false,
           },
-          pageComponentExport: "default",
           unsupportedMobile: {
             owner: "inventory",
             followUp: "#5238",
@@ -911,7 +892,6 @@ export const contextManifest = {
         {
           routeId: "account-inventory-restock-decisions",
           routePath: "account/inventory/restock-decisions",
-          fileExport: "./routes/marketplace/account-inventory-restock-decisions",
           routeType: "route",
           sourceContext: "inventory",
           delivery: "server-only",
@@ -927,7 +907,6 @@ export const contextManifest = {
             web: true,
             mobile: false,
           },
-          pageComponentExport: "default",
           unsupportedMobile: {
             owner: "inventory",
             followUp: "#5238",
@@ -1070,13 +1049,7 @@ export const contextManifest = {
     "request-support": {
       classification: "support",
       purpose: "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      expectedConsumers: [
-        "import-batches",
-        "inventory-items",
-        "recovered-items",
-        "restock-decisions",
-        "storage-locations",
-      ],
+      expectedConsumers: ["import-batches", "recovered-items", "restock-decisions", "storage-locations"],
       crossCuttingRuntimeComposition: true,
     },
     "runtime-support": {

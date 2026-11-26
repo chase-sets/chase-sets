@@ -1447,7 +1447,7 @@ const outputs = [
     json({
       ...(await catalog("discovery.ts", "discoveryEnglishTranslations", [
         ["discovery.routes.publicAccount.", "page"],
-        // The trusted seller and founder badges (`features/item-detail/ui/account-badges.tsx`).
+        // The trusted seller and founder badges.
         ["discovery.features.itemDetail.ui.accountBadges.", "badges"],
         // A listing without a currency's price (the item page's words).
         ["discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable", "price_unavailable"],
