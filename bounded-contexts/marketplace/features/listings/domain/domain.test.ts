@@ -920,6 +920,26 @@ describe("marketplace Graded Item Details on a created Listing", () => {
     ).toThrow("PSA certification numbers must use 8 to 10 digits.");
   });
 
+  it("refuses control characters when no format matched, on the draft and on the seller's own create", () => {
+    const unstorable = "AB\u0000C";
+    expect(() =>
+      decideMarketplaceListing(importedGradedDraft(), {
+        ...setCertification,
+        certificationNumber: unstorable,
+        certificateNumberFormats: [],
+      }),
+    ).toThrow("Certification numbers cannot contain control characters.");
+    expect(() => createdGradedCard({ gradedCard: gradedCard({ certificationNumber: unstorable }) })).toThrow(
+      "Certification numbers cannot contain control characters.",
+    );
+  });
+
+  it("records nothing when the number is the one the Listing already holds", () => {
+    const draft = importedGradedDraft();
+    const certified = decideMarketplaceListing(draft, setCertification).reduce(evolveMarketplaceListing, draft);
+    expect(decideMarketplaceListing(certified, { ...setCertification, certificationNumber: "12345678" })).toEqual([]);
+  });
+
   it("refuses to set a certification number on an ungraded Listing", () => {
     const raw = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand).reduce(
       evolveMarketplaceListing,

@@ -28,7 +28,7 @@ const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
 const currentQuoteEvidence = `${listingRuntime}:1386-1405; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:378-404; ${listingDomain}:569-608; ${listingDomain}:1172-1213; ${listingRuntime}:1954-2016; ${currentQuoteEvidence}`;
+const creationEvidence = `${listingDomain}:378-404; ${listingDomain}:571-610; ${listingDomain}:1175-1216; ${listingRuntime}:1954-2016; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:2582-2615; ${listingRuntime}:2616-2706; ${listingRuntime}:2066-2172; ${feeQuotes}:154-176; ${listingDomain}:912-942; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:2582-2615; ${listingRuntime}:2616-2706; ${listingRuntime}:2066-2172; ${feeQuotes}:154-176; ${listingDomain}:914-944; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -122,21 +122,21 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:965-974; ${listingDomain}:1255-1259`,
+            evidenceRef: `${listingDomain}:967-976; ${listingDomain}:1258-1262`,
           },
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:947-967; ${feeLock}:143-180; ${listingRuntime}:2735-2775; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:949-969; ${feeLock}:143-180; ${listingRuntime}:2735-2775; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:1163-1166; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:947-1083`,
+            evidenceRef: `${listingDomain}:1166-1169; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:947-1083`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:508-530; ${creationEvidence}; ${runtimeTests}:947-1083`,
+            evidenceRef: `${listingDomain}:514-532; ${creationEvidence}; ${runtimeTests}:947-1083`,
           },
           {
             assertion:

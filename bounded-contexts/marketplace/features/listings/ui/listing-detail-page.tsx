@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { RouterForm } from "@chase-sets/design-system/react-router";
 import { ListingCommandForm as Form } from "./listing-command-form";
 import { formatBpsPercent, formatDateTime, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import {
@@ -150,7 +149,6 @@ export function MarketplaceListingDetailPage({
   errorMessage,
   certificationNumberDraft,
   certificationNumberError,
-  certificationNumberSubmitting,
   evidenceAltTextRecovery,
 }: {
   listing: MarketplaceListingDetail;
@@ -161,11 +159,9 @@ export function MarketplaceListingDetailPage({
   errorMessage?: string | null;
   certificationNumberDraft?: string;
   certificationNumberError?: string;
-  certificationNumberSubmitting?: boolean;
   /** A closed image-description rejection; replaces the generic error notice. */
   evidenceAltTextRecovery?: ListingEvidenceAltTextRecovery | null;
 }) {
-  const [certificationAttempt, setCertificationAttempt] = useState(() => crypto.randomUUID());
   const [certificationNumber, setCertificationNumber] = useState(certificationNumberDraft ?? "");
   const requiresCertification = Boolean(listing.graded_card && !listing.graded_card.certificationNumber);
   const publishDisabled =
@@ -287,17 +283,13 @@ export function MarketplaceListingDetailPage({
                   />
                 ) : null}
                 {listing.status === "draft" && requiresCertification ? (
-                  <RouterForm method="post" submitting={certificationNumberSubmitting}>
+                  <Form method="post">
                     <HiddenInput name="intent" value="set-certification-number" />
-                    <HiddenInput name="idempotencyKey" value={certificationAttempt} />
                     <TextInput
                       name="certificationNumber"
                       label={t("marketplace.features.listings.ui.listingDetailPage.certification.number")}
                       value={certificationNumber}
-                      onChange={(event) => {
-                        setCertificationNumber(event.currentTarget.value);
-                        setCertificationAttempt(crypto.randomUUID());
-                      }}
+                      onChange={(event) => setCertificationNumber(event.currentTarget.value)}
                       description={t("marketplace.features.listings.api.route.error.certificationNumberRequired")}
                       error={certificationNumberError}
                       required
@@ -305,7 +297,7 @@ export function MarketplaceListingDetailPage({
                     <Button type="submit" tone="secondary">
                       {t("marketplace.features.listings.ui.listingDetailPage.save.certification.number")}
                     </Button>
-                  </RouterForm>
+                  </Form>
                 ) : null}
                 <Text size="lg" weight="semibold">
                   {formatOptionalMoney(listing.price_amount, listing.price_currency_code)}

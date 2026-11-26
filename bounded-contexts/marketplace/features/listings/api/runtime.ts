@@ -2815,41 +2815,48 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         (receipt) => ({ listingId: params.listingId, version: receipt.version }),
         async () => {
           const streamId = `marketplace.listing-${params.listingId}`;
-          const { state: listing, version } = await repository.load(streamId);
-          if (listing.listingId === null || listing.accountId !== params.accountId) {
-            throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+          // The formats are resolved for the Listing as read, so a Listing that moved is read and decided again.
+          for (let attemptNumber = 0; ; attemptNumber += 1) {
+            const { state: listing, version } = await repository.load(streamId);
+            if (listing.listingId === null || listing.accountId !== params.accountId) {
+              throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+            }
+            let evaluation = null;
+            if (listing.gradedCard && !listing.hasBeenPublished && listing.status !== "withdrawn") {
+              assert(
+                listing.catalogItemId && listing.productId && listing.priceAmount,
+                "Listing evidence facts are missing.",
+              );
+              evaluation = await resolveListingEvidenceEvaluation(deps, {
+                accountId: params.accountId,
+                catalogItemId: listing.catalogItemId,
+                productId: listing.productId,
+                selectedOptions: listing.selectedOptions,
+                gradedItem: true,
+                priceAmount: listing.priceAmount,
+                evaluatedAt: new Date().toISOString(),
+              });
+            }
+            try {
+              const result = await appendAttemptCommand(
+                listingOwner,
+                {
+                  streamId,
+                  expectedVersion: version,
+                  context,
+                  command: {
+                    type: "SetListingCertificationNumber",
+                    certificationNumber: params.certificationNumber,
+                    certificateNumberFormats: evaluation?.certificateNumberFormats ?? [],
+                  },
+                },
+                attempt,
+              );
+              return { listingId: params.listingId, version: result.version };
+            } catch (error) {
+              if (!isConcurrencyConflict(error) || attemptNumber === 4) throw error;
+            }
           }
-          let evaluation = null;
-          if (listing.gradedCard && !listing.hasBeenPublished && listing.status !== "withdrawn") {
-            assert(
-              listing.catalogItemId && listing.productId && listing.priceAmount,
-              "Listing evidence facts are missing.",
-            );
-            evaluation = await resolveListingEvidenceEvaluation(deps, {
-              accountId: params.accountId,
-              catalogItemId: listing.catalogItemId,
-              productId: listing.productId,
-              selectedOptions: listing.selectedOptions,
-              gradedItem: true,
-              priceAmount: listing.priceAmount,
-              evaluatedAt: new Date().toISOString(),
-            });
-          }
-          const result = await appendAttemptCommand(
-            listingOwner,
-            {
-              streamId,
-              expectedVersion: version,
-              context,
-              command: {
-                type: "SetListingCertificationNumber",
-                certificationNumber: params.certificationNumber,
-                certificateNumberFormats: evaluation?.certificateNumberFormats ?? [],
-              },
-            },
-            attempt,
-          );
-          return { listingId: params.listingId, version: result.version };
         },
       );
     },

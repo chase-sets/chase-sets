@@ -3970,6 +3970,43 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     ]);
     expect(events[1]?.payload).toEqual({ certificationNumber: "00123456" });
   });
+
+  it("reads the Listing again when it changed while the formats were being resolved", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const resolveFormats = f.evaluate.getMockImplementation()!;
+    f.evaluate.mockClear();
+    f.evaluate.mockImplementationOnce(async (facts) => {
+      await f.services.updateListingPurchaseLimits(
+        listingTestCommand("listing.update-purchase-limits", {
+          accountId: "acc_seller",
+          listingId,
+          purchaseLimits: { maxUnitsPerOrder: 1 },
+        }),
+        context,
+      );
+      return resolveFormats(facts);
+    });
+
+    await expect(
+      f.services.setListingCertificationNumber(
+        listingTestCommand("listing.set-certification-number", {
+          listingId,
+          accountId: "acc_seller",
+          certificationNumber: "00123456",
+        }),
+        context,
+      ),
+    ).resolves.toMatchObject({ listingId, version: 3 });
+    expect(f.evaluate).toHaveBeenCalledTimes(2);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ eventType }) => eventType)).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.purchase-limits-updated",
+      "marketplace.listing.certification-number-set",
+    ]);
+  });
 });
 
 describe("a created Listing takes its Certificate Number Format from the resolved Listing Evidence Policy", () => {

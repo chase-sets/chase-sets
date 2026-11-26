@@ -142,7 +142,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.error.certificationNumberRequired":
     "Add a certification number before publishing this Listing.",
   "marketplace.features.listings.api.route.error.certificationNumberInvalid":
-    "Enter a certification number that matches the grading company's required format.",
+    "Enter a certification number in the format Chase Sets accepts for this grading company.",
   "marketplace.features.listings.api.route.error.commandRejected":
     "This listing change is not available. Check the listing details and try again.",
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":

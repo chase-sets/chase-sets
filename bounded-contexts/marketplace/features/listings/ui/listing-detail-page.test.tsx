@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { ListingRecoveryScope } from "./listing-batch-recovery";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
 import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
@@ -74,7 +76,7 @@ const listing: MarketplaceListingDetail = {
   updated_at: "2026-04-01T00:00:00.000Z",
 };
 
-it("shows imported grading, keeps rejected certification input, and disables controls during submission", () => {
+it("shows imported grading, keeps rejected certification input, and blocks it while a seller action is unresolved", async () => {
   const graded = {
     ...listing,
     status: "draft" as const,
@@ -86,19 +88,37 @@ it("shows imported grading, keeps rejected certification input, and disables con
       conditionDescriptors: [],
     },
   };
-  const refusal = "Enter a certification number that matches the grading company's required format.";
+  const refusal = "Enter a certification number in the format Chase Sets accepts for this grading company.";
   const props = { listing: graded, certificationNumberDraft: "001", certificationNumberError: refusal };
-  const { rerender } = render(<MarketplaceListingDetailPage {...props} certificationNumberSubmitting />);
+  // The page's other seller commands share this scope; an unresolved one has an identity and no re-entry.
+  const unresolved = {
+    identity: { batchId: "test_form_attempt_12067", mutationKind: "listing.publish" as const, bulk: false },
+    phase: "failed-safe" as const,
+    items: [],
+    retryTargetIds: [],
+  };
+  const scoped = createMemoryRouter([
+    {
+      path: "/",
+      Component: () => (
+        <ListingRecoveryScope recovery={unresolved} listingId={graded.listing_id}>
+          <MarketplaceListingDetailPage {...props} />
+        </ListingRecoveryScope>
+      ),
+    },
+  ]);
+  const blocked = render(<RouterProvider router={scoped} />);
+  const input = await screen.findByRole<HTMLInputElement>("textbox", { name: /certification number/i });
+  expect(input.value).toBe("001");
+  expect(input.matches(":disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Save certification number" }).matches(":disabled")).toBe(true);
+  blocked.unmount();
+
+  const { rerender } = render(<MarketplaceListingDetailPage {...props} />);
   expect(screen.getByText("PSA")).toBeTruthy();
   expect(screen.getByText("Gem Mint 10")).toBeTruthy();
   expect(screen.getByText("Add a certification number before publishing this Listing.")).toBeTruthy();
   expect(screen.getByText(refusal)).toBeTruthy();
-  const input = screen.getByRole<HTMLInputElement>("textbox", { name: /certification number/i });
-  expect(input.value).toBe("001");
-  expect(input.matches(":disabled")).toBe(true);
-  const save = screen.getByRole("button", { name: "Save certification number" });
-  expect(save.matches(":disabled")).toBe(true);
-  rerender(<MarketplaceListingDetailPage {...props} certificationNumberSubmitting={false} />);
   const enabledInput = screen.getByRole<HTMLInputElement>("textbox", { name: /certification number/i });
   expect(enabledInput.matches(":disabled")).toBe(false);
   expect(enabledInput.value).toBe("001");

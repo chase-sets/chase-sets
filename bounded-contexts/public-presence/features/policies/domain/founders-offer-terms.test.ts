@@ -286,9 +286,9 @@ const quoteChain: Citation[] = [
 ];
 const creationChain: Citation[] = [
   [`${listingDomain}:378-404`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
-  [`${listingDomain}:569-608`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
+  [`${listingDomain}:571-610`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
   [
-    `${listingDomain}:1172-1213`,
+    `${listingDomain}:1175-1216`,
     /catalogItemId: event.data.catalogItemId/,
     /selectedOptions: event.data.selectedOptions/,
     /feeLocks: event.data.feeLocks/,
@@ -426,7 +426,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /return \{\s*\.\.\.feeLock,/,
       ],
       [
-        `${listingDomain}:912-942`,
+        `${listingDomain}:914-944`,
         /case "UpdateListingPrice"/,
         /assertFeeLockTranchesPreserved\(state.feeLocks, feeLocks\)/,
       ],
@@ -463,12 +463,12 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Purchase-limit edits",
     [
       [
-        `${listingDomain}:965-974`,
+        `${listingDomain}:967-976`,
         /case "UpdateListingPurchaseLimits"/,
         /return \[\{ type: "marketplace.listing.purchase-limits-updated", data: \{ purchaseLimits \} \}\]/,
       ],
       [
-        `${listingDomain}:1255-1259`,
+        `${listingDomain}:1258-1262`,
         /case "marketplace.listing.purchase-limits-updated":\s*return \{\s*\.\.\.state,\s*purchaseLimits: event.data.purchaseLimits,/,
       ],
     ],
@@ -477,7 +477,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Added units",
     [
       [
-        `${listingDomain}:947-967`,
+        `${listingDomain}:949-969`,
         /resizeMarketplaceListingFeeLocks\(state.feeLocks, quantityCap, command.addedUnitsFeeLock\)/,
       ],
       [
@@ -500,7 +500,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
   [
     "Withdrawal is terminal",
     [
-      [`${listingDomain}:1163-1166`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
+      [`${listingDomain}:1166-1169`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
         `${listingTests}:476-496`,
         /Withdrawn listings cannot be published/,
@@ -515,8 +515,8 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Item or condition",
     [
       [
-        `${listingDomain}:508-530`,
-        /^export type MarketplaceListingCommand =\s*\| CreateListingCommand\s*\| AcceptListingTargetPriceCommand\s*\| ActivateListingForChannelCommand\s*\| UpdateListingPriceCommand\s*\| UpdateListingQuantityCapCommand\s*\| UpdateListingPurchaseLimitsCommand\s*\| AddListingPhotosCommand\s*\| ClassifyListingPhotoCommand\s*\| ReplaceListingPhotoCommand\s*\| RemoveListingPhotoCommand\s*\| ReorderListingPhotosCommand\s*\| RefreshListingEvidenceRequirementsCommand\s*\| PublishListingCommand\s*\| PauseListingCommand\s*\| AutoUnlistListingCommand\s*\|| PauseListingCommands*| AutoUnlistListingCommands*| OperatorUnlistListingCommands*| WithdrawListingCommand;$/,
+        `${listingDomain}:514-532`,
+        /^export type MarketplaceListingCommand =\s*\| CreateListingCommand\s*\| AcceptListingTargetPriceCommand\s*\| ActivateListingForChannelCommand\s*\| UpdateListingPriceCommand\s*\| UpdateListingQuantityCapCommand\s*\| UpdateListingPurchaseLimitsCommand\s*\| SetListingCertificationNumberCommand\s*\| AddListingPhotosCommand\s*\| ClassifyListingPhotoCommand\s*\| ReplaceListingPhotoCommand\s*\| RemoveListingPhotoCommand\s*\| ReorderListingPhotosCommand\s*\| RefreshListingEvidenceRequirementsCommand\s*\| PublishListingCommand\s*\| PauseListingCommand\s*\| AutoUnlistListingCommand\s*\| OperatorUnlistListingCommand\s*\| WithdrawListingCommand;$/,
       ],
       ...creationChain,
       changedSchedule,

@@ -2007,7 +2007,7 @@ describe("marketplace listing routes", () => {
     expect(await refused.json()).toEqual({
       error: {
         code: "listing_certification_number_invalid",
-        message: "Enter a certification number that matches the grading company's required format.",
+        message: "Enter a certification number in the format Chase Sets accepts for this grading company.",
       },
     });
   });

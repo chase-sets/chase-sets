@@ -7,7 +7,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useNavigation, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
   defineFormAction,
   loadAfterWrite,
@@ -185,9 +185,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 async function handleAction(intent: string, { request, params, formData }: FormActionContext, recoverable = false) {
   const api = createMarketplaceRequestApiClient(request);
   const settingCertification = intent === "set-certification-number";
-  const preparation = settingCertification
-    ? { reference: null }
-    : await prepareListingAction(api, request, formData, params.listingId ?? null, recoverable);
+  const preparation = await prepareListingAction(api, request, formData, params.listingId ?? null, recoverable);
   const certificationNumber = String(formData.get("certificationNumber") ?? "");
   if ("recovery" in preparation) return { listingRecovery: preparation.recovery };
   const identity = preparation.reference;
@@ -430,7 +428,6 @@ export default function MarketplaceAccountListingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
-  const navigation = useNavigation();
   const [searchParams] = useSearchParams();
   const lastEvidenceAnalyticsKey = useRef<string | null>(null);
   const readiness = actionData?.evidenceReadiness ?? data.listing?.evidence_readiness ?? null;
@@ -490,7 +487,6 @@ export default function MarketplaceAccountListingRoute() {
         errorMessage={actionData?.error ?? null}
         certificationNumberDraft={actionData?.certificationNumber}
         certificationNumberError={actionData?.certificationNumberError}
-        certificationNumberSubmitting={navigation.state !== "idle"}
         evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
       />
     </ListingRecoveryScope>

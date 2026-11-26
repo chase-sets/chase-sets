@@ -8100,7 +8100,7 @@ export const englishTranslations = {
   "marketplace.features.listings.api.route.error.awayWindowInstantRequired": "Choose a start time for the away window.",
   "marketplace.features.listings.api.route.error.awayWindowReasonRequired": "Choose a reason for the away window.",
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid": "Bulk price updates are not available with the current settings.",
-  "marketplace.features.listings.api.route.error.certificationNumberInvalid": "Enter a certification number that matches the grading company's required format.",
+  "marketplace.features.listings.api.route.error.certificationNumberInvalid": "Enter a certification number in the format Chase Sets accepts for this grading company.",
   "marketplace.features.listings.api.route.error.certificationNumberRequired": "Add a certification number before publishing this Listing.",
   "marketplace.features.listings.api.route.error.commandRejected": "This listing change is not available. Check the listing details and try again.",
   "marketplace.features.listings.api.route.error.evidenceIncomplete": "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",

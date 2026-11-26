@@ -504,6 +504,12 @@ export type ActivateListingForChannelCommand = Readonly<{
   expectedTargetPriceRevision: number;
   allocationRevision: number;
 }>;
+/** Fills the number on a graded Listing that was never published; the grading company and grade stay as created. */
+export type SetListingCertificationNumberCommand = Readonly<{
+  type: "SetListingCertificationNumber";
+  certificationNumber: string;
+  certificateNumberFormats: readonly CertificateNumberFormat[];
+}>;
 
 export type MarketplaceListingCommand =
   | CreateListingCommand
@@ -512,11 +518,7 @@ export type MarketplaceListingCommand =
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
-  | Readonly<{
-      type: "SetListingCertificationNumber";
-      certificationNumber: string;
-      certificateNumberFormats: readonly CertificateNumberFormat[];
-    }>
+  | SetListingCertificationNumberCommand
   | AddListingPhotosCommand
   | ClassifyListingPhotoCommand
   | ReplaceListingPhotoCommand
@@ -983,6 +985,7 @@ export function decideMarketplaceListing(
         command.certificateNumberFormats,
         "certification-number-invalid",
       );
+      if (certificationNumber === state.gradedCard.certificationNumber) return [];
       return [{ type: "marketplace.listing.certification-number-set", data: { certificationNumber } }];
     }
     case "AddListingPhotos":
@@ -1662,6 +1665,9 @@ function normalizeCertificationNumber(
   const certificationNumber = (details.certificationNumber ?? "").replaceAll(/\s+/g, "");
   if (!certificationNumber)
     throw new MarketplaceListingDomainError(code, "Graded cards require a certification number.");
+  // With no matched format any text is accepted, so refuse what the event store cannot hold.
+  if (/\p{Cc}/u.test(certificationNumber))
+    throw new MarketplaceListingDomainError(code, "Certification numbers cannot contain control characters.");
   for (const { minimumDigits, maximumDigits } of certificateNumberFormats) {
     if (
       !/^\d+$/.test(certificationNumber) ||
