@@ -21,7 +21,6 @@ const recoveryPoolsPath = "bounded-contexts/channels/support/seed-support/manual
 const constructorRoots = [
   "deployables/platform-api/src",
   "deployables/platform-worker/src",
-  "deployables/marketplace",
   "deployables/admin-web",
   "infrastructure",
   "bounded-contexts",
@@ -220,10 +219,7 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
   const supplemental = new Map([
     ["deployables/platform-api/src/preview-postgres.ts", { process: "api-bootstrap", phase: "bootstrap" }],
     ["deployables/platform-worker/src/main.ts", { process: "platform-worker", copies: workerContexts.length }],
-    [
-      "infrastructure/platform-runtime/post-write-token-store.ts",
-      { process: "api/marketplace/admin token stores", copies: 3 },
-    ],
+    ["infrastructure/platform-runtime/post-write-token-store.ts", { process: "api/admin token stores", copies: 2 }],
     ...playwrightClientSources.map((file) => [file, { process: "playwright" }]),
     [recoveryPoolsPath, { process: "playwright", copies: 3 }],
   ]);
@@ -260,7 +256,6 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
         phase = "runtime/test/teardown";
         for (const [name, maximum] of [
           ["platform-api tokens", config("api").pool.max],
-          ["marketplace tokens", null],
           ["admin tokens", null],
         ]) {
           processName = name;

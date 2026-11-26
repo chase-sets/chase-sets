@@ -44,8 +44,8 @@ describe("Ordering hosted unit/DB partition", () => {
         expect.arrayContaining(
           [
             "features/orders/ui/order-review-opportunity-callout.test.tsx",
-            "tests/account-purchase-route.test.tsx",
-            "tests/account-sale-route.test.tsx",
+            "features/orders/ui/order-list-page.test.tsx",
+            "tests/postage-policy-routes.test.ts",
             "features/orders/api/route.test.ts",
           ].map(normalize),
         ),
