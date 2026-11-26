@@ -67,14 +67,22 @@
   display: block;
 }
 /* A job of another status than the chosen one is hidden, and the table with it when none is left. */
-.filtered:has(option[value="queued"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="queued"]),
-.filtered:has(option[value="running"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="running"]),
-.filtered:has(option[value="stale"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="stale"]),
-.filtered:has(option[value="retried"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="retried"]),
-.filtered:has(option[value="partial"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="partial"]),
-.filtered:has(option[value="failed"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="failed"]),
-.filtered:has(option[value="cancelled"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="cancelled"]),
-.filtered:has(option[value="completed"]:checked) [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="completed"]),
+.filtered:has(option[value="queued"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="queued"]),
+.filtered:has(option[value="running"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="running"]),
+.filtered:has(option[value="stale"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="stale"]),
+.filtered:has(option[value="retried"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="retried"]),
+.filtered:has(option[value="partial"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="partial"]),
+.filtered:has(option[value="failed"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="failed"]),
+.filtered:has(option[value="cancelled"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="cancelled"]),
+.filtered:has(option[value="completed"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="completed"]),
 .filtered:has(.none-found[data-status="queued"]):has(option[value="queued"]:checked) table,
 .filtered:has(.none-found[data-status="running"]):has(option[value="running"]:checked) table,
 .filtered:has(.none-found[data-status="stale"]):has(option[value="stale"]:checked) table,
