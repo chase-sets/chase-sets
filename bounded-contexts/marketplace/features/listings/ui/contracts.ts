@@ -230,10 +230,29 @@ export interface MarketplaceMarketSummary {
   total_visible_quantity: number;
 }
 
-export interface MarketplaceItemListing extends MarketplaceListingListItem {
+/** A Listing as any caller may read it: declared key by key, extending no seller type. */
+export interface MarketplaceItemListing {
+  listing_id: string;
+  account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
+  graded_card: MarketplaceGradedCardDetails | null;
+  ship_from_code: string | null;
+  price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
+  shipping_allowance_percentage_bps: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
+  status: string;
   seller_display_name: string | null;
   visible_quantity: number;
-  /** Buyer-safe evidence gallery; `evidence` is empty on public rows. */
+  /** Buyer-safe evidence gallery. */
   public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }
 
