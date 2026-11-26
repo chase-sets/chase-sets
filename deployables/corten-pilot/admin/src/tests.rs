@@ -6562,7 +6562,7 @@ async fn the_csat_export_creates_the_apis_export_for_its_reason_and_relays_the_f
         pilot.send(post_as("feedback-exporter", "/support/csat/export?ratings=4", "reason=quality-review", false)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(headers[header::CONTENT_DISPOSITION], r#"attachment; filename="customer-feedback-export.csv""#);
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
     assert!(body.starts_with("invitation_id,state"), "{body}");
     let exports =
         |pilot: &Pilot| -> Vec<String> { pilot.calls_to("/api/customer-feedback/export").into_iter().map(|c| c.path).collect() };
@@ -7045,7 +7045,7 @@ async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot.send(get("/support/ebay-account-deletion", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
     assert!(html.contains("Non-disconnected connections: 2. Credential envelopes: 0."), "{html}");
     assert!(
         html.contains(r#"<form class="#) && html.contains(r#"method="post" action="/support/ebay-account-deletion""#),
@@ -7058,7 +7058,7 @@ async fn the_ebay_lookup_shows_the_counts_and_a_user_ids_unexpired_receipts() {
     let at = "/support/ebay-account-deletion";
     let (status, headers, html) = pilot.send(post_as("support-agent", at, "userId=ebay-user-1", false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
     assert!(html.contains("ntf_1") && html.contains("Unexpired receipts") && html.contains("Credential envelopes: 0."), "{html}");
     assert!(!html.contains("ebay-user-1"), "the user ID is not echoed back: {html}");
     let lookup = pilot.calls_to(EBAY_DELETION).into_iter().find(|c| c.method == Method::POST).unwrap();
@@ -8583,7 +8583,7 @@ async fn the_waitlist_export_relays_the_apis_file_and_no_cache_keeps_it() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(headers[header::CONTENT_TYPE], "text/csv; charset=utf-8");
     assert_eq!(headers[header::CONTENT_DISPOSITION], r#"attachment; filename="chase-sets-waitlist.csv""#);
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
     assert!(body.starts_with("\"email\""), "{body}");
     assert!(
         pilot.calls_to_path(WAITLIST_API).iter().any(|c| c.path == format!("{WAITLIST_API}/export?limit=100&offset=0&role=buy"))

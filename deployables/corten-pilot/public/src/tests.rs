@@ -1106,7 +1106,7 @@ async fn the_site_files_are_public_webs_manifest_favicon_and_devtools_probe() {
 
     let (status, headers, body) = site.get("/.well-known/appspecific/com.chrome.devtools.json", None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
     assert!(body.is_empty());
 
     // public-web's health routes are Corten's here.
