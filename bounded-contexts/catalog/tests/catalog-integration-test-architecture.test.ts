@@ -96,7 +96,7 @@ describe("Catalog integration test architecture", () => {
     expect(acceptanceGateTest).toContain("no-confusion UX acceptance gate");
     expect(doc).not.toContain(["integration", "management", "page.test.tsx"].join("-"));
     expect(doc).not.toContain(["source", "observation", "list", "page.test.tsx"].join("-"));
-    expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
+    expect(doc).not.toContain("deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts");
   });
 
   it("keeps the integrations route coverage split by behavior", () => {

@@ -72,6 +72,6 @@ describe("Catalog integration operator acceptance journeys", () => {
     expect(doc).toContain("route.test.ts");
     expect(doc).toContain("runtime.test.ts");
     expect(doc).not.toContain(["integration", "management", "page.test.tsx"].join("-"));
-    expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
+    expect(doc).not.toContain("deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts");
   });
 });

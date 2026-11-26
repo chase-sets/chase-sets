@@ -606,8 +606,10 @@ describe("run e2e suite", () => {
     expect(cortenMarketplaceBrowserSelectedByChangedFile("deployables/corten-pilot/e2e/critical-flows.spec.ts")).toBe(
       true,
     );
-    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/access-api-keys.spec.ts")).toEqual(["admin_access"]);
-    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-scopes.spec.ts")).toEqual([
+    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/admin/access-api-keys.spec.ts")).toEqual([
+      "admin_access",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts")).toEqual([
       "catalog_admin_integrations",
     ]);
     expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts")).toEqual([]);

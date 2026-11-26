@@ -1035,7 +1035,7 @@ describe("channels-client-deployable-import-fence", () => {
 describe("deployable-browser-test-support-import-fence", () => {
   const specifier = "@chase-sets/neutral-package/seed-support/neutral";
   const eligible = [
-    "deployables/admin-web/e2e/access-api-keys.spec.ts",
+    "deployables/corten-pilot/e2e/admin/access-api-keys.spec.ts",
     "deployables/marketplace/e2e/manual-sync-recovery.spec.ts",
     "deployables/marketplace/e2e/support/auth-trace-artifact.probe.spec.ts",
     "deployables/admin-web/e2e/arbitrary/nested/neutral.multi.spec.ts",

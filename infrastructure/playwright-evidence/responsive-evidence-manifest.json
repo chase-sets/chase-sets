@@ -28,7 +28,7 @@
     {
       "kind": "claim",
       "id": "tablet-import-review-bulk-actions",
-      "file": "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts",
       "testTitle": "tablet operator navigates to import review and uses the bulk action bar @catalog-admin-integrations @tablet @browser-e2e-seed",
       "route": { "name": "Catalog integrations import review", "path": "/catalog/integrations" },
       "fixture": { "identity": "browser-e2e-seed:changed-tcgdex-observation" },
@@ -1383,7 +1383,7 @@
     {
       "kind": "claim",
       "id": "catalog-scope-cards-mobile",
-      "file": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts",
       "testTitle": "Scope Detail journey starts from populated cards at 390px @catalog-admin-scopes @catalog-admin-integrations",
       "route": {
         "name": "catalog scope-first landing",
@@ -1444,7 +1444,7 @@
     {
       "kind": "claim",
       "id": "catalog-scope-table-tablet",
-      "file": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts",
       "testTitle": "scope-first landing renders a populated table at 820px @catalog-admin-scopes @catalog-admin-integrations",
       "route": {
         "name": "catalog scope-first landing",
@@ -1505,7 +1505,7 @@
     {
       "kind": "claim",
       "id": "admin-shell-mobile-overflow",
-      "file": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/admin-cross-cutting-topology.spec.ts",
       "testTitle": "mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting @admin-platform",
       "route": {
         "name": "admin account landing",
@@ -3560,7 +3560,7 @@
     {
       "kind": "claim",
       "id": "card-feedback-mobile-light",
-      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts",
       "testTitle": "records seeded feedback furniture mobile @admin-support @browser-e2e-seed",
       "route": {
         "name": "Seeded platform feedback detail",
@@ -3621,7 +3621,7 @@
     {
       "kind": "claim",
       "id": "card-feedback-mobile-dark",
-      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts",
       "testTitle": "records seeded feedback furniture mobile @admin-support @browser-e2e-seed",
       "route": {
         "name": "Seeded platform feedback detail",
@@ -3682,7 +3682,7 @@
     {
       "kind": "claim",
       "id": "card-feedback-desktop-light",
-      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts",
       "testTitle": "records seeded feedback furniture desktop @admin-support @browser-e2e-seed",
       "route": {
         "name": "Seeded platform feedback detail",
@@ -3743,7 +3743,7 @@
     {
       "kind": "claim",
       "id": "card-feedback-desktop-dark",
-      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "file": "deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts",
       "testTitle": "records seeded feedback furniture desktop @admin-support @browser-e2e-seed",
       "route": {
         "name": "Seeded platform feedback detail",

@@ -645,81 +645,81 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:3",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/access-/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/access-/",
       "suites": ["admin_access"],
-      "path": "deployables/admin-web/e2e/access-account-badges.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/access-account-badges.spec.ts",
       "trackedCandidates": 5,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:4",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/admin-tablet-navigation\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/admin-tablet-navigation\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations", "admin_support"],
-      "path": "deployables/admin-web/e2e/admin-tablet-navigation.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/admin-tablet-navigation.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:5",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/auth-shell-rbac\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/auth-shell-rbac\\.spec\\.ts$/",
       "suites": ["admin_auth"],
-      "path": "deployables/admin-web/e2e/auth-shell-rbac.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/auth-shell-rbac.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:6",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-integrations\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/catalog-integrations\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
-      "path": "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:7",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-scopes\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/catalog-scopes\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
-      "path": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:8",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-modeling\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/catalog-modeling\\.spec\\.ts$/",
       "suites": ["catalog_admin_modeling"],
-      "path": "deployables/admin-web/e2e/catalog-modeling.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/catalog-modeling.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:9",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/commerce-/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/commerce-/",
       "suites": ["admin_commerce"],
-      "path": "deployables/admin-web/e2e/commerce-commercial-terms.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/commerce-commercial-terms.spec.ts",
       "trackedCandidates": 3,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:10",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/growth-/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/growth-/",
       "suites": ["admin_growth"],
-      "path": "deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/growth-google-shopping-waitlist.spec.ts",
       "trackedCandidates": 2,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:11",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/support-/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/support-/",
       "suites": ["admin_support"],
-      "path": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts",
       "trackedCandidates": 2,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:12",
-      "pattern": "/^deployables\\/admin-web\\/e2e\\/(?:admin-cross-cutting-topology|platform-projection-operations)\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/(?:admin-cross-cutting-topology|platform-projection-operations)\\.spec\\.ts$/",
       "suites": ["admin_platform"],
-      "path": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
+      "path": "deployables/corten-pilot/e2e/admin/admin-cross-cutting-topology.spec.ts",
       "trackedCandidates": 2,
       "synthetic": false
     },
@@ -2059,43 +2059,43 @@
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/access-account-badges.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/access-account-badges.spec.ts"],
       "suiteIds": ["admin_access"],
       "batches": ["admin_access"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/admin-cross-cutting-topology.spec.ts"],
       "suiteIds": ["admin_platform"],
       "batches": ["admin_platform"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/admin-tablet-navigation.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/admin-tablet-navigation.spec.ts"],
       "suiteIds": ["catalog_admin_integrations", "admin_support"],
       "batches": ["catalog_admin_integrations,admin_support"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/auth-shell-rbac.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/auth-shell-rbac.spec.ts"],
       "suiteIds": ["admin_auth"],
       "batches": ["admin_auth"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/catalog-integrations.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts"],
       "suiteIds": ["catalog_admin_integrations"],
       "batches": ["catalog_admin_integrations"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/catalog-modeling.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/catalog-modeling.spec.ts"],
       "suiteIds": ["catalog_admin_modeling"],
       "batches": ["catalog_admin_modeling"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/catalog-scopes.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts"],
       "suiteIds": ["catalog_admin_integrations"],
       "batches": ["catalog_admin_integrations"],
       "cortenMarketplaceBrowser": false
@@ -2107,19 +2107,19 @@
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/commerce-commercial-terms.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/commerce-commercial-terms.spec.ts"],
       "suiteIds": ["admin_commerce"],
       "batches": ["admin_commerce"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/growth-google-shopping-waitlist.spec.ts"],
       "suiteIds": ["admin_growth"],
       "batches": ["admin_growth"],
       "cortenMarketplaceBrowser": false
     },
     {
-      "changedFiles": ["deployables/admin-web/e2e/support-platform-feedback.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts"],
       "suiteIds": ["admin_support"],
       "batches": ["admin_support"],
       "cortenMarketplaceBrowser": false
