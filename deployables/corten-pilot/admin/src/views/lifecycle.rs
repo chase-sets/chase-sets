@@ -68,7 +68,7 @@ pub fn ActivateForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Acti
             <button type="button" command="show-modal" commandfor={ActivateDialogId} disabled={!enabled}>
                 {t.detail_activate()}
             </button>
-            <dialog class={Confirm} id={ActivateDialogId} aria-label={&title}>
+            <dialog class={Confirm} id={ActivateDialogId} role="alertdialog" aria-label={&title}>
                 <h3>{&title}</h3>
                 <p>{t.detail_activate_confirm_description()}</p>
                 <div class={Buttons}>
@@ -103,7 +103,7 @@ pub fn RetireForm<'a>(t: Msg, id: &'a str, enabled: bool, form: &'a Draft<Retire
             <button type="button" class={Danger} command="show-modal" commandfor={RetireDialogId} disabled={!enabled}>
                 {t.detail_retire()}
             </button>
-            <dialog class={Confirm} id={RetireDialogId} aria-label={&title}>
+            <dialog class={Confirm} id={RetireDialogId} role="alertdialog" aria-label={&title}>
                 <h3>{&title}</h3>
                 <p>{t.detail_retire_confirm_description()}</p>
                 <div class={Buttons}>
