@@ -15,6 +15,17 @@ marketplace-web drops no coverage without a recorded reason.
 
 Counts are test declarations (`test(`) in each file and the tests skipped on the Corten marketplace.
 
+## Interaction boundaries
+
+| When a visitor… | Behavior to preserve |
+| --- | --- |
+| Changes presentation of data already on screen | No request. For example, switch the item photo, filter a stock ledger, or change the packing-slip paper size without replacing the content or clearing a draft. If the view has a shareable URL, a reload must render the same choice. |
+| Requests more data or submits an action without changing location | Patch the owning component. Search's **Load more** appends rows; notification **Mark read** refreshes the feed from the server's answer. Neither should reset the shell or add history. |
+| Changes a filter, variant, or market-book tab that affects server data, live subscriptions, or other forms | Navigate to the canonical GET in place. Keep scroll and keyboard focus on the control, or on a stable neighbor if it disappears. Back and Forward should restore the address and corresponding results. Keep a working link or form without JavaScript. |
+| Opens another item, account, or checkout | Treat it as a destination. Follow the link, start at the top or an intentional fragment, and leave modified clicks and new tabs alone. Never replay a purchase to restore a view. |
+
+The interaction cases registered by `critical-flows.spec.ts` exercise the item and search paths below the fold, including keyboard focus, history and JavaScript-off fallback. Packing-slip and inventory browser smokes cover the request-free choices.
+
 ## Retargeted
 
 | Spec | Tests | Skipped on Corten |

@@ -57,6 +57,13 @@ impl ItemPlace {
         ItemPlace { ledger_kind: kind.map(str::to_owned), ..ItemPlace::default() }
     }
 
+    /// Going to a filter link clears write and recovery fields. Only a ledger-only address
+    /// can make that change without reading and replacing the rest of the page.
+    fn ledger_only(&self, check: &Check) -> bool {
+        matches!(self, Self { ledger_kind: _, requested: None, applied: None, refused: None, orders: None })
+            && matches!(check, Check { after_write: None, attempt: None, family: None, target: None, user: None })
+    }
+
     /// What the last sale of `item` did, when the address says.
     fn outcome(&self, item: &str) -> Option<Outcome> {
         Some(Outcome {
@@ -201,6 +208,8 @@ pub struct ItemScreen {
     pub can_honor: bool,
     #[serde(skip)]
     pub place: ItemPlace,
+    #[serde(skip)]
+    pub can_filter_ledger_in_place: bool,
 }
 
 impl ItemScreen {
@@ -213,12 +222,6 @@ impl ItemScreen {
             }
         }
         kinds
-    }
-
-    /// The ledger, filtered to the address's kind.
-    pub fn ledger(&self) -> impl Iterator<Item = &crate::api::LedgerEntry> {
-        let kind = self.place.kind();
-        self.item.ledger.iter().filter(move |e| kind.is_none_or(|k| e.kind == k))
     }
 }
 
@@ -297,6 +300,7 @@ async fn render(
         Some(_) => Verified::Fresh(item.item.available_quantity),
         None => Verified::Unverified,
     });
+    let can_filter_ledger_in_place = status == Status::Ready && place.ledger_only(check) && req.notice().is_none();
     let screen = ItemScreen {
         item,
         status,
@@ -306,6 +310,7 @@ async fn render(
         can_manage: viewer.actor.can("inventory.manage"),
         can_honor: can_honor(viewer),
         place: place.clone(),
+        can_filter_ledger_in_place,
     };
     let m: crate::text::Msg = req.t();
     // A refused form with a script: only that form is drawn again, in place.
@@ -549,5 +554,15 @@ mod tests {
         let all = place.filtered(None);
         assert_eq!((all.kind(), all.applied), (None, None));
         assert!(ItemPlace { ledger_kind: Some(String::new()), ..ItemPlace::default() }.kind().is_none());
+    }
+
+    #[test]
+    fn only_ledger_addresses_allow_local_filtering() {
+        let check = Check::default();
+        let place = ItemPlace { ledger_kind: Some("adjusted".into()), ..ItemPlace::default() };
+        assert!(place.ledger_only(&check));
+        assert!(!place.ledger_only(&Check { after_write: Some("receipt".into()), ..check.clone() }));
+        assert!(!place.ledger_only(&Check { attempt: Some("attempt".into()), ..check.clone() }));
+        assert!(!ItemPlace { applied: Some(1), ..place }.ledger_only(&check));
     }
 }

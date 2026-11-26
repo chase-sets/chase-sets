@@ -4,6 +4,7 @@
 //! Filters button opens. The words box and the sort are in the form by its id, so changing any
 //! of them sends every choice.
 use corten::prelude::*;
+use corten::script::ElementId;
 use platform::{
     numeric_value::MoneyDisplay,
     search::{SearchBox, SearchGlyph},
@@ -21,7 +22,8 @@ use crate::{
     items::{Address, Market},
     saving,
     search::{
-        Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsQuery, category_href,
+        Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, RELEVANCE, SearchScreen, Terms, TermsQuery,
+        category_href,
     },
     text::{ItemMsg, Pilot, SearchMsg},
     views::{BulkCartSheet, SaveDialog},
@@ -32,6 +34,24 @@ corten::script::script!(pub mod handlers = "search.js");
 /// The form every choice is in.
 #[derive(Id)]
 pub struct SearchFormId;
+
+#[derive(Id)]
+struct SearchWordsId;
+
+#[derive(Id)]
+struct SearchSubmitId;
+
+#[derive(Id)]
+struct SearchSortId;
+
+#[derive(Id)]
+struct SearchFilterTriggerId;
+
+#[derive(Id)]
+struct SearchRailClearId;
+
+#[derive(Id)]
+struct SearchRailApplyId;
 
 /// The filters: the rail, or the dialog on a phone.
 #[derive(Id)]
@@ -91,7 +111,7 @@ static NO_RESULTS: SearchResults = SearchResults {
 /// The sorts the page offers, by value.
 fn sorts(t: SearchMsg) -> [(&'static str, &'static str); 6] {
     [
-        ("relevance", t.page_relevance()),
+        (RELEVANCE, t.page_relevance()),
         ("title_asc", t.page_title_a_z()),
         ("title_desc", t.page_title_z_a()),
         ("newest", t.page_newest()),
@@ -197,11 +217,11 @@ fn chips(t: SearchMsg, screen: &SearchScreen, facets: &[Facet]) -> Vec<Chip> {
     if !terms.tag.is_empty() {
         chips.push(Chip { label: t.page_tag_filter_label(&terms.tag).to_string(), href: without(&|n| n.tag.clear()) });
     }
-    if terms.sort != crate::search::RELEVANCE {
+    if terms.sort != RELEVANCE {
         let label = sorts(t).iter().find(|(v, _)| *v == terms.sort).map_or(terms.sort.as_str(), |(_, l)| l).to_owned();
         chips.push(Chip {
             label: t.page_sort_filter_label(&label).to_string(),
-            href: without(&|n| n.sort = crate::search::RELEVANCE.to_owned()),
+            href: without(&|n| n.sort = RELEVANCE.to_owned()),
         });
     }
     for filter in &terms.filters {
@@ -250,20 +270,27 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
         labels
     };
     let form = SearchFormId;
+    let form_id = ElementId::of(&form);
+    let fallback = ElementId::of(&SearchSubmitId);
     let f = TermsQuery::FIELDS;
     // Add matching products to Buy Cart, once the search asks for something and has results
     // (`bulkCanPreview`), with the search's parameters.
     let bulk = focused && !failed && !results.items.is_empty() && screen.shelf.is_none();
     let bulk_pairs = Asked { terms: terms.clone(), category: screen.category.clone(), home: screen.home }.pairs();
     html! {
-        <div class={Page} on:change={handlers::apply(event)}>
+        <div class={Page} on:change={handlers::apply(event, form_id)}>
             if focused {
                 <h1 class={VisuallyHidden {}}>{&heading}</h1>
                 <div class={Controls}>
                     <WordsBox t={t} terms={terms} placeholder={t.page_search_catalog_items()} />
                     <label class={Sort}>
                         <span class={VisuallyHidden {}}>{t.page_sort()}</span>
-                        <select name={f.sort} form={form}>
+                        <select
+                            id={SearchSortId}
+                            name={f.sort}
+                            form={form}
+                            on:change={handlers::sortPlace(target, screen.category.is_empty(), RELEVANCE, fallback.clone())}
+                        >
                             for (value, label) in sorts(t) {
                                 <option value={value} selected={terms.sort == value}>{label}</option>
                             }
@@ -278,13 +305,26 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
                             <button type="submit" class={Secondary}>{t.page_add_matching_to_cart()}</button>
                         </form>
                     }
-                    <a class={Secondary} href={&url::Search { terms: Terms::default() }.href()}>{t.page_clear_all_filters()}</a>
+                    <a
+                        class={Secondary}
+                        href={&url::Search { terms: Terms::default() }.href()}
+                        data-keep-place
+                        on:click={handlers::refine(event, target, fallback.clone())}
+                    >
+                        {t.page_clear_all_filters()}
+                    </a>
                 </div>
                 if !chips.is_empty() {
                     <ul class={Chips} aria-label={t.page_filters()}>
                         for chip in &chips {
                             <li>
-                                <a class={Chip} href={&chip.href} aria-label={&t.page_remove_filter(&chip.label).to_string()}>
+                                <a
+                                    class={Chip}
+                                    href={&chip.href}
+                                    aria-label={&t.page_remove_filter(&chip.label).to_string()}
+                                    data-keep-place
+                                    on:click={handlers::refine(event, target, fallback.clone())}
+                                >
                                     {&chip.label}<span class={Remove} aria-hidden="true">"×"</span>
                                 </a>
                             </li>
@@ -292,12 +332,7 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
                     </ul>
                 }
                 <div class={FilterBar}>
-                    <button type="button" class={Secondary} commandfor={SearchFiltersId} command="show-modal">
-                        {t.page_filters()}
-                        if !chips.is_empty() {
-                            <span class={Count}>{t.page_active_filter_count(chips.len())}</span>
-                        }
-                    </button>
+                    <FiltersButton t={t} count={chips.len()} />
                     if let Some(summary) = &summary {
                         <p class={Summary}>{summary}</p>
                     }
@@ -343,6 +378,25 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
     }
 }
 
+/// The native mobile dialog's opener also exists before there is an active search.
+#[component(css = SearchPage)]
+fn FiltersButton(t: SearchMsg, count: usize) -> impl Render {
+    html! {
+        <button
+            id={SearchFilterTriggerId}
+            type="button"
+            class={Secondary}
+            commandfor={SearchFiltersId}
+            command="show-modal"
+        >
+            {t.page_filters()}
+            if count > 0 {
+                <span class={Count}>{t.page_active_filter_count(count)}</span>
+            }
+        </button>
+    }
+}
+
 /// The words box (the design system's `SearchInput`: the search glyph inside the box): in the form
 /// by its id, so Enter sends every choice.
 #[component(css = SearchPage)]
@@ -353,6 +407,7 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
             <label class={SearchBox {}}>
                 <SearchGlyph />
                 <input
+                    id={SearchWordsId}
                     class={Input {}}
                     type="search"
                     name={f.q}
@@ -363,7 +418,9 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
                 >
                 <span class={VisuallyHidden {}}>{t.page_marketplace_search()}</span>
             </label>
-            <button type="submit" form={SearchFormId} class={Primary}>{t.page_marketplace_search()}</button>
+            <button id={SearchSubmitId} type="submit" form={SearchFormId} class={Primary} data-keep-place>
+                {t.page_marketplace_search()}
+            </button>
         </search>
     }
 }
@@ -392,6 +449,7 @@ fn Hero<'a>(t: SearchMsg, screen: &'a SearchScreen, summary: Option<&'a str>) ->
             </h1>
             <p class={Lead}>{t.page_search_live_supply_compare_active_markets()}</p>
             <WordsBox t={t} terms={terms} placeholder={t.page_search_pikachu_spider_man_jordan_vintage()} />
+            <div class={FilterBar}><FiltersButton t={t} count={0} /></div>
             <ul class={Chips}>
                 <li>
                     <a class={Chip} href={&category_href("", terms)} aria-current={screen.category.is_empty().then_some("true")}>
@@ -443,13 +501,16 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
     let f = TermsQuery::FIELDS;
     html! {
         <dialog id={SearchFiltersId} class={Filters} aria-labelledby={FiltersTitleId}>
+            // The URL supplies the filters on Back and Forward, not a draft remembered by Corten.
             <form
                 id={SearchFormId}
                 class={FilterForm}
                 method="get"
                 action={&action}
+                autocomplete="off"
                 data-keep-place
                 on:formdata={handlers::tidy(event)}
+                on:submit={handlers::closeFilters(event, target, ElementId::of(&SearchFilterTriggerId))}
             >
                 <div class={FiltersHead}>
                     <h2 id={FiltersTitleId} class={FiltersTitle}>{t.page_filters()}</h2>
@@ -586,8 +647,16 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                     <FacetChoices t={t} facet={facet} />
                 }
                 <div class={FiltersFoot}>
-                    <a class={Secondary} href={&url::Search { terms: Terms::default() }.href()}>{t.page_clear_all()}</a>
-                    <button type="submit" class={Primary}>{t.page_show_results()}</button>
+                    <a
+                        id={SearchRailClearId}
+                        class={Secondary}
+                        href={&url::Search { terms: Terms::default() }.href()}
+                        data-keep-place
+                        on:click={handlers::clearRail(event, target, ElementId::of(&SearchSubmitId))}
+                    >
+                        {t.page_clear_all()}
+                    </a>
+                    <button id={SearchRailApplyId} type="submit" class={Primary}>{t.page_show_results()}</button>
                 </div>
             </form>
         </dialog>
@@ -711,6 +780,7 @@ fn NoResults<'a>(t: SearchMsg, screen: &'a SearchScreen) -> impl Render {
         url::Search { terms: Terms { q: words.to_owned(), ..Terms::default() } }.href()
     };
     let clear_words = screen.place().href(&terms.change(|n| n.q.clear()));
+    let fallback = ElementId::of(&SearchSubmitId);
     html! {
         <div class={Empty}>
             <h2 class={EmptyTitle}>{t.page_no_items_found()}</h2>
@@ -738,10 +808,24 @@ fn NoResults<'a>(t: SearchMsg, screen: &'a SearchScreen) -> impl Render {
             </div>
             <p class={Actions}>
                 if !words.is_empty() {
-                    <a class={Secondary} href={&clear_words}>{t.page_clear_search()}</a>
+                    <a
+                        class={Secondary}
+                        href={&clear_words}
+                        data-keep-place
+                        on:click={handlers::refine(event, target, fallback.clone())}
+                    >
+                        {t.page_clear_search()}
+                    </a>
                 }
                 if terms.narrowed() || !screen.category.is_empty() {
-                    <a class={Secondary} href={&clear_filters}>{t.page_clear_all_filters()}</a>
+                    <a
+                        class={Secondary}
+                        href={&clear_filters}
+                        data-keep-place
+                        on:click={handlers::refine(event, target, fallback.clone())}
+                    >
+                        {t.page_clear_all_filters()}
+                    </a>
                 }
                 <a class={Secondary} href={&on_marketplace(SAVED_SEARCH)}>{t.page_save_search()}</a>
             </p>

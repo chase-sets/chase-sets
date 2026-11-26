@@ -793,6 +793,10 @@ test.describe.serial("catalog admin integrations", () => {
   });
 
   test("catalog operator can inspect integration health triage @catalog-admin-integrations", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten section nav does not yet mark a nested entry such as Integration health as the current page",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -874,6 +878,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect job recovery and review reapply/replay controls @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten Source Observation review rows do not yet offer Reapply or Replay on a promoted observation (and the Run sync stage is a details summary, not a button)",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,

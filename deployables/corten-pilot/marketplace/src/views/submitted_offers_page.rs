@@ -42,6 +42,8 @@ pub struct WithdrawTitleId<'a>(pub &'a str);
 #[derive(Id)]
 pub struct OfferFiltersId;
 #[derive(Id)]
+struct OfferFilterId<'a>(&'a str);
+#[derive(Id)]
 pub struct SubmittedRowsId;
 
 /// An offer's price in its currency (`formatMoney`), or that it is incomplete.
@@ -215,10 +217,11 @@ fn Filters<'a>(t: SubmittedOffersMsg, screen: &'a OffersScreen) -> impl Patch {
     html! {
         <div id={OfferFiltersId}>
             if let Some(counts) = &screen.offers.status_counts {
-                <nav class={Filter} aria-label={t.lifecycle_status_filter()}>
+                <nav class={Filter} aria-label={t.lifecycle_status_filter()} data-keep-place>
                     for status in statuses {
                         <a
                             class={Choice}
+                            id={OfferFilterId(status.unwrap_or("all"))}
                             href={url::SubmittedOffers { place: Place::of(status) }}
                             aria-current={if status == current { Some("page") } else { None }}
                         >

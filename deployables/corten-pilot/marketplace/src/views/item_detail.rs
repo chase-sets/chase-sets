@@ -2,8 +2,10 @@
 //! summary and the picture, the product selector (`ProductSelector`), the market summary
 //! (`MarketplaceMarketSummary`), the rail with the listing or offer chosen, and the market book
 //! (`ItemDetailMarketBook`). Every choice is a link to the same page with the choice in its
-//! address (`items::Address`); a dimension with more than five options is a GET form.
+//! address (`items::Address`); a dimension with more than five options is a GET form. Corten's
+//! keep-place navigation keeps the reader on those controls while reading the new selection.
 use corten::prelude::*;
+use corten::script::ElementId;
 use platform::{
     chart::{self, Chart, TimeSeries},
     numeric_value::MoneyDisplay,
@@ -36,6 +38,7 @@ use crate::{
 
 // The item page's and search's analytics (marketplace-web's `trackItemDetailRailEvent`).
 corten::script::script!(pub mod analytics = "rail_analytics.js");
+corten::script::script!(pub mod book_choices = "item_book_choices.js");
 
 /// A rail form with one set of analytics labels, whichever button sends it.
 const ONE_WAY: [&str; 0] = [];
@@ -43,6 +46,19 @@ const ONE_WAY: [&str; 0] = [];
 /// The product selector, where Select options and the rail's choose-options link go.
 #[derive(Id)]
 pub struct SelectOptionsId;
+
+/// Stable focus targets when the item page is drawn again for a same-item choice.
+#[derive(Id)]
+struct ItemChoiceId;
+
+#[derive(Id)]
+struct MarketBookId;
+
+#[derive(Id)]
+struct ItemChoiceBookId(&'static str);
+
+#[derive(Id)]
+struct SalesRangesId<'a>(&'a str);
 
 /// The host Chase Sets' production marketplace answers on: only its pages get structured data
 /// (`isProductionMarketplaceUrl`).
@@ -520,7 +536,13 @@ fn Gallery<'a>(shots: &'a [Shot]) -> impl Render {
         <div class={Gallery}>
             for (i, shot) in shots.iter().enumerate() {
                 <label class={Thumb}>
-                    <input type="radio" name="item-gallery" checked={i == 0} aria-label={&shot.alt}>
+                    <input
+                        id={(ItemChoiceId, "-photo-", i)}
+                        type="radio"
+                        name="item-gallery"
+                        checked={i == 0}
+                        aria-label={&shot.alt}
+                    >
                     <img src={&shot.thumb} alt="" width="64" height="64" loading="lazy" decoding="async">
                 </label>
                 <img
@@ -661,7 +683,15 @@ fn Sales<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a
                 }
                 // A refused form's page does not read the history again: the page itself does.
                 None => {
-                    <p class={Count}><a href={&again}>{p.item_sales_again()}</a></p>
+                    <p class={Count}>
+                        <a
+                            data-keep-place
+                            href={&again}
+                            on:click={book_choices::keepFocus(event, ElementId::of(&ItemChoiceBookId(Book::Sales.as_str())))}
+                        >
+                            {p.item_sales_again()}
+                        </a>
+                    </p>
                 }
             }
         </div>
@@ -675,8 +705,7 @@ struct CurrencySales {
     m30: (MoneyDisplay, String),
     m90: (MoneyDisplay, String),
     chart: SalesChart,
-    /// The chart summary's id, one for each currency.
-    summary_id: String,
+    currency_key: String,
 }
 
 /// The Sales tab's numbers and chart, once read.
@@ -707,7 +736,7 @@ fn SalesRead<'a>(
                 m30: median(t, aggregate, 30, minimum),
                 m90: median(t, aggregate, 90, minimum),
                 chart: SalesChart::of(t, points, currency, markers),
-                summary_id: format!("sales-summary-{}", currency.unwrap_or("none").to_ascii_lowercase()),
+                currency_key: currency.unwrap_or("none").to_ascii_lowercase(),
             }
         })
         .collect();
@@ -741,10 +770,15 @@ fn SalesRead<'a>(
                         tone={StatTone::Neutral}
                     />
                 </dl>
-                <Ranges t={t} address={address} slug={slug} />
+                <Ranges t={t} address={address} slug={slug} currency_key={&group.currency_key} />
                 match &group.chart.chart {
                     Chart::Plot(plot) => {
-                        <TimeSeries plot={plot} label={&label} summary={&group.chart.summary} summary_id={&group.summary_id} />
+                        <TimeSeries
+                            plot={plot}
+                            label={&label}
+                            summary={&group.chart.summary}
+                            summary_id={&format!("sales-summary-{}", group.currency_key)}
+                        />
                     }
                     Chart::Empty => {
                         <div class={Empty}>
@@ -769,13 +803,26 @@ fn SalesRead<'a>(
 /// draws it only above a plot; the pilot draws it above an empty chart too, since a wider range
 /// may have the sales a narrow one lacks.
 #[component(css = ItemDetail)]
-fn Ranges<'a>(t: ItemMsg, address: &'a Address, slug: &'a str) -> impl Render {
-    let range = move |r: Range| url::Item { slug, state: address.with_range(r), after: Default::default() }.href();
+fn Ranges<'a>(t: ItemMsg, address: &'a Address, slug: &'a str, currency_key: &'a str) -> impl Render {
+    let range = move |r: Range| {
+        url::Item { slug, state: address.with_range(r), after: Default::default() }.at(SalesRangesId(currency_key)).href()
+    };
     let current = move |r: Range| (address.range == r).then_some("page");
     html! {
-        <nav class={(SegmentedLinks { width: SegmentedWidth::Fit }, ChartRanges)} aria-label={t.panel_range_selector_label()}>
+        <nav
+            id={SalesRangesId(currency_key)}
+            class={(SegmentedLinks { width: SegmentedWidth::Fit }, ChartRanges)}
+            aria-label={t.panel_range_selector_label()}
+        >
             for r in Range::EVERY {
-                <a href={&range(r)} aria-current={current(r)}>{range_label(t, r)}</a>
+                <a
+                    id={(ItemChoiceId, "-sales-summary-", currency_key, format!("-{}", r.as_str()))}
+                    data-keep-place
+                    href={&range(r)}
+                    aria-current={current(r)}
+                >
+                    {range_label(t, r)}
+                </a>
             }
         </nav>
     }
@@ -945,13 +992,31 @@ fn Intent<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
     };
     html! {
         <nav class={SegmentedLinks { width: SegmentedWidth::Fill }} aria-label={t.page_choose_market_intent()}>
-            <a href={&link(Market::Buy)} aria-current={current(Market::Buy)} on:click={track(Market::Buy)}>
+            <a
+                id={(ItemChoiceId, "-intent-buy")}
+                data-keep-place
+                href={&link(Market::Buy)}
+                aria-current={current(Market::Buy)}
+                on:click={track(Market::Buy)}
+            >
                 {t.page_buy()}
             </a>
-            <a href={&link(Market::Sell)} aria-current={current(Market::Sell)} on:click={track(Market::Sell)}>
+            <a
+                id={(ItemChoiceId, "-intent-sell")}
+                data-keep-place
+                href={&link(Market::Sell)}
+                aria-current={current(Market::Sell)}
+                on:click={track(Market::Sell)}
+            >
                 {t.page_sell()}
             </a>
-            <a href={&link(Market::Watch)} aria-current={current(Market::Watch)} on:click={track(Market::Watch)}>
+            <a
+                id={(ItemChoiceId, "-intent-watch")}
+                data-keep-place
+                href={&link(Market::Watch)}
+                aria-current={current(Market::Watch)}
+                on:click={track(Market::Watch)}
+            >
                 {t.page_watch()}
             </a>
         </nav>
@@ -1036,9 +1101,6 @@ fn DimensionChoice<'a>(
         url::Item { slug, state: address.with_picks(schema, &next, option.is_none().then_some(id)), after: Default::default() }
             .href()
     };
-    // The other options, which the form sends along with this one.
-    let others: Vec<(String, &String)> =
-        picks.iter().filter(|(d, _)| d.as_str() != id).map(|(d, o)| (format!("dimension.{d}"), o)).collect();
     let name = format!("dimension.{id}");
     html! {
         <div class={DimensionBlock}>
@@ -1046,14 +1108,22 @@ fn DimensionChoice<'a>(
                 <p class={Label} id={&format!("dim-{id}")}>{&dimension.dimension_name}</p>
                 <ul class={Options} aria-labelledby={&format!("dim-{id}")}>
                     <li>
-                        <a class={OptionLink} href={&with(None)} aria-current={selected.is_none().then_some("true")}>
+                        <a
+                            id={(ItemChoiceId, "-any-", id)}
+                            class={OptionLink}
+                            data-keep-place
+                            href={&with(None)}
+                            aria-current={selected.is_none().then_some("true")}
+                        >
                             {t.selector_any()}
                         </a>
                     </li>
                     for option in &options {
                         <li>
                             <a
+                                id={(ItemChoiceId, "-option-", format!("{id}-{}", option.option_id))}
                                 class={OptionLink}
+                                data-keep-place
                                 href={&with(Some(&option.option_id))}
                                 aria-current={(selected == Some(&option.option_id)).then_some("true")}
                             >
@@ -1064,12 +1134,12 @@ fn DimensionChoice<'a>(
                     }
                 </ul>
             } else {
-                <form class={Pick} method="get">
-                    if address.market != Market::Buy {
-                        <input type="hidden" name="market" value={match address.market { Market::Sell => "sell", _ => "watch" }}>
-                    }
-                    for (key, value) in &others {
-                        <input type="hidden" name={key} value={*value}>
+                let other_picks: Picks = picks.iter().filter(|(d, _)| d.as_str() != id).map(|(d, o)| (d.clone(), o.clone())).collect();
+                let state = schema.map_or_else(Vec::new, |schema| address.with_picks(schema, &other_picks, None).pairs());
+                let action = url::Item { slug, state: Default::default(), after: Default::default() };
+                <form class={Pick} method="get" action={action} autocomplete="off" data-keep-place>
+                    for (key, value) in &state {
+                        <input type="hidden" name={key} value={value}>
                     }
                     <label class={Label} for={&format!("dim-{id}")}>{&dimension.dimension_name}</label>
                     <div class={PickRow}>
@@ -1081,7 +1151,7 @@ fn DimensionChoice<'a>(
                                 </option>
                             }
                         </select>
-                        <button type="submit">{t.page_select()}</button>
+                        <button id={(ItemChoiceId, "-apply-", id)} type="submit">{t.page_select()}</button>
                     </div>
                 </form>
             }
@@ -2168,8 +2238,6 @@ fn Reputation<'a>(t: ItemMsg, name: &'a str, slug: Option<&'a str>, rating: Opti
 #[component(css = ItemDetail)]
 fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let book = address.book();
-    let tab = move |b: Book| url::Item { slug, state: address.with_book(b), after: Default::default() }.href();
-    let current = move |b: Book| (book == b).then_some("page");
     let schema = screen.item.product_schema.as_ref();
     let filtered = !screen.picks.is_empty();
     let clear = schema.map(|schema| {
@@ -2181,14 +2249,9 @@ fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug
         .href()
     });
     html! {
-        <section class={BookSection} id="market-book-section" aria-labelledby="market-book">
-            <h2 class={CardTitle} id="market-book">{t.page_market_book()}</h2>
-            <nav class={Tabs} aria-label={t.page_market_book()}>
-                <a class={Tab} href={&tab(Book::Listings)} aria-current={current(Book::Listings)}>{t.page_listings_2()}</a>
-                <a class={Tab} href={&tab(Book::Offers)} aria-current={current(Book::Offers)}>{t.page_offers_2()}</a>
-                <a class={Tab} href={&tab(Book::Sales)} aria-current={current(Book::Sales)}>{t.page_sales()}</a>
-                <a class={Tab} href={&tab(Book::Details)} aria-current={current(Book::Details)}>{t.page_details()}</a>
-            </nav>
+        <section class={BookSection} id="market-book-section" aria-labelledby={MarketBookId}>
+            <h2 class={CardTitle} id={MarketBookId}>{t.page_market_book()}</h2>
+            <BookLinks t={t} address={address} slug={slug} />
             match book {
                 Book::Listings => {
                     <Listings t={t} screen={screen} address={address} slug={slug} clear={clear.as_deref().filter(|_| filtered)} />
@@ -2200,6 +2263,24 @@ fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug
                 Book::Details => { <Details t={t} item={&screen.item} /> }
             }
         </section>
+    }
+}
+
+#[component(css = ItemDetail)]
+fn BookLinks<'a>(t: ItemMsg, address: &'a Address, slug: &'a str) -> impl Render {
+    let tab = move |b: Book| url::Item { slug, state: address.with_book(b), after: Default::default() }.at(MarketBookId).href();
+    let current = move |b: Book| (address.book() == b).then_some("page");
+    html! {
+        <nav id={(ItemChoiceId, "-book")} class={Tabs} aria-label={t.page_market_book()}>
+            for (b, label) in [
+                (Book::Listings, t.page_listings_2()), (Book::Offers, t.page_offers_2()),
+                (Book::Sales, t.page_sales()), (Book::Details, t.page_details()),
+            ] {
+                <a id={ItemChoiceBookId(b.as_str())} class={Tab} data-keep-place href={&tab(b)} aria-current={current(b)}>
+                    {label}
+                </a>
+            }
+        </nav>
     }
 }
 
@@ -2242,7 +2323,14 @@ fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
             <p class={Count}>
                 <span class={Muted}>{&count}</span>
                 if let Some(clear) = clear {
-                    " " <a href={clear}>{t.page_clear_filters()}</a>
+                    " "
+                    <a
+                        data-keep-place
+                        href={clear}
+                        on:click={book_choices::keepFocus(event, ElementId::of(&ItemChoiceBookId(Book::Listings.as_str())))}
+                    >
+                        {t.page_clear_filters()}
+                    </a>
                 }
             </p>
             if screen.listings.is_empty() {
@@ -2267,6 +2355,7 @@ fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
                             limit={purchase_limit(l)}
                             selected={screen.listing_id.as_deref() == Some(l.listing_id.as_str())}
                             select={&url::Item { slug, state: address.with_listing(&l.listing_id), after: Default::default() }.href()}
+                            select_id={("listing", &l.listing_id)}
                             label={&t.page_listing_row_label(crate::text::item_msg::PageListingRowLabel { price: listing_price(t, l).text(), seller: l.seller_display_name.as_deref().unwrap_or(t.page_seller()) }).to_string()}
                         />
                     }
@@ -2297,7 +2386,14 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
                     {t.page_matching_offer_count(crate::text::item_msg::PageMatchingOfferCount { count: screen.offers.len(), offer_label: label })}
                 </span>
                 if let Some(clear) = clear {
-                    " " <a href={clear}>{t.page_clear_filters_3()}</a>
+                    " "
+                    <a
+                        data-keep-place
+                        href={clear}
+                        on:click={book_choices::keepFocus(event, ElementId::of(&ItemChoiceBookId(Book::Offers.as_str())))}
+                    >
+                        {t.page_clear_filters_3()}
+                    </a>
                 }
             </p>
             if screen.offers.is_empty() {
@@ -2321,6 +2417,7 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
                             limit={None}
                             selected={screen.offer_id.as_deref() == Some(o.offer_id.as_str())}
                             select={&url::Item { slug, state: address.with_offer(&o.offer_id), after: Default::default() }.href()}
+                            select_id={("offer", &o.offer_id)}
                             label={&t.page_offer_row_label(crate::text::item_msg::PageOfferRowLabel { price: offer_price(t, o).text(), buyer: o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id) }).to_string()}
                         />
                     }
@@ -2343,6 +2440,7 @@ fn Row<'a, W: Render>(
     limit: Option<String>,
     selected: bool,
     select: &'a str,
+    select_id: (&'a str, &'a str),
     label: &'a str,
 ) -> impl Render {
     html! {
@@ -2370,7 +2468,13 @@ fn Row<'a, W: Render>(
                 }
             </p>
             <p class={Cell}>
-                <a class={(SelectLink, selected.then_some(On))} href={select} aria-current={selected.then_some("true")}>
+                <a
+                    id={(ItemChoiceId, "-row-", format!("{}-{}", select_id.0, select_id.1))}
+                    class={(SelectLink, selected.then_some(On))}
+                    data-keep-place
+                    href={select}
+                    aria-current={selected.then_some("true")}
+                >
                     {if selected { t.page_selected() } else { t.page_select() }}
                 </a>
             </p>
@@ -2551,7 +2655,50 @@ fn relationship_label(kind: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{compact, percent_of};
+    use super::{Address, Book, BookLinks, ItemMsg, Market, Range, Ranges, Render, compact, percent_of};
+
+    #[test]
+    fn market_book_links_keep_their_focus_targets_and_send_the_rest_of_the_selection() {
+        let state = Address {
+            market: Market::Sell,
+            range: Range::Year,
+            options: vec![("form".into(), "raw".into())],
+            ..Address::default()
+        };
+        let sales = state.with_book(Book::Sales);
+        let before = BookLinks { t: ItemMsg::default(), address: &state, slug: "charizard" }.to_html();
+        let after = BookLinks { t: ItemMsg::default(), address: &sales, slug: "charizard" }.to_html();
+        for book in ["listings", "offers", "sales", "details"] {
+            let id = format!(r#"id="item-choice-book-{book}""#);
+            assert!(before.contains(&id) && after.contains(&id));
+        }
+        assert_eq!(after.matches("data-keep-place").count(), 4);
+        assert!(before.contains(
+            r#"href="/items/charizard?market=sell&amp;range=1y&amp;dimension.form=raw#market-book" aria-current="page""#
+        ));
+        assert!(after.contains(r#"href="/items/charizard?market=sell&amp;book=sales&amp;range=1y&amp;dimension.form=raw#market-book" aria-current="page""#));
+    }
+
+    #[test]
+    fn sales_ranges_keep_focus_without_sharing_ids_between_currencies() {
+        let state = Address { book: Some(Book::Sales), listing: Some("lst_example".into()), ..Address::default() };
+        let usd = Ranges { t: ItemMsg::default(), address: &state, slug: "charizard", currency_key: "usd" }.to_html();
+        let cad = Ranges { t: ItemMsg::default(), address: &state, slug: "charizard", currency_key: "cad" }.to_html();
+        assert!(usd.contains(r#"id="sales-ranges-usd""#) && !cad.contains(r#"id="sales-ranges-usd""#));
+        assert!(cad.contains(r#"id="sales-ranges-cad""#) && !usd.contains(r#"id="sales-ranges-cad""#));
+        for range in Range::EVERY {
+            let range = range.as_str();
+            let usd_id = format!(r#"id="item-choice-sales-summary-usd-{range}""#);
+            let cad_id = format!(r#"id="item-choice-sales-summary-cad-{range}""#);
+            assert!(usd.contains(&usd_id) && !cad.contains(&usd_id) && cad.contains(&cad_id));
+        }
+        assert_eq!(usd.matches("data-keep-place").count(), 4);
+        assert!(
+            usd.contains(r#"href="/items/charizard?listing=lst_example&amp;book=sales#sales-ranges-usd" aria-current="page""#)
+        );
+        assert!(usd.contains(r#"href="/items/charizard?listing=lst_example&amp;book=sales&amp;range=30d#sales-ranges-usd""#));
+        assert!(cad.contains(r#"href="/items/charizard?listing=lst_example&amp;book=sales&amp;range=30d#sales-ranges-cad""#));
+    }
 
     #[test]
     fn a_percent_of_basis_points_has_at_most_two_decimals() {
