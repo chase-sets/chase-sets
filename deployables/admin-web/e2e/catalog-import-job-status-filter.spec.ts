@@ -5,7 +5,6 @@ import {
   expectAdminPageReady,
   expectPageOk,
   skipDeployedAdminE2e,
-  onCortenAdmin,
 } from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
@@ -38,7 +37,6 @@ test.describe.serial("catalog import job status filter", () => {
     test(`Scope detail filters TCGplayer import jobs by operator status at ${viewport.width}px @catalog-admin-integrations`, async ({
       page,
     }, testInfo) => {
-      test.skip(onCortenAdmin, "the Corten admin's Provider import operations has no import job Status filter yet");
       test.setTimeout(150_000);
       test.skip(skipDeployedAdminE2e, SKIP_REASON);
       test.skip(process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true", SEED_SKIP_REASON);
