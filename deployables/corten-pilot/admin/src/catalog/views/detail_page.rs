@@ -95,7 +95,7 @@ pub fn LifecycleForm<'a, I: Id + AttrValue + Copy>(
                     let dialog = super::id_with(&id, &format!("-{}", step.action));
                     let title = t.lifecycle_confirm_action_title(step.label).to_string();
                     <button type="button" class={(Small, Danger)} command="show-modal" commandfor={&dialog}>{step.label}</button>
-                    <dialog class={Confirm} id={&dialog} aria-label={&title}>
+                    <dialog class={Confirm} id={&dialog} role="alertdialog" aria-label={&title}>
                         <h3>{&title}</h3>
                         <p>{t.lifecycle_confirm_action_description(step.label.to_lowercase())}</p>
                         <div class={Buttons}>

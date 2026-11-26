@@ -145,7 +145,7 @@ fn Ask<'a, C: Render>(
     let tone = if danger { Danger } else { Primary };
     html! {
         <button type="button" class={(Button, tone)} command="show-modal" commandfor={id} disabled={disabled}>{label}</button>
-        <dialog class={Confirm} id={id} aria-label={title}>
+        <dialog class={Confirm} id={id} role="alertdialog" aria-label={title}>
             <form method="post" action={action}>
                 <input type="hidden" name={f.intent} value={intent}>
                 if !adjustment.is_empty() {
