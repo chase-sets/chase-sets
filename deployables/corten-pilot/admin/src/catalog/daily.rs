@@ -1931,20 +1931,39 @@ pub(crate) async fn unit(
     answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }
 
-/// The review form: `defer` or `reject`, the checked observations, and the reason a reject needs.
+/// The review form: `defer` or `reject`, the checked observations, and the reason a reject needs;
+/// or one row's Reapply or Replay, its button naming the observation it runs for.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReviewInput {
     pub action: String,
     pub observation: Vec<String>,
     pub reason: String,
+    pub reapply: String,
+    pub replay: String,
 }
 
 impl ReviewInput {
-    /// The API's path and body: a defer with admin-web's reason, or a reject with the one typed.
-    /// `None` for an action the form does not offer. The API refuses a reject without a reason
-    /// and a defer without an observation.
+    /// Whether the form is one row's Reapply or Replay rather than a defer or reject.
+    pub fn reruns(&self) -> bool {
+        !self.reapply.is_empty() || !self.replay.is_empty()
+    }
+
+    /// The API's path and body: a row's reapply or replay of its one observation (admin-web's
+    /// `reapplySourceObservations` and `replaySourceObservations`, a replay reapplying with the
+    /// observation's original source profile), else a defer with admin-web's reason or a reject with
+    /// the one typed. `None` for an action the form does not offer. The API refuses a reject without
+    /// a reason and a defer without an observation.
     pub fn command(&self, t: Cat) -> Option<(&'static str, Value)> {
+        if !self.reapply.is_empty() {
+            return Some(("/reapply", json!({ "observationIds": [self.reapply] })));
+        }
+        if !self.replay.is_empty() {
+            return Some((
+                "/reapply",
+                json!({ "observationIds": [self.replay], "reapplyProfileMode": "original-source-profile" }),
+            ));
+        }
         match self.action.as_str() {
             "defer" => {
                 Some(("/bulk-defer/jobs", json!({ "observationIds": self.observation, "reason": t.wb_review_defer_reason() })))
@@ -1968,6 +1987,22 @@ pub(crate) async fn review(
     // Nothing checked is sent as it is: the API refuses a defer or reject with no observations and
     // no scope (`selection_required`), and its reason is the form's.
     let sent = match input.command(t) {
+        // A row's reapply or replay answers the job it queued; the working set names it as its
+        // `jobId` and drops a held promotion preview, as admin-web's does.
+        Some((rest, body)) if input.reruns() => {
+            let caller = config.platform.caller(&headers, config.proto, None);
+            match caller.post_written::<Value>(Kind::SourceObservations, rest, &body).await {
+                Ok((job, written)) => {
+                    let id = job.get("jobId").and_then(Value::as_str);
+                    let set = [("jobId", id), ("promotionPreviewId", None)];
+                    return landed(&req, &context, &set, &written, Ran::Queued);
+                }
+                Err(error) => match crate::app::refused(error) {
+                    Ok(errors) => Sent::Refused(errors),
+                    Err(denied) => Sent::Denied(denied),
+                },
+            }
+        }
         Some((rest, body)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
             command(&caller, Method::POST, Kind::SourceObservations, rest, Some(&body)).await
@@ -2582,6 +2617,7 @@ mod tests {
             action: action.into(),
             observation: vec!["o1".into()],
             reason: reason.into(),
+            ..ReviewInput::default()
         };
         let (path, body) = input("defer", "").command(t).unwrap();
         assert_eq!(path, "/bulk-defer/jobs");

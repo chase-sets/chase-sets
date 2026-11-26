@@ -2648,6 +2648,36 @@ impl Pilot {
     }
 }
 
+/// A stacked table's row action (a scope's, catalog list's or item's View, a policy's Open) is a 44px
+/// touch target below the wide breakpoint, where the table stacks into cards, as admin-web's card
+/// actions are; wider, the compact button stays.
+#[tokio::test]
+async fn a_stacked_rows_action_is_a_44px_touch_target_at_phone_width() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("/catalog/scopes", "staff", "scope-row-view__view"),
+        ("/catalog/dimensions", "staff", "list-page__view"),
+        ("/catalog/catalog-items", "staff", "item-form__view"),
+        ("/commerce/postage-policies", "staff", "policy-table__open"),
+    ];
+    for (path, who, class) in cases {
+        let (status, _, html) = pilot.send(get(path, Some(who))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        assert!(html.contains(class), "{path} draws {class}: {html}");
+        let mut css = String::new();
+        for (at, _) in html.match_indices(".css\"") {
+            let start = html[..at].rfind("href=\"").unwrap() + 6;
+            let (status, _, sheet) = pilot.send(get(&html[start..at + 4], None)).await;
+            assert_eq!(status, StatusCode::OK, "{}", &html[start..at + 4]);
+            css.push_str(&sheet);
+        }
+        let stacked = css.split("@media").skip(1).any(|block| {
+            let block = &block[..block.find("}}").or_else(|| block.find("}\n}")).unwrap_or(block.len())];
+            block.contains("not") && block.contains(&format!(".{class}")) && block.contains("2.75rem")
+        });
+        assert!(stacked, "{path}: .{class} has no 44px rule below the wide breakpoint: {css}");
+    }
+}
 #[tokio::test]
 async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     let pilot = Pilot::new().await;
@@ -8933,7 +8963,9 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             { "observationId": "obs_2", "providerKey": "tcgplayer", "externalKey": "sv1-002", "displayName": "Floragato",
               "status": "promoted", "sourceUpdatedAt": "2026-11-03T09:00:00.000Z", "changedAt": "2026-11-03T09:00:00.000Z",
               "factSummaryPreview": [], "payloadSummary": "11 fields", "redactionSummary": "no secrets",
-              "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] }, "actions": [] }
+              "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] },
+              "actions": [{ "key": "observation.reapply", "state": "available", "blockers": [] },
+                  { "key": "observation.replay", "state": "blocked", "blockers": ["source-profile-retired"] }] }
         ])
     };
     // Built apart from the surface below so one `json!` stays inside the macro's recursion limit.
@@ -9033,7 +9065,9 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             "promotionPreview": promotion_preview(location),
             "promotionResult": null,
             "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
-                { "key": "observation.reject", "state": "available", "blockers": [] }]
+                { "key": "observation.reject", "state": "available", "blockers": [] },
+                { "key": "observation.reapply", "state": "available", "blockers": [] },
+                { "key": "observation.replay", "state": "available", "blockers": [] }]
         }
     });
     // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
@@ -10236,6 +10270,26 @@ async fn an_evidence_reference_with_no_association_says_so_instead_of_the_filter
     assert!(calls.iter().any(|c| c.contains("evidenceRef%3Dcandidate%252Fcand_gone")), "the API resolves it: {calls:?}");
     let (_, _, html) = pilot.send(get("/catalog/integrations/health", Some("catalog-reader"))).await;
     assert!(!html.contains("No associated evidence"), "without a reference, the timeline as before: {html}");
+}
+/// A section-nav entry nested under a group (Integrations' Import, Settings and Integration health)
+/// is current on its own pages, as admin-web marks it: the deepest entry holding the page wins, so
+/// Import is not current on Integration health.
+#[tokio::test]
+async fn a_nested_section_nav_entry_is_current_on_its_own_pages() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("/catalog/integrations/health", "/catalog/integrations/health", "/catalog/integrations"),
+        ("/catalog/integrations/settings", "/catalog/integrations/settings", "/catalog/integrations"),
+        ("/catalog/integrations?providerKey=tcgplayer", "/catalog/integrations", "/catalog/integrations/health"),
+    ];
+    for (path, current, other) in cases {
+        let (status, _, html) = pilot.send(get(path, Some("catalog-reader"))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        let side = &html[html.find(r#"aria-label="Catalog pages""#).expect("the section's pages")..];
+        let side = &side[..side.find("</nav>").unwrap()];
+        assert!(marks_current(side, current), "{path}: {side}");
+        assert!(!marks_current(side, other), "{path}: {side}");
+    }
 }
 #[tokio::test]
 async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
@@ -11541,6 +11595,57 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
     let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=split&split=obs_2", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a split without the version it read");
     assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_promoted_review_row_offers_reapply_and_replay_and_each_posts_its_one_observation() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let row = |id: &str| {
+        let start = html.find(&format!(r#"data-catalog-observation-row="{id}""#)).expect("the row");
+        html[start..start + html[start..].find("</tr>").unwrap()].to_owned()
+    };
+    let promoted = row("obs_2");
+    assert!(
+        promoted.contains(r#"name="reapply" value="obs_2" aria-label="Reapply: Floragato">Reapply</button>"#),
+        "the offered reapply, runnable: {promoted}"
+    );
+    assert!(
+        promoted.contains(r#"name="replay" value="obs_2" disabled aria-label="Replay: Floragato">Replay</button>"#),
+        "a blocked replay is drawn disabled: {promoted}"
+    );
+    assert!(promoted.contains("source-profile-retired") || promoted.contains("Source profile retired"), "{promoted}");
+    let changed = row("obs_1");
+    assert!(
+        !changed.contains(r#"name="reapply""#) && !changed.contains(r#"name="replay""#),
+        "a row that offers neither: {changed}"
+    );
+    assert!(changed.contains(r#"data-catalog-observation-evidence-open="obs_1""#), "Evidence stays on every row: {changed}");
+    // Without the catalog grant, the commands are not drawn.
+    let (status, _, viewer) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{viewer}");
+    assert!(!viewer.contains(r#"name="reapply""#), "{viewer}");
+
+    // Each posts the one observation its button names, whatever else is checked, to admin-web's
+    // reapply route: a replay with the observation's original source profile.
+    let at = "/catalog/integrations/review?providerKey=tcgplayer";
+    for body in ["reapply=obs_2&observation=obs_1", "replay=obs_2"] {
+        let (status, headers, _) = pilot.send(post(at, body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+        let to = headers[header::LOCATION].to_str().unwrap();
+        assert!(to.contains("jobId=job_10") && to.contains("done=queued"), "{body}: {to}");
+    }
+    let writes: Vec<Call> =
+        daily_writes(&pilot).into_iter().filter(|c| c.path == "/api/catalog/source-observations/reapply").collect();
+    let bodies: Vec<Value> = writes.iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "observationIds": ["obs_2"] }),
+            json!({ "observationIds": ["obs_2"], "reapplyProfileMode": "original-source-profile" })
+        ]
+    );
 }
 
 #[tokio::test]
