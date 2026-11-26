@@ -3,9 +3,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionDetailPage } from "./session-detail-page";
-import MarketplaceAccountSessionDetailRoute, {
-  loader as marketplaceLoader,
-} from "../../../routes/marketplace/account-sessions-detail";
 import AccessAdminSessionDetailRoute, { loader as adminLoader } from "../../../routes/access-admin/sessions-detail";
 import { mockNativeRequestSubmit, renderAuthRoute } from "../../../tests/auth-form-route-test-support";
 
@@ -66,36 +63,6 @@ describe("SessionDetailPage destructive actions", () => {
     ).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Confirm revoke" })).toBeTruthy();
     expect(within(dialog).getByDisplayValue("revoke")).toBeTruthy();
-  });
-
-  it("marketplace mounts busy only the submitted form", async () => {
-    api.getSession.mockResolvedValue(sessionData);
-    const route = await renderAuthRoute(
-      { path: "/account/sessions/:id", Component: MarketplaceAccountSessionDetailRoute, loader: marketplaceLoader },
-      "/account/sessions/session_a",
-    );
-    const switchButton = screen.getByRole("button", { name: "Switch Account" });
-    const switchForm = switchButton.closest("form")!;
-    fireEvent.click(switchButton);
-    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
-    expect(switchForm.getAttribute("aria-busy")).toBe("true");
-    expect(switchButton.getAttribute("aria-busy")).toBe("true");
-    const revokeButton = screen.getByRole("button", { name: "Revoke" });
-    expect(revokeButton.getAttribute("aria-busy")).toBeNull();
-    await route.settle(null);
-    await waitFor(() => expect(switchForm.getAttribute("aria-busy")).toBeNull());
-
-    fireEvent.click(revokeButton);
-    const dialog = await screen.findByRole("dialog", { name: "Revoke session for Alex Clerk?" });
-    const confirm = within(dialog).getByRole("button", { name: "Confirm revoke" });
-    const revokeForm = confirm.closest("form")!;
-    fireEvent.click(confirm);
-    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
-    expect(revokeForm.getAttribute("aria-busy")).toBe("true");
-    expect(confirm.getAttribute("aria-busy")).toBe("true");
-    expect(switchForm.getAttribute("aria-busy")).toBeNull();
-    await route.settle(null);
-    await waitFor(() => expect(revokeForm.getAttribute("aria-busy")).toBeNull());
   });
 
   it("admin mounts keep the document form transport", async () => {

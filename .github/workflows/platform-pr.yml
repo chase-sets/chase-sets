@@ -873,8 +873,8 @@ jobs:
             done
 
   # The Corten pilot's check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, the tests),
-  # required when a change touches the pilot's marketplace or platform code, its Cargo files or its
-  # export: the Corten marketplace serves production. The same corten-pilot-check action runs advisory
+  # required when a change touches the pilot's admin, marketplace, platform or public code, its Cargo
+  # files or its export: all three Corten apps serve production. The same corten-pilot-check action runs advisory
   # in corten-pilot.yml for every other change. Same image and Rust cache key as that check.
   corten-pilot-check:
     name: Corten Pilot Check

@@ -23,7 +23,6 @@ import {
 import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../../forecast-ledger/domain/policy";
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
-import { loader } from "../../../routes/marketplace/account-desk-pricing-health";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
 import { createRepricingConfigurationWriter } from "../../repricing-policies/api/configuration";
 
@@ -142,80 +141,6 @@ describeDb("Pricing Health real loader and grade queries", () => {
       target: { policyId: "rpp_synthetic_health" },
     });
     expect(await health.getHealth("acc_7910", "rpp_second", now)).toBeNull();
-  });
-
-  it("mounted loader reads a real completed worker summary, old/null stays null and a revised body invalidates it", async () => {
-    const body = await policy();
-    const fixture = await seedSyntheticPricingHealthInputs(pools.pricing, { accountId: "acc_7910", listingId, now });
-    const { worker, health } = services();
-    expect(await health.getHealth("acc_7910", undefined, now)).toMatchObject({ health: null, run: null });
-    const run = (await health.compute("acc_7910", "rpp_synthetic_health", dryRunContext))!;
-    await pools.pricing.query("UPDATE pricing_repricing_dry_runs SET requested_at=$2 WHERE dry_run_id=$1", [
-      run.dryRunId,
-      now,
-    ]);
-    expect(run.bodyHash).toBe(hashRepricingDryRunBody(body));
-    expect(await worker.processNextDryRunJob({ claimOwnerId: "synthetic-health", claimTtlMs: 300_000 })).toBe(1);
-    const read = (await health.getHealth("acc_7910", undefined, now))!;
-    expect(read.health?.currencies.USD?.modeledValueAmount).toBe(fixture.expected.modeledValueAmount);
-    expect(read.health?.currencies.USD?.expectedSales.listingCount).toBe(0.6321205588285577);
-    expect(read.health?.currencies.USD?.expectedSales.valueAmount).toBe(fixture.expected.expectedSalesValueAmount);
-    const app = new Hono<PricingApiEnv>();
-    app.use("*", async (c, next) => {
-      c.set("actor", { accountId: "acc_7910", permissions: ["pricing.view"] } as never);
-      return next();
-    });
-    app.route("/api/marketplace/account/pricing-health", createPricingHealthRoutes(health));
-    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      const request = input instanceof Request ? input : new Request(input, init);
-      if (new URL(request.url).pathname === "/api/auth/session")
-        return Response.json({ actor: { accountId: "acc_7910", permissions: ["pricing.view"] } });
-      return app.fetch(request);
-    });
-    try {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(now);
-      const response = await loader({
-        request: new Request("http://localhost/account/desk/pricing-health"),
-        params: {},
-        context: {},
-      } as never);
-      expect(response).toMatchObject({
-        data: { health: read.health, run: { dryRunId: run.dryRunId }, canCompute: false },
-      });
-    } finally {
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-    }
-    await pools.pricing.query("UPDATE pricing_repricing_dry_runs SET health=NULL WHERE dry_run_id=$1", [run.dryRunId]);
-    expect(await health.getHealth("acc_7910", undefined, now)).toMatchObject({ health: null, run: null });
-    await pools.pricing.query("UPDATE pricing_repricing_dry_runs SET health=$2::jsonb WHERE dry_run_id=$1", [
-      run.dryRunId,
-      JSON.stringify(read.health),
-    ]);
-    const runtime = createRepricingPolicyRuntime({
-      configuration: createRepricingConfigurationWriter({
-        pool: pools.pricing,
-        eventStore: createPostgresEventStore({ pool: pools.pricing }),
-      }),
-      eventStore: createPostgresEventStore({ pool: pools.pricing }),
-      db: pools.pricing,
-      goalAdoptions: async () => [],
-    });
-    await runtime.executeOwnedRepricingPolicy({
-      policyId: "rpp_synthetic_health",
-      accountId: "acc_7910",
-      context: dryRunContext,
-      command: {
-        ...body,
-        type: "ReviseRepricingPolicy",
-        name: "Synthetic health policy",
-        maxChangesPerDay: 101,
-        revisedAt: now,
-      },
-    });
-    // Leave the policy projection unchanged: only the folded current body may select the verdict.
-    expect(await health.getHealth("acc_7910", undefined, now)).toMatchObject({ health: null, run: null });
   });
 
   it("selects incumbent goal/version, latest closed day per kind/horizon/model under current rules, with 29/30 disclosure", async () => {

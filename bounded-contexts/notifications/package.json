@@ -17,7 +17,6 @@
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
-    "./routes/*": "./routes/*.tsx",
     "./server": "./server.ts",
     "./web": "./web.ts"
   },

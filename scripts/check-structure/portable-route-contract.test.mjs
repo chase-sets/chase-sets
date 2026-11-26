@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import { METADATA_ONLY_WEB_HOSTS } from "../lib/repo.mjs";
 import { validatePortableRouteContract } from "./portable-route-contract.mjs";
 
 function portableRoute(overrides = {}) {
@@ -21,11 +22,13 @@ function portableRoute(overrides = {}) {
   };
 }
 
+// The route-shape cases describe a marketplace host that serves its own modules.
 function validate(route) {
   return validatePortableRouteContract({
     contextName: "discovery",
     deployable: "marketplace-web",
     route,
+    metadataOnlyHosts: [],
   });
 }
 
@@ -91,6 +94,7 @@ function validatePageComponentExport({ route, source, modulePath = "route.tsx" }
 }
 
 async function readRouteModule(contextDirectory, fileExport) {
+  if (typeof fileExport !== "string") throw new Error(`Route names no module beneath '${contextDirectory}'.`);
   for (const extension of [".tsx", ".ts"]) {
     const modulePath = path.resolve(contextDirectory, `${fileExport}${extension}`);
     if (!modulePath.startsWith(`${path.resolve(contextDirectory)}${path.sep}`)) {
@@ -105,7 +109,13 @@ async function readRouteModule(contextDirectory, fileExport) {
   throw new Error(`Route module '${fileExport}' did not resolve beneath '${contextDirectory}'.`);
 }
 
-async function readMarketplaceRouteModules() {
+// A metadata-only host's records are module-free; every other host's records must resolve a module.
+async function hostRouteEntry({ host, contextDirectory, contextName, route }) {
+  if (METADATA_ONLY_WEB_HOSTS.includes(host)) return { contextName, contextDirectory, route };
+  return { contextName, contextDirectory, route, ...(await readRouteModule(contextDirectory, route.fileExport)) };
+}
+
+async function readHostRoutes(host) {
   const contextRoot = path.resolve(import.meta.dirname, "../../bounded-contexts");
   const entries = await readdir(contextRoot, { withFileTypes: true });
   const routeModules = [];
@@ -121,13 +131,16 @@ async function readMarketplaceRouteModules() {
       throw error;
     }
     for (const contribution of manifest.deployableContributions ?? []) {
-      if (contribution.deployable !== "marketplace-web") continue;
+      if (contribution.deployable !== host) continue;
       for (const route of contribution.routes ?? []) {
-        routeModules.push({
-          contextName: manifest.contextName,
-          route,
-          ...(await readRouteModule(path.dirname(manifestPath), route.fileExport)),
-        });
+        routeModules.push(
+          await hostRouteEntry({
+            host,
+            contextDirectory: path.dirname(manifestPath),
+            contextName: manifest.contextName,
+            route,
+          }),
+        );
       }
     }
   }
@@ -233,13 +246,14 @@ describe("portable route manifest contract", () => {
   });
 
   it("ratchets every live marketplace contribution through the portable contract", async () => {
-    const routeModules = await readMarketplaceRouteModules();
+    const routeModules = await readHostRoutes("marketplace-web");
     const violations = [];
     let routeCount = 0;
     let portableCount = 0;
     let webResourceOnlyCount = 0;
 
-    for (const { contextName, route, modulePath, source } of routeModules) {
+    expect(METADATA_ONLY_WEB_HOSTS).toContain("marketplace-web");
+    for (const { contextName, route } of routeModules) {
       routeCount += 1;
       if (route.delivery === "portable") portableCount += 1;
       if (route.delivery === "web-resource-only") webResourceOnlyCount += 1;
@@ -249,11 +263,6 @@ describe("portable route manifest contract", () => {
         route,
       });
       violations.push(...routeViolations.map((message) => `${contextName}/${route.routeId}: ${message}`));
-      violations.push(
-        ...validatePageComponentExport({ route, source, modulePath }).map(
-          (message) => `${contextName}/${route.routeId}: ${message}`,
-        ),
-      );
     }
 
     expect(violations).toEqual([]);
@@ -262,10 +271,7 @@ describe("portable route manifest contract", () => {
     expect(routeModules).toContainEqual(
       expect.objectContaining({
         contextName: "auth",
-        route: expect.objectContaining({
-          routeId: "guest-payment-claim",
-          fileExport: "./routes/marketplace/guest-payment-claim",
-        }),
+        route: expect.objectContaining({ routeId: "guest-payment-claim" }),
       }),
     );
     expect(routeModules).toContainEqual(
@@ -273,7 +279,6 @@ describe("portable route manifest contract", () => {
         contextName: "discovery",
         route: expect.objectContaining({
           routeId: "item-detail-rail-analytics",
-          fileExport: "./routes/item-detail-rail-analytics",
           delivery: "web-resource-only",
           unsupportedMobile: expect.objectContaining({ followUp: "#5238" }),
         }),
@@ -286,18 +291,36 @@ describe("portable route manifest contract", () => {
     });
   });
 
-  it("rejects false page claims against live web-resource module surfaces", async () => {
-    const resourceModules = (await readMarketplaceRouteModules()).filter(
+  it("rejects module and page claims on the live metadata-only web-resource records", async () => {
+    const resourceRoutes = (await readHostRoutes("marketplace-web")).filter(
       ({ route }) => route.delivery === "web-resource-only",
     );
 
-    expect(resourceModules).toHaveLength(5);
-    for (const { route, source, modulePath } of resourceModules) {
+    expect(resourceRoutes).toHaveLength(5);
+    for (const { contextName, route } of resourceRoutes) {
+      expect(route.fileExport).toBeUndefined();
       expect(route.pageComponentExport).toBeUndefined();
-      expect(validatePageComponentExport({ route, source, modulePath })).toEqual([]);
-      expect(
-        validatePageComponentExport({ route: { ...route, pageComponentExport: "default" }, source, modulePath }),
-      ).toContainEqual(expect.stringContaining("'default' does not resolve"));
+      for (const claim of [{ pageComponentExport: "default" }, { fileExport: `./routes/${route.routeId}` }]) {
+        expect(
+          validatePortableRouteContract({ contextName, deployable: "marketplace-web", route: { ...route, ...claim } }),
+        ).toContain("metadata-only routes cannot declare fileExport or pageComponentExport");
+      }
     }
+  });
+
+  it("still resolves admin-web's route modules and refuses a module-free record outside the metadata-only hosts", async () => {
+    expect(METADATA_ONLY_WEB_HOSTS).not.toContain("admin-web");
+    const adminRoutes = await readHostRoutes("admin-web");
+    expect(adminRoutes.length).toBeGreaterThan(0);
+    for (const entry of adminRoutes) expect(entry.source).toEqual(expect.any(String));
+
+    const [{ contextName, contextDirectory, route }] = adminRoutes;
+    const { fileExport: _fileExport, ...moduleFree } = route;
+    await expect(
+      hostRouteEntry({ host: "admin-web", contextDirectory, contextName, route: moduleFree }),
+    ).rejects.toThrow("names no module");
+    await expect(
+      hostRouteEntry({ host: "marketplace-web", contextDirectory, contextName, route: moduleFree }),
+    ).resolves.toEqual({ contextName, contextDirectory, route: moduleFree });
   });
 });

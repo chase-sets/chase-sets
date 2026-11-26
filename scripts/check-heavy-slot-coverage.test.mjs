@@ -97,7 +97,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 89);
+  assert.equal(result.entrypoints.length, 88);
   assert.equal(result.entrypoints.includes("scripts/typecheck-changed.mjs"), false);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),

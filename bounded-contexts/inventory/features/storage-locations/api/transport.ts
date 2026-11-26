@@ -1,7 +1,7 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, readApiErrorMessage } from "@chase-sets/http/responses";
-import type { buildInventoryApi } from "../../api";
+import type { buildInventoryApi } from "../../../api";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
 

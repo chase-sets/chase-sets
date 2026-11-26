@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { loader as sessionsLoader } from "./sessions";
-import { loader as marketplaceSessionsLoader } from "../marketplace/account-sessions";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import type { Session } from "../../features/sessions/ui/contracts";
 
@@ -50,30 +49,6 @@ describe("Access-admin sessions list route", () => {
     expect(mockCreateAuthRequestApiClient).toHaveBeenCalledWith(request);
     expect(listSessions).toHaveBeenCalledWith("limit=50&offset=0");
     expect(data).toEqual({ ...response, limit: 50, offset: 0, filters: { status: "all", search: "" } });
-  });
-
-  it("forwards the authorized expired collector response at the marketplace destination without adding a status filter", async () => {
-    const response = { items: [seededSessions[2]], total: 1, count: 1 };
-    listSessions.mockResolvedValue(response);
-    const request = loaderRequest("/account/sessions");
-    const data = await marketplaceSessionsLoader({ request, params: {}, context: undefined } as never);
-
-    expect(mockCreateAuthRequestApiClient).toHaveBeenCalledWith(request);
-    expect(listSessions).toHaveBeenCalledWith("limit=50&offset=0");
-    expect(data).toEqual({ ...response, limit: 50, offset: 0, filters: { status: "all", search: "" } });
-  });
-
-  it("forwards marketplace's status filter and page, and never a search term", async () => {
-    listSessions.mockResolvedValue({ items: [], total: 0, count: 0 });
-
-    const data = await marketplaceSessionsLoader({
-      request: loaderRequest("/account/sessions?status=revoked&search=zzz&limit=10&offset=20"),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(listSessions).toHaveBeenCalledWith("limit=10&offset=20&status=revoked");
-    expect(data).toMatchObject({ limit: 10, offset: 20, filters: { status: "revoked", search: "" } });
   });
 
   it("forwards URL pagination to the sessions API list", async () => {

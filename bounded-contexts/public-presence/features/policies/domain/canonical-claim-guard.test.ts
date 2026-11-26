@@ -1129,7 +1129,10 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for the byte-identical relocation of the Settlement account risk source projection's cluster block
   // from 14-59 to 8-53 after its velocity-only imports were removed; the C1-C7 normalization is unchanged.
   // Repinned for the byte-identical registration form move to 419-584; C1-C7 normalization is unchanged.
-  [citationFencePaths.privacyPolicy]: "8267f158c7a37486e50892236c7a96bbe9d1faea4c8a769c6b90c685f7f0e9cf",
+  // Repinned when marketplace-web's routes were deleted: the money-page citations move to the Corten marketplace's
+  // money page, the search-storage citations move to the modules that define those keys, and one open question
+  // records what the Corten marketplace no longer sets. No operative text changed; C1-C7 normalization is unchanged.
+  [citationFencePaths.privacyPolicy]: "d7d0b222a3c01c772278ac06d2f6b8aff44e2e0af30ed13128b168a187dd7d82",
   // Repinned for #11849: the quote function ref follows the same move to 79-105.
   // Repinned after the fee band category lists were deleted: the policy definition ref moved to 138-145 and
   // the quote function ref to 70-94.
@@ -1139,7 +1142,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
   // Repinned when the deployed browser E2E profile surface gained the Corten pilot's e2e root, after the Corten
   // marketplace's kept browser specs moved there; the C1-C7 normalization is unchanged.
-  [citationFencePaths.staticSurfaces]: "844aac4ddc409813405ac6e2a7546086baecf0bcd98f6bbf7faf7c4e6ee5265d",
+  // Repinned when marketplace-web was deleted: its E2E root and app source prefixes leave the browser-profile,
+  // route and jargon surfaces. The C1-C7 normalization is unchanged.
+  [citationFencePaths.staticSurfaces]: "7b35362148f7cd8d49c533fa6724fc0efaf9cfded2d07e2bc919c69b82d68756",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

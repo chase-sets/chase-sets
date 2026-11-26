@@ -94,7 +94,7 @@ describe("browser e2e readiness", () => {
     expect(observations).toEqual([expect.objectContaining({ name: "platform-worker", ready: true })]);
   });
 
-  it("waits on the web host each target boots: admin or public for those Corten apps, else the marketplace", () => {
+  it("waits on the web host each target boots: the marketplace or public for those Corten apps, else admin", () => {
     const sandbox = {
       urls: {
         adminWeb: "http://localhost:6172",
@@ -108,17 +108,17 @@ describe("browser e2e readiness", () => {
       { name: "platform-api", url: "http://localhost:6182/health/ready" },
       { name: "platform-worker", url: "http://localhost:6183/health/ready" },
     ];
-    expect(browserE2eComponents(sandbox, "browser-e2e-corten-admin")).toEqual([
-      { name: "admin-web", url: "http://localhost:6172/health/ready" },
+    expect(browserE2eComponents(sandbox, "browser-e2e-corten-marketplace")).toEqual([
+      { name: "marketplace", url: "http://localhost:6173/health/ready" },
       ...rest,
     ]);
     expect(browserE2eComponents(sandbox, "browser-e2e-corten-public")).toEqual([
       { name: "public-web", url: "http://localhost:6174/health/ready" },
       ...rest,
     ]);
-    for (const target of ["browser-e2e", "browser-e2e-production", "browser-e2e-corten-marketplace"]) {
+    for (const target of ["browser-e2e", "browser-e2e-production", "browser-e2e-corten-admin"]) {
       expect(browserE2eComponents(sandbox, target)).toEqual([
-        { name: "marketplace", url: "http://localhost:6173/health/ready" },
+        { name: "admin-web", url: "http://localhost:6172/health/ready" },
         ...rest,
       ]);
     }

@@ -22,7 +22,6 @@ const gradedItemDetailsWriterRoot = "bounded-contexts/inventory/features/invento
 // Recorded exceptions. A listed file that no longer matches is reported as
 // stale, so this list can only shrink.
 export const gradedItemDetailsTextExceptions = [
-  "bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx",
   "bounded-contexts/platform-operations/features/seller-compliance-cohorts/domain/cohort-window.ts",
 ];
 

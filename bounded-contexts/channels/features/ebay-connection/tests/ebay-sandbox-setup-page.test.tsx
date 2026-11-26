@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EbaySellerSetup, type SellerSetupState } from "../ui/seller-setup";
 import { readSetupLists } from "../api/setup-listing";
 import { choice, setupRead } from "./setup-fixtures";
-import { action, loader } from "../../../routes/marketplace/account-channels-ebay";
 
 const boundary = vi.hoisted(() => ({ ebay: vi.fn(), locations: vi.fn() }));
 vi.mock("@chase-sets/platform-runtime/auth", () => ({ requireActorFromAuthApi: vi.fn(async () => ({})) }));
@@ -64,37 +63,4 @@ describe("ebay-sandbox-setup-page", () => {
   });
   const url = new URL("http://localhost/account/channels/ebay?connectionId=connection-1");
   const args = (request = new Request(url)) => ({ request, params: {}, context: {}, url, pattern: url.pathname });
-  it("loads complete setup or an explicit error without defaulting a selection", async () => {
-    const lists = await readSetupLists("synthetic-token", setupRead);
-    boundary.ebay.mockImplementation(async (path: string) =>
-      path.endsWith("/setup")
-        ? { lists, selection: null }
-        : path.includes("/connections/")
-          ? { status: "pending-setup", authorizationAvailable: true }
-          : { scopes: [] },
-    );
-    boundary.locations.mockResolvedValue([{ storageLocationId: "storage-1", name: "Chase shelf" }]);
-    expect((await loader(args())).setup).toMatchObject({ kind: "loaded", selection: null, active: false });
-    boundary.locations.mockRejectedValueOnce(new Error("synthetic-read-failed"));
-    expect((await loader(args())).setup).toEqual({ kind: "error" });
-  });
-  it("sends only ids and expected generation, and refuses to acknowledge a failed save", async () => {
-    const form = new URLSearchParams({
-      intent: "select-setup",
-      connectionId: "connection-1",
-      setupGeneration: "2",
-      fulfillmentPolicyId: "fulfillment-1",
-      paymentPolicyId: "payment-1",
-      returnPolicyId: "return-1",
-      storageLocationId: "storage-1",
-      merchantLocationKey: "warehouse-1",
-    });
-    const request = () => new Request(url, { method: "POST", body: form });
-    boundary.ebay.mockResolvedValueOnce({ status: "active" });
-    const result = await action(args(request()));
-    expect(result).toBeInstanceOf(Response);
-    expect(boundary.ebay).toHaveBeenCalledWith("/connections/connection-1/setup", choice(2));
-    boundary.ebay.mockRejectedValueOnce(new Error("synthetic-refusal"));
-    expect(await action(args(request()))).toEqual({ setupFailed: true });
-  });
 });

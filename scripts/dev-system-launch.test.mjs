@@ -31,12 +31,6 @@ const productionServices = [
     env: { PORT: "6174", PLATFORM_API_URL: "http://localhost:6182" },
     port: 6174,
   },
-  {
-    name: "marketplace",
-    workspace: "@chase-sets/app-marketplace-web",
-    env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182" },
-    port: 6173,
-  },
 ];
 
 afterEach(() => {
@@ -225,10 +219,7 @@ describe("dev system launcher", () => {
     for (const ci of [true, false]) {
       const windows = selectProductionServices("win32", ci);
       const windowsIngress = createBrowserE2eProductionIngressDefinitions(windows, ingressOptions);
-      expect(windowsIngress.map(({ name, command }) => [name, command])).toEqual([
-        ["admin-web-ingress", "node"],
-        ["marketplace-ingress", "node"],
-      ]);
+      expect(windowsIngress.map(({ name, command }) => [name, command])).toEqual([["admin-web-ingress", "node"]]);
       for (const platform of ["linux", "darwin", "freebsd"]) {
         const selected = selectProductionServices(platform, ci);
         selected.forEach((definition, index) => {

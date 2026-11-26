@@ -46,8 +46,8 @@ const settlementProofPaths = [
   "bounded-contexts/marketplace/features/offers/api/route.test.ts",
   "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
   "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
-  "bounded-contexts/marketplace/tests/account-offer-match-recovery-route.test.tsx",
-  "bounded-contexts/marketplace/tests/account-offers-route.test.ts",
+  // The two marketplace-web route tests in this set were deleted with their routes; the Corten marketplace's
+  // pilot tests prove the served Offer Match forms.
 ].map((testPath) => ({
   version: 1,
   ownerContext: "marketplace",
@@ -185,7 +185,7 @@ function expectedCortenPublicBrowser(changedFiles) {
 
 // Nor the Corten pilot check flag.
 const cortenPilotCheckPaths = [
-  /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/(?:admin|marketplace|platform|public)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,
@@ -263,8 +263,6 @@ describe("canonical proof sets:", () => {
         "features/offers/api/route.test.ts",
         "features/offers/api/runtime.test.ts",
         "features/offers/ui/offer-match-list-page.test.tsx",
-        "tests/account-offer-match-recovery-route.test.tsx",
-        "tests/account-offers-route.test.ts",
       ],
     ]);
     const metadata = JSON.parse(readFileSync(path.join(repoRoot, "bounded-contexts/settlement/context.json"), "utf8"));
@@ -1274,7 +1272,47 @@ describe("shared E2E setup selection", () => {
       };
     });
     expect(expectedFamilies.size - expectedRetiredFamilies.length).toBe(15);
-    expect(candidate.families).toEqual(expectedRetiredFamilies);
+    // Deleting marketplace-web's bounded-context route modules leaves these ownership families naming paths
+    // that no longer exist. They keep their patterns and suites as synthetic inputs; only the tracked
+    // candidate counts change (pricing keeps its public market history page, checkout a route test).
+    const deletedRouteModuleFamilies = new Map([
+      ["marketplaceContextRouteSuiteOwnership:auth", 0],
+      ["marketplaceContextRouteSuiteOwnership:channels", 0],
+      ["marketplaceContextRouteSuiteOwnership:fulfillment", 0],
+      ["marketplaceContextRouteSuiteOwnership:identity", 0],
+      ["marketplaceContextRouteSuiteOwnership:inventory", 0],
+      ["marketplaceContextRouteSuiteOwnership:marketplace", 0],
+      ["marketplaceContextRouteSuiteOwnership:payments", 0],
+      ["marketplaceContextRouteSuiteOwnership:platform-operations", 0],
+      ["marketplaceContextRouteSuiteOwnership:pricing", 1],
+      ["marketplaceContextRouteSuiteOwnership:settlement", 0],
+      ["boundedContextRouteSuiteOwnership:0", 0],
+      ["boundedContextRouteSuiteOwnership:31", 0],
+      ["boundedContextRouteSuiteOwnership:32", 0],
+      ["boundedContextRouteSuiteOwnership:33", 0],
+      ["boundedContextRouteSuiteOwnership:34", 0],
+      ["boundedContextRouteSuiteOwnership:36", 1],
+      ["boundedContextRouteSuiteOwnership:37", 0],
+      ["boundedContextRouteSuiteOwnership:39", 0],
+      ["boundedContextRouteSuiteOwnership:40", 0],
+      ["boundedContextRouteSuiteOwnership:41", 0],
+      ["boundedContextRouteSuiteOwnership:42", 0],
+      ["boundedContextRouteSuiteOwnership:43", 0],
+      ["boundedContextRouteSuiteOwnership:44", 0],
+      ["boundedContextRouteSuiteOwnership:45", 0],
+      ["boundedContextRouteSuiteOwnership:46", 0],
+      ["boundedContextRouteSuiteOwnership:47", 0],
+      ["boundedContextRouteSuiteOwnership:51", 0],
+      ["boundedContextRouteSuiteOwnership:52", 0],
+    ]);
+    expect(deletedRouteModuleFamilies.size).toBe(28);
+    const expectedFamiliesAfterRouteDeletion = expectedRetiredFamilies.map((family) => {
+      if (!deletedRouteModuleFamilies.has(family.family)) return family;
+      expect(family.synthetic, family.family).toBe(false);
+      expect(existsSync(path.join(repoRoot, family.path)), family.path).toBe(false);
+      return { ...family, synthetic: true, trackedCandidates: deletedRouteModuleFamilies.get(family.family) };
+    });
+    expect(candidate.families).toEqual(expectedFamiliesAfterRouteDeletion);
     for (const { movedRoutes, selectorCases = [] } of routeMoves) {
       for (const { file, suites, batches, cortenMarketplaceBrowser } of selectorCases) {
         if (batches === undefined) continue;
@@ -1712,10 +1750,10 @@ const schedulerVocabularyLookalikePaths = [
 // Accepted inventory delta adds @chase-sets/inventory-draft-listing.
 // Accepted inventory delta adds @chase-sets/app-agent-apps.
 // Accepted inventory delta removes the unused Review Eligibility contract workspace.
+// Accepted inventory delta removes @chase-sets/app-marketplace-web with the deleted marketplace-web deployable.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-agent-apps",
-  "@chase-sets/app-marketplace-web",
   "@chase-sets/app-platform-api",
   "@chase-sets/app-platform-worker",
   "@chase-sets/app-public-web",
@@ -3618,11 +3656,11 @@ describe("change-scope", () => {
       if (testCase.name === "unrelated bounded-context change") {
         // Making Auth -> Payments test-only stops Ordering's runtime fan-out at
         // Auth, before Channels, Pricing, public-web and the connector extension. Preserve the frozen
-        // baseline above and enumerate only the affected-workspace delta here.
+        // baseline above and enumerate only the affected-workspace delta here. The expected set is filtered
+        // through the live workspace list, so marketplace-web's deleted workspace drops out of both.
         const affected = [
           "@chase-sets/app-admin-web",
           "@chase-sets/app-agent-apps",
-          "@chase-sets/app-marketplace-web",
           "@chase-sets/app-platform-api",
           "@chase-sets/app-platform-worker",
           "@chase-sets/auth",

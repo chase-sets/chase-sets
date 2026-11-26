@@ -3,10 +3,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { metadataOnlyWebHosts } from "@chase-sets/platform-runtime/web";
 import { privacyExternalClientPackageClassifications } from "../domain/privacy-policy-product-truth";
 import {
   classifyPrivacyProductTruthPartitionExclusion,
   collectPrivacyProductTruthInventory,
+  defaultMetadataOnlyConsumerDeployables,
   derivePrivacyProductTruthInventory,
   isPrivacyProductTruthCandidateModule,
   listPrivacyProductTruthTrackedPaths,
@@ -72,6 +74,26 @@ function deriveWithMutatedSources(
     externalPackageClassifications: privacyExternalClientPackageClassifications,
   });
 }
+
+// No TypeScript route reaches a provider loader at this head: the Corten
+// marketplace serves the payment and payout pages, and its loaders are
+// pilot-evidenced in the binding registry. The provider controls therefore
+// attach a synthetic loader at an arbitrary tracked path to a real, still
+// routed public page, and prove the derivation on that surface.
+const publicRouteModule = "bounded-contexts/public-presence/routes/marketplace/contact.tsx";
+const arbitraryLoaderPath = "some/arbitrary/tracked/place/provider-widget.tsx";
+const arbitraryLoaderSubject = `@stripe/stripe-js@${arbitraryLoaderPath}`;
+const arbitraryLoaderImport = {
+  relativePath: publicRouteModule,
+  mutate: (source: string) =>
+    `import { ArbitraryProviderWidget } from "../../../../some/arbitrary/tracked/place/provider-widget";\n${source}`,
+};
+const arbitraryLoaderSource =
+  'import { loadStripe } from "@stripe/stripe-js";\n\n' +
+  "export function ArbitraryProviderWidget({ publishableKey }: { publishableKey: string }) {\n" +
+  "  void loadStripe(publishableKey);\n" +
+  "  return null;\n" +
+  "}\n";
 
 describe("privacy product-truth partition", () => {
   it("classifies every exclusion reason by code shape rather than by owning directory", () => {
@@ -262,62 +284,10 @@ describe("privacy product-truth derivation over the real repository", () => {
     }
   });
 
-  it("derives every provider-injected client-storage surface with loader, dependency, CSP, and route authority", () => {
-    expect(subjectsOf("provider-injected-client-storage")).toEqual([
-      "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
-      "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx",
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
-    ]);
-
-    const confirmation = factFor(
-      "provider-injected-client-storage",
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
-    );
-    expect(confirmation.detail.loaderExports).toEqual(["loadStripe"]);
-    expect(confirmation.detail.consumerRoutes).toEqual([
-      "/account/payments/:paymentId",
-      "/checkout/buy/session/:sessionId",
-      "/checkout/payments/:paymentId",
-    ]);
-    expect(confirmation.detail.dependencyOwners).toEqual([
-      "@chase-sets/app-marketplace-web@10.3.0",
-      "@chase-sets/payments@10.3.0",
-    ]);
-    expect(confirmation.detail.cspScriptOrigins).toEqual(["https://js.stripe.com"]);
-
-    const setup = factFor(
-      "provider-injected-client-storage",
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
-    );
-    expect(setup.detail.consumerRoutes).toEqual(["/account/payment-methods"]);
-
-    const deferred = factFor(
-      "provider-injected-client-storage",
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
-    );
-    expect(deferred.detail.loaderExports).toEqual(["loadStripe"]);
-    expect(deferred.detail.consumerRoutes).toEqual(["/checkout/buy/session/:sessionId"]);
-    expect(deferred.detail.dependencyOwners).toEqual(confirmation.detail.dependencyOwners);
-    expect(deferred.detail.cspScriptOrigins).toEqual(confirmation.detail.cspScriptOrigins);
-
-    for (const module of ["payout-setup-page.tsx", "stripe-connect-notification-banner.tsx"]) {
-      const connect = factFor(
-        "provider-injected-client-storage",
-        `@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/${module}`,
-      );
-      expect(connect.detail.loaderExports, module).toEqual(["loadConnectAndInitialize"]);
-      // /account/payouts/setup is retained only as a redirect to this surface,
-      // so it is not derived as a loader-bearing consumer route.
-      expect(connect.detail.consumerRoutes, module).toEqual(["/account/desk/settings"]);
-      expect(connect.detail.dependencyOwners, module).toEqual(["@chase-sets/settlement@3.4.5"]);
-      expect(connect.detail.cspScriptOrigins, module).toEqual([
-        "https://connect-js.stripe.com",
-        "https://js.stripe.com",
-      ]);
-    }
-
+  it("derives no provider-injected surface from TypeScript routes, and still owns every committed CSP origin", () => {
+    // The Corten marketplace serves every page that loads Stripe.js or
+    // Connect.js; those facts are pilot-evidenced, not derived.
+    expect(subjectsOf("provider-injected-client-storage")).toEqual([]);
     // Every committed CSP script/frame origin is owned by a classified loader.
     expect(inventory.cspScriptOrigins).toEqual(["https://connect-js.stripe.com", "https://js.stripe.com"]);
     // The classification set is the whole derived external surface, not a
@@ -327,34 +297,35 @@ describe("privacy product-truth derivation over the real repository", () => {
     }
   });
 
-  it("derives CacheStorage facts from typed ServiceWorkerPolicy literals without parsing the generated worker body", () => {
-    expect(subjectsOf("cache-storage")).toEqual(["chase-sets-admin-pwa-v1", "chase-sets-marketplace-pwa-v1"]);
+  it(
+    "skips only the flagged metadata-only host's module-less routes",
+    () => {
+      expect(defaultMetadataOnlyConsumerDeployables).toEqual(metadataOnlyWebHosts);
+      // Unflagged, the same module-less route records are unresolved and fail closed.
+      const unflagged = derivePrivacyProductTruthInventory({
+        ...sources,
+        externalPackageClassifications: privacyExternalClientPackageClassifications,
+        metadataOnlyDeployables: [],
+      });
+      const unresolved = unflagged.indeterminate.filter((entry) =>
+        entry.reason.includes("does not resolve to a tracked module ()"),
+      );
+      expect(unresolved.length).toBeGreaterThan(0);
+      expect(unflagged.indeterminate).toHaveLength(unresolved.length);
+    },
+    LONG_DERIVATION_MS,
+  );
 
-    const marketplace = factFor("cache-storage", "chase-sets-marketplace-pwa-v1");
-    expect(marketplace.derivationShapes).toEqual(["root-registration", "typed-service-worker-policy", "worker-route"]);
-    expect(marketplace.detail.deployable).toBe("marketplace");
-    expect(marketplace.detail.credentialedRequestHandling).toBe("skip");
-    expect(marketplace.detail.excludedExactPaths).toEqual([
-      "/guest-checkout/exit",
-      "/sign-in",
-      "/sign-out",
-      "/register",
-    ]);
-    expect(marketplace.detail.excludedPathPrefixes).toEqual([
-      "/api/",
-      "/account",
-      "/checkout",
-      "/payment",
-      "/payments",
-      "/orders",
-    ]);
-    expect(marketplace.detail.workerRoutePath).toBe("/service-worker.js");
-    expect(marketplace.detail.registrationRoot).toBe("deployables/marketplace/app/root.tsx");
-    expect(marketplace.detail.registeredOnlyInProductionBuilds).toBe(true);
+  it("derives CacheStorage facts from typed ServiceWorkerPolicy literals without parsing the generated worker body", () => {
+    // The marketplace's cache is Corten's service worker, which is
+    // pilot-evidenced in the binding registry rather than derived here.
+    expect(subjectsOf("cache-storage")).toEqual(["chase-sets-admin-pwa-v1"]);
 
     const admin = factFor("cache-storage", "chase-sets-admin-pwa-v1");
+    expect(admin.derivationShapes).toEqual(["root-registration", "typed-service-worker-policy", "worker-route"]);
     expect(admin.detail.deployable).toBe("admin-web");
     expect(admin.detail.registrationRoot).toBe("deployables/admin-web/app/root.tsx");
+    expect(admin.detail.workerRoutePath).toBe("/service-worker.js");
 
     // The generated `String.raw` worker body is never an evidence source.
     for (const subject of subjectsOf("cache-storage")) {
@@ -412,25 +383,31 @@ describe("privacy product-truth derivation over the real repository", () => {
 
 describe("privacy product-truth one-variable controls", () => {
   it(
-    "control 4: deleting only the loadStripe call in stripe-setup-card.tsx makes only that provider surface disappear",
+    "control 4: deleting only a reachable surface's loadStripe call makes only that provider surface disappear",
     () => {
-      const mutant = deriveWithMutatedSources([
-        {
-          relativePath: "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
-          mutate: (source) => source.replace("void loadStripe(publishableKey)", "void Promise.resolve(publishableKey)"),
-        },
-      ]);
-
+      const withLoader = deriveWithMutatedSources(
+        [arbitraryLoaderImport],
+        [{ relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource }],
+      );
       expect(
-        mutant.facts
+        withLoader.facts
           .filter((fact) => fact.factFamily === "provider-injected-client-storage")
           .map((fact) => fact.subject),
-      ).toEqual([
-        "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
-        "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx",
-        "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
-        "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
-      ]);
+      ).toEqual([arbitraryLoaderSubject]);
+
+      const mutant = deriveWithMutatedSources(
+        [arbitraryLoaderImport],
+        [
+          {
+            relativePath: arbitraryLoaderPath,
+            source: arbitraryLoaderSource.replace(
+              "void loadStripe(publishableKey)",
+              "void Promise.resolve(publishableKey)",
+            ),
+          },
+        ],
+      );
+      expect(mutant.facts.filter((fact) => fact.factFamily === "provider-injected-client-storage")).toEqual([]);
 
       // Preserved variables stay green: cookies, Web Storage, CacheStorage, and
       // social providers are byte-identical to the candidate derivation.
@@ -447,36 +424,16 @@ describe("privacy product-truth one-variable controls", () => {
   it(
     "control 5: an external client-loader call at an arbitrary tracked production path surfaces instead of disappearing",
     () => {
-      const arbitraryPath = "some/arbitrary/tracked/place/provider-widget.tsx";
       const mutant = deriveWithMutatedSources(
-        [
-          {
-            relativePath: "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
-            mutate: (source) =>
-              `import { ArbitraryProviderWidget } from "../../../../../../some/arbitrary/tracked/place/provider-widget";\n${source}`,
-          },
-        ],
-        [
-          {
-            relativePath: arbitraryPath,
-            source:
-              'import { loadStripe } from "@stripe/stripe-js";\n\n' +
-              "export function ArbitraryProviderWidget({ publishableKey }: { publishableKey: string }) {\n" +
-              "  void loadStripe(publishableKey);\n" +
-              "  return null;\n" +
-              "}\n",
-          },
-        ],
+        [arbitraryLoaderImport],
+        [{ relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource }],
       );
 
-      const surfaces = mutant.facts
-        .filter((fact) => fact.factFamily === "provider-injected-client-storage")
-        .map((fact) => fact.subject);
-      expect(surfaces).toEqual(
-        [...subjectsOf("provider-injected-client-storage"), `@stripe/stripe-js@${arbitraryPath}`].sort(),
-      );
-      const derived = mutant.facts.find((fact) => fact.subject === `@stripe/stripe-js@${arbitraryPath}`);
-      expect(derived?.detail.consumerRoutes).toEqual(["/account/payment-methods"]);
+      expect(mutant.indeterminate).toEqual([]);
+      const derived = mutant.facts.find((fact) => fact.subject === arbitraryLoaderSubject);
+      expect(derived?.detail.loaderExports).toEqual(["loadStripe"]);
+      expect(derived?.detail.consumerRoutes).toEqual(["/contact"]);
+      expect(derived?.detail.cspScriptOrigins).toEqual(["https://js.stripe.com"]);
     },
     LONG_DERIVATION_MS,
   );
@@ -484,25 +441,32 @@ describe("privacy product-truth one-variable controls", () => {
   it(
     "control 5b: an unclassified external package on a consumer-reachable surface fails closed",
     () => {
+      const reachable = deriveWithMutatedSources(
+        [arbitraryLoaderImport],
+        [{ relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource }],
+      );
       const mutant = derivePrivacyProductTruthInventory({
         ...sources,
+        trackedPaths: [...sources.trackedPaths, arbitraryLoaderPath].sort(),
+        records: [
+          ...sources.records.map((record) =>
+            record.relativePath === publicRouteModule && record.source !== undefined
+              ? { ...record, source: arbitraryLoaderImport.mutate(record.source) }
+              : record,
+          ),
+          { relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource },
+        ],
         externalPackageClassifications: Object.fromEntries(
           Object.entries(privacyExternalClientPackageClassifications).filter(([name]) => name !== "@stripe/stripe-js"),
         ),
       });
+      expect(reachable.indeterminate).toEqual([]);
       expect(mutant.indeterminate.map((entry) => entry.reason)).toEqual([
         expect.stringContaining("external package '@stripe/stripe-js'"),
       ]);
-      // The unclassified package's surfaces disappear from the fact set rather
+      // The unclassified package's surface disappears from the fact set rather
       // than defaulting to handled.
-      expect(
-        mutant.facts
-          .filter((fact) => fact.factFamily === "provider-injected-client-storage")
-          .map((fact) => fact.subject),
-      ).toEqual([
-        "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
-        "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx",
-      ]);
+      expect(mutant.facts.filter((fact) => fact.factFamily === "provider-injected-client-storage")).toEqual([]);
     },
     LONG_DERIVATION_MS,
   );
@@ -560,10 +524,9 @@ describe("privacy product-truth one-variable controls", () => {
       expect(reasons).toHaveLength(1);
       expect(reasons[0]).toContain("chase-sets-rogue-cache-v9");
       expect(reasons[0]).toContain("unclassified");
-      // The known cache subjects stay derived and green.
+      // The known cache subject stays derived and green.
       expect(mutant.facts.filter((fact) => fact.factFamily === "cache-storage").map((fact) => fact.subject)).toEqual([
         "chase-sets-admin-pwa-v1",
-        "chase-sets-marketplace-pwa-v1",
       ]);
     },
     LONG_DERIVATION_MS,

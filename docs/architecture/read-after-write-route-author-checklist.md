@@ -165,7 +165,7 @@ Item detail add-to-cart to Buy Cart semantic handoff:
 - Destination route: `account-cart`.
 - API route: Checkout `/account/cart`.
 - Dependency: `checkout_cart_line_pages`, owned by `checkout.cart-projection`.
-- Inventory ids: `discovery.item-detail-checkout-handoff` for the cross-context token carrier and `checkout.cart-self-refresh` for the destination wait and pending state.
+- Inventory id: `checkout.cart-self-refresh` for the destination wait and pending state. Discovery's source-side token-carrier entry was retired with marketplace-web's route modules.
 - Recovery: a valid `checkout.cart.add-line` handoff with `collection-non-empty` renders temporary "Adding your item" copy only when the loaded cart is still empty. Satisfied carts render normally; missing, malformed, expired, far-future, unpaired, wrong-kind, remove-to-empty, and normal empty visits do not show add-line pending recovery.
 - Diagnostics: emit `chase_sets_post_write_consistency_events_total` through the platform post-write telemetry port with `strategy="fresh-read"` and `correction_source="semantic-handoff:checkout.cart.add-line"`.
 

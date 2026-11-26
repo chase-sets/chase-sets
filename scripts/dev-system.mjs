@@ -241,18 +241,17 @@ const processes = [
   createPublicWebDevProcessDefinition(sandbox, sandboxEnv),
 ];
 
+// The marketplace definition has no workspace of its own; only the Corten marketplace target runs it.
 const devTargets = {
-  all: processes.map(({ name }) => name),
+  all: processes.filter(({ name }) => name !== "marketplace").map(({ name }) => name),
   "platform-api": ["platform-api"],
   "platform-worker": ["platform-worker"],
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
-  "browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"],
-  [browserE2eProductionTarget]: ["platform-api", "platform-worker", "admin-web", "marketplace"],
+  "browser-e2e": ["platform-api", "platform-worker", "admin-web"],
+  [browserE2eProductionTarget]: ["platform-api", "platform-worker", "admin-web"],
   [browserE2eCortenMarketplaceTarget]: ["platform-api", "platform-worker", "marketplace"],
   [browserE2eCortenAdminTarget]: ["platform-api", "platform-worker", "admin-web"],
   [browserE2eCortenPublicTarget]: ["platform-api", "platform-worker", "public-web"],
-  marketplace: ["marketplace"],
-  "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
   "public-web": ["platform-api", "platform-worker", "public-web"],
 };
 

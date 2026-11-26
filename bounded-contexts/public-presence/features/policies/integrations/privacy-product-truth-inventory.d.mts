@@ -5,6 +5,7 @@ export declare const privacyProductTruthFactFamilies: readonly string[];
 export declare const privacyProductTruthExclusionReasons: readonly string[];
 
 export declare const defaultConsumerDeployables: readonly string[];
+export declare const defaultMetadataOnlyConsumerDeployables: readonly string[];
 
 export type PrivacyProductTruthExecGit = (args: readonly string[]) => string;
 
@@ -78,6 +79,7 @@ export type PrivacyProductTruthDerivationInput = Readonly<{
   repoRoot: string;
   externalPackageClassifications?: Readonly<Record<string, PrivacyProductTruthExternalPackageClassification>>;
   consumerDeployables?: readonly string[];
+  metadataOnlyDeployables?: readonly string[];
 }>;
 
 export type PrivacyProductTruthCollectOptions = Readonly<{
@@ -85,6 +87,7 @@ export type PrivacyProductTruthCollectOptions = Readonly<{
   execGit?: PrivacyProductTruthExecGit;
   externalPackageClassifications?: Readonly<Record<string, PrivacyProductTruthExternalPackageClassification>>;
   consumerDeployables?: readonly string[];
+  metadataOnlyDeployables?: readonly string[];
 }>;
 
 export type PrivacyCitedSourceBinding = Readonly<{

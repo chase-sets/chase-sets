@@ -366,35 +366,9 @@ Stripe Dashboard checks:
 
 ## Stripe Embed Confirmation UAT
 
-The money smoke test above proves routing, auth, embedded payout setup, and payment creation, but it runs in Node and never mounts a real Stripe element or submits a card. `deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts` closes that gap: it is a Playwright spec that signs in, creates a payment from a pending-payment order, mounts the real `@stripe/stripe-js` Payment Element in a browser, fills a Stripe test card, submits confirmation, and polls the payment resource until it reaches `captured` -- proving the typed loader against Stripe's real test-mode embed end to end, including the webhook-driven capture.
+The money smoke test above proves routing, auth, embedded payout setup, and payment creation, but it runs in Node and never mounts a real Stripe element or submits a card. marketplace-web's opt-in Playwright UAT that did (`account-payment-stripe-embed.uat.spec.ts`) was removed with that deployable, and the Corten marketplace has no replacement yet: [#12100 [corten-pilot] Replace marketplace-web's Stripe embed confirmation UAT with one for the Corten marketplace](https://github.com/chase-sets/chase-sets/issues/12100) tracks it. Until it lands, prove the card step by hand on staging in Stripe test mode (a 4242 card, a 3-D Secure pass and a failed challenge) and record the payment and order ids.
 
-Like the money smoke test, this is part of the money-smoke family and is wired for manual staging use, not PR CI: it is listed in `scripts/e2e-suites.mjs` `e2eNoSuiteExclusions` so no change-scope suite selects it automatically.
-
-Required environment:
-
-- `STRIPE_EMBED_UAT=true` to opt in; the spec skips otherwise.
-- `STRIPE_EMBED_UAT_ORDER_IDS`: comma-separated pending-payment order ids, created through the normal controlled checkout path in Stripe test mode -- the same precondition contract as `SMOKE_ORDER_IDS` above. The spec creates the payment itself from these order ids using the product checkout API.
-- `MARKETPLACE_E2E_EMAIL` / `MARKETPLACE_E2E_PASSWORD`: buyer credentials for the account that owns the configured orders.
-
-Optional environment:
-
-- `STRIPE_EMBED_UAT_PAYMENT_METHOD_CATEGORY`: defaults to `card`.
-- `STRIPE_EMBED_UAT_BALANCE_CREDIT_AMOUNT`: defaults to `0.00`.
-
-Command:
-
-```bash
-STRIPE_EMBED_UAT=true \
-STRIPE_EMBED_UAT_ORDER_IDS=ord_... \
-MARKETPLACE_E2E_EMAIL=... \
-MARKETPLACE_E2E_PASSWORD=... \
-MARKETPLACE_WEB_URL=https://marketplace.staging.chasesets.com \
-pnpm exec playwright test deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts
-```
-
-The spec fails loudly, not silently, on any of the three legs it proves: the embed never mounting (element container stays skeletonized), confirmation being rejected client-side, or the payment never reaching `captured` (webhook delivery never lands within the poll window). A failure at the last leg after a successful client-side confirm is a webhook delivery or ingestion problem, not a UI problem -- triage it with the Stripe Webhook Ingestion section below before touching the confirmation card.
-
-The Stripe test-mode card fields are addressed inside Stripe's own combined Payment Element iframe (`iframe[title="Secure payment input frame"]`, `input[name="number"|"expiry"|"cvc"|"postalCode"]`); if a Stripe.js release changes that DOM contract, update the selectors here and in `deployables/marketplace/app/routes/payment-layout-hydration.test.tsx`, which mocks the same iframe shape.
+If a card confirms client-side but the payment never reaches `captured`, that is a webhook delivery or ingestion problem, not a UI problem: triage it with the Stripe Webhook Ingestion section below.
 
 ### Staging Evidence-Window Authority
 

@@ -47,9 +47,8 @@ const POLL_MAX_DURATION_MS = 5 * 60_000;
 
 // Stripe attaches no deadline of its own to `loadStripe()` or
 // `loadActions()`, so a provider-side stall leaves this surface busy forever.
-// The account-payment UAT holds the embed to a fixed 60-second readiness
-// ceiling (`deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts`);
-// terminate initialization at half of it — far longer than any healthy
+// The account-payment UAT held the embed to a fixed 60-second readiness
+// ceiling; terminate initialization at half of it — far longer than any healthy
 // Stripe.js load, and early enough that the safe error is on screen well
 // inside the ceiling instead of an indefinite skeleton.
 export const STRIPE_INITIALIZATION_DEADLINE_MS = 30_000;

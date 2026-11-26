@@ -22,7 +22,7 @@ describe("public-web dev sandbox origins", () => {
     expect(source).toContain("createPublicWebDevProcessDefinition,");
     expect(source).toContain("createPublicWebDevProcessDefinition(sandbox, sandboxEnv),");
     expect(source).toContain('"public-web": ["platform-api", "platform-worker", "public-web"]');
-    expect(source).toContain("all: processes.map(({ name }) => name)");
+    expect(source).toContain('all: processes.filter(({ name }) => name !== "marketplace").map(({ name }) => name)');
     expect(source).toContain("applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName))");
   });
 

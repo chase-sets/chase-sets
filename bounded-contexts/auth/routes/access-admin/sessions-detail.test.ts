@@ -2,7 +2,6 @@ import type { ActionFunctionArgs } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { decodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import { action as accessAction, loader as accessLoader } from "./sessions-detail";
-import { action as marketplaceAction, loader as marketplaceLoader } from "../marketplace/account-sessions-detail";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import type { Session } from "../../features/sessions/ui/contracts";
 
@@ -94,31 +93,6 @@ describe("session detail actions", () => {
     expect(readReceipt(location)).toMatchObject({ sources: [authSource] });
     expect(switchSessionAccount).toHaveBeenCalledWith("ses_1", "acct_2");
   });
-
-  it("redirects marketplace session account switches with the Auth command receipt", async () => {
-    const switchSessionAccount = vi.fn(async () => withCommandReceipt({ id: "ses_2", version: 4, status: "active" }));
-    mockCreateAuthRequestApiClient.mockReturnValue({
-      revokeSession: vi.fn(),
-      switchSessionAccount,
-    });
-
-    const request = new Request("http://localhost/account/sessions/ses_2", {
-      method: "POST",
-      body: new URLSearchParams({
-        intent: "switch-account",
-        accountId: "acct_2",
-      }),
-    });
-    const response = (await marketplaceAction(
-      createActionArgs(request, { id: "ses_2" }, "/account/sessions/:id"),
-    )) as Response;
-
-    const location = response.headers.get("Location") ?? "";
-    expect(response.status).toBe(302);
-    expect(location).toContain("/account/sessions/ses_2?afterWrite=");
-    expect(readReceipt(location)).toMatchObject({ sources: [authSource] });
-    expect(switchSessionAccount).toHaveBeenCalledWith("ses_2", "acct_2");
-  });
 });
 
 describe("seeded session detail loaders", () => {
@@ -126,12 +100,6 @@ describe("seeded session detail loaders", () => {
     { loader: accessLoader, destination: "/access/sessions", fixture: identitySeedIds.demo, status: "active" },
     { loader: accessLoader, destination: "/access/sessions", fixture: identitySeedIds.support, status: "active" },
     { loader: accessLoader, destination: "/access/sessions", fixture: identitySeedIds.collector, status: "expired" },
-    {
-      loader: marketplaceLoader,
-      destination: "/account/sessions",
-      fixture: identitySeedIds.collector,
-      status: "expired",
-    },
   ];
 
   it.each(cases)("forwards $fixture.sessionId at $destination", async ({ loader, destination, fixture, status }) => {
@@ -161,18 +129,15 @@ describe("seeded session detail loaders", () => {
     expect(getSession).toHaveBeenCalledWith(fixture.sessionId);
   });
 
-  it.each([accessLoader, marketplaceLoader])(
-    "does not replace a rejected API detail read with a successful fixture",
-    async (loader) => {
-      const error = new Response("Not found", { status: 404 });
-      mockCreateAuthRequestApiClient.mockReturnValue({ getSession: vi.fn().mockRejectedValue(error) });
-      await expect(
-        loader({
-          request: new Request("https://chasesets.test/sessions/ses_synthetic_nonexistent"),
-          params: { id: "ses_synthetic_nonexistent" },
-          context: undefined,
-        } as never),
-      ).rejects.toBe(error);
-    },
-  );
+  it.each([accessLoader])("does not replace a rejected API detail read with a successful fixture", async (loader) => {
+    const error = new Response("Not found", { status: 404 });
+    mockCreateAuthRequestApiClient.mockReturnValue({ getSession: vi.fn().mockRejectedValue(error) });
+    await expect(
+      loader({
+        request: new Request("https://chasesets.test/sessions/ses_synthetic_nonexistent"),
+        params: { id: "ses_synthetic_nonexistent" },
+        context: undefined,
+      } as never),
+    ).rejects.toBe(error);
+  });
 });
