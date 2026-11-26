@@ -145,7 +145,7 @@ Focused dev targets are available when you only need part of the system:
 
 ```bash
 pnpm run dev:admin-web
-pnpm run dev:marketplace-full
+pnpm run dev:public-web
 ```
 
 Useful local lifecycle commands:
