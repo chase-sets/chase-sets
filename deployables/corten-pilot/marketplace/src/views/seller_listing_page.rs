@@ -26,7 +26,7 @@ use crate::{
     app::url,
     listing_new::PICTURES,
     seller_listing::{Edits, ListingForm, ListingScreen, Place},
-    text::{ListingRecoveryMsg, Pilot, SellerListingMsg},
+    text::{ListingRecoveryMsg, Pilot, SellerListingMsg, SellerListingsMsg},
     views::ListingRecoveryNotice,
 };
 
@@ -42,6 +42,9 @@ pub struct QuantityFormId;
 /// The purchase limits form.
 #[derive(Id, Clone, Copy)]
 pub struct LimitsFormId;
+/// A graded draft's certification number form.
+#[derive(Id, Clone, Copy)]
+pub struct CertificationFormId;
 /// Withdraw's confirmation.
 #[derive(Id)]
 pub struct WithdrawDialogId;
@@ -182,6 +185,7 @@ pub fn SellerListingPage<'a>(
     t: SellerListingMsg,
     p: Pilot,
     r: ListingRecoveryMsg,
+    s: SellerListingsMsg,
     id: &'a str,
     screen: &'a ListingScreen,
 ) -> impl Render {
@@ -241,6 +245,27 @@ pub fn SellerListingPage<'a>(
                                 <span class={Tag}>{option}</span>
                             }
                         </p>
+                    }
+                    if let Some(graded) = &l.graded_card {
+                        <dl class={Lines}>
+                            <div>
+                                <dt>{t.page_grading_company()}</dt>
+                                <dd>{&graded.grading_company}</dd>
+                            </div>
+                            <div>
+                                <dt>{t.page_grade()}</dt>
+                                <dd>{&graded.grade}</dd>
+                            </div>
+                            if let Some(number) = graded.certification_number.as_deref().filter(|n| !n.is_empty()) {
+                                <div>
+                                    <dt>{t.page_certification_number()}</dt>
+                                    <dd>{number}</dd>
+                                </div>
+                            }
+                        </dl>
+                    }
+                    if l.status == "draft" && l.requires_certification() {
+                        <Certification t={t} s={s} id={id} screen={screen} />
                     }
                     <p class={Big}>{money(t, Some(&l.price_amount), l.price_currency_code.as_deref())}</p>
                     <p class={Hint}>
@@ -363,6 +388,36 @@ pub fn SellerListingPage<'a>(
             <h2 id="update-title" class={PartTitle}>{t.page_update_listing()}</h2>
             <UpdateForms t={t} p={p} id={id} screen={screen} />
         </section>
+    }
+}
+
+/// A graded draft's certification number, which it needs before it can be published: sent under
+/// the form's own attempt, and refused at its field with what was typed kept.
+#[component(css = SellerListingPage)]
+fn Certification<'a>(t: SellerListingMsg, s: SellerListingsMsg, id: &'a str, screen: &'a ListingScreen) -> impl Render {
+    let f = ListingForm::FIELDS;
+    let e = &screen.edits;
+    let ce = e.errors.within(CertificationFormId);
+    let number = e.certification_number.as_deref().unwrap_or_default();
+    html! {
+        <form
+            id={CertificationFormId}
+            class={(KitStack { gap: Gap::App }, gap_3(), Stack)}
+            method="post"
+            action={here(id, screen)}
+        >
+            <input type="hidden" name={f.intent} value="set-certification-number">
+            {SubmitKey::field(f.attempt)}
+            <label class={Field}>
+                <span class={Label}>{t.page_certification_number()}</span>
+                <input type="text" name={f.certification_number} value={number} required {..ce.aria(f.certification_number)}>
+            </label>
+            <p class={Hint}>{s.error_certification_number_required()}</p>
+            {ce.message(f.certification_number)}
+            <button class={(Button, Secondary)} type="submit" disabled={screen.blocked()}>
+                {t.page_save_certification_number()}
+            </button>
+        </form>
     }
 }
 

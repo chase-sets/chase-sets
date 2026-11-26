@@ -414,7 +414,10 @@ fn listing_attempt_required(method: &Method, path: &str) -> bool {
         )
         | ("DELETE", "listing-availability/away-window" | "order-capacity") => true,
         ("POST", rest) => rest.strip_prefix("listings/").and_then(|r| r.split_once('/')).is_some_and(|(_, command)| {
-            matches!(command, "price" | "quantity-cap" | "purchase-limits" | "publish" | "pause" | "withdraw")
+            matches!(
+                command,
+                "price" | "quantity-cap" | "purchase-limits" | "certification-number" | "publish" | "pause" | "withdraw"
+            )
         }),
         _ => false,
     }
@@ -11393,7 +11396,8 @@ async fn the_fee_preview_draws_the_terms_or_the_apis_refusal() {
 const SELLER_LISTINGS: &str = "/api/marketplace/account/listings/";
 
 /// A seller's listing as the API reads it: `lst_draft` is a draft with two photos and its front
-/// view missing, `lst_active` is active and ready.
+/// view missing, `lst_active` is active and ready. `lst_graded` is a draft graded PSA 10, ready
+/// but without its certification number; `lst_graded_active` is published with its number.
 fn seller_listing(id: &str) -> Value {
     let draft = id == "lst_draft";
     let photo = |id: &str, order: i64, slot: Value| json!({ "photoId": id, "altText": null, "slotId": slot, "viewKind": slot, "status": "active", "sortOrder": order });
@@ -11412,6 +11416,16 @@ fn seller_listing(id: &str) -> Value {
         "status": if draft { "draft" } else { "active" },
         "evidence": evidence,
     });
+    if id == "lst_graded" {
+        listing["status"] = json!("draft");
+    }
+    if id.starts_with("lst_graded") {
+        let number = if id == "lst_graded" { Value::Null } else { json!("87654321") };
+        listing["graded_card"] = json!({
+            "gradingCompany": "PSA", "grade": "10", "certificationNumber": number,
+            "population": null, "conditionDescriptors": [],
+        });
+    }
     listing["evidence_readiness"] = json!({
         "ready": !draft,
         "requirements": { "requiredSlots": [{ "slotId": "front", "viewKind": "front", "minimumWidthPixels": 800, "minimumHeightPixels": 800 }] },
@@ -11774,6 +11788,11 @@ fn seller_listings(method: &Method, path: &str, headers: &HeaderMap, body: &str)
             } })),
         )
             .into_response(),
+        ("POST", "certification-number") if sent["certificationNumber"] == "001" => refusal(
+            StatusCode::BAD_REQUEST,
+            "listing_certification_number_invalid",
+            "PSA certification numbers must use 8 to 9 digits.",
+        ),
         ("POST", _) if body.contains("filename=\"broken.png\"") => {
             refusal(StatusCode::BAD_REQUEST, "listing_evidence_invalid", "Check the listing photos and try again.")
         }
@@ -12140,6 +12159,84 @@ async fn a_refused_listing_write_says_why_and_keeps_what_was_typed() {
     let (status, _, _) = pilot.send(post("/account/listings/lst_active", "lister", "intent=pause", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(listing_writes(&pilot, "lst_active").len(), writes);
+}
+
+/// A graded draft without its certification number (`lst_graded`), ready but for it, as an
+/// imported graded card is drafted.
+#[tokio::test]
+async fn a_graded_draft_sets_its_certification_number_under_the_forms_own_attempt() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/listings/lst_graded", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in ["Grading company", "PSA", "Grade", "10", "Save certification number"] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(page.contains("Add a certification number before publishing this Listing."), "{page}");
+    assert!(html.contains(r#"value="set-certification-number""#), "{html}");
+    assert!(html.contains(r#"name="certificationNumber" value="" required"#), "{html}");
+    // The draft is ready but for its number, and Publish waits for it.
+    assert!(html.contains(r#"type="submit" disabled>Publish listing</button>"#), "{html}");
+
+    let prepared = preparations(&pilot).len();
+    let attempt = new_attempt();
+    let form = format!("intent=set-certification-number&certificationNumber=12345678&attempt={attempt}");
+    let (status, headers, html) = pilot.send(post("/account/listings/lst_graded", "lister", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/listings/lst_graded?"), "{to}");
+    let q = query(&to);
+    assert!(q.contains_key("afterWrite"), "{to}");
+    assert!(!q.contains_key("listingRecovery") && !q.contains_key("evidenceEvent"), "{to}");
+    let call = listing_writes(&pilot, "lst_graded").pop().unwrap();
+    assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_graded/certification-number"));
+    assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap(), json!({ "certificationNumber": "12345678" }));
+    // Marketplace does not prepare it: it goes under the form's own attempt.
+    assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), attempt);
+    assert_eq!(preparations(&pilot).len(), prepared);
+}
+
+#[tokio::test]
+async fn a_refused_certification_number_says_why_at_its_field_and_keeps_what_was_typed() {
+    let pilot = Pilot::new().await;
+    // Blank: the field says it is needed, and nothing is sent.
+    let form = format!("intent=set-certification-number&certificationNumber=+&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_graded", "lister", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"aria-invalid="true""#), "{html}");
+    assert!(listing_writes(&pilot, "lst_graded").is_empty());
+
+    // Refused by Marketplace: its words at the field, the number typed kept, and no banner.
+    let form = format!("intent=set-certification-number&certificationNumber=001&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_graded", "lister", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("PSA certification numbers must use 8 to 9 digits."), "{html}");
+    assert!(html.contains(r#"name="certificationNumber" value="001" required aria-invalid="true""#), "{html}");
+    assert!(!text(&html).contains("Update Listing PSA"), "{html}");
+    assert_eq!(listing_writes(&pilot, "lst_graded").len(), 1);
+}
+
+#[tokio::test]
+async fn a_published_graded_listing_shows_its_certification_number_and_no_form() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/listings/lst_graded_active", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in ["Grading company", "PSA", "Certification number", "87654321"] {
+        assert!(page.contains(words), "{words}: {page}");
+    }
+    assert!(!html.contains("set-certification-number"), "{html}");
+    assert!(!html.contains(r#"name="certificationNumber""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_ungraded_draft_has_no_grading_and_no_certification_form() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/listings/lst_draft", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(!page.contains("Grading company") && !page.contains("Certification number"), "{page}");
+    assert!(!html.contains("set-certification-number"), "{html}");
 }
 
 #[tokio::test]
