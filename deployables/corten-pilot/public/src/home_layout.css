@@ -29,8 +29,14 @@
 }
 @media not (--md) {
   .shell {
+    gap: var(--space-3);
+    padding-block-start: var(--space-3);
     /* Keep the footer clear of the sticky CTA. */
     padding-bottom: 5.5rem;
+  }
+  /* The landing hero already owns its top inset; reading pages keep theirs. */
+  .main:has([data-panel="hero"]) {
+    padding-block-start: 0;
   }
 }
 .skip {

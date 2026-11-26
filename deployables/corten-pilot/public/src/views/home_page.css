@@ -155,6 +155,16 @@
 .brand:hover {
   color: var(--color-primary);
 }
+@media not (--md) {
+  /* The shell supplies the nav gutter; flush furniture needs no extra inset. */
+  .nav,
+  .nav .brand {
+    padding: 0;
+  }
+  .nav .button {
+    min-height: var(--control-height-sm);
+  }
+}
 .footer {
   display: grid;
   gap: var(--space-3);
@@ -258,6 +268,15 @@
   font-size: 0.75rem;
   text-align: center;
 }
+@media not (--md) {
+  .promo-message > a {
+    min-height: var(--control-height-sm);
+  }
+  .promo-controls .icon-button {
+    width: var(--control-height);
+    height: var(--control-height);
+  }
+}
 @media (width < 40rem) {
   .promo {
     display: grid;
@@ -279,11 +298,15 @@
     grid-area: 2 / 1 / auto / 3;
     justify-self: start;
     min-width: 0;
+    padding-inline: var(--space-2);
     overflow-wrap: anywhere;
   }
   .promo-controls {
     grid-area: 2 / 3;
     gap: 0;
+  }
+  .promo-count {
+    min-width: var(--space-6);
   }
 }
 
@@ -478,7 +501,12 @@
 }
 .panel-hero {
   gap: var(--space-2);
-  padding: var(--space-2);
+}
+@media (--md) {
+  /* Preserve the existing compact inset on larger screens. */
+  .panel-hero {
+    padding: var(--space-2);
+  }
 }
 .panel-head {
   display: grid;
