@@ -6,6 +6,7 @@ import {
   expectPageOk,
   expectVisibleText,
   skipDeployedAdminE2e,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 import { logSeedContractGap } from "./support/seed-contract-gap";
 
@@ -136,6 +137,10 @@ async function expectAliasReviewWorkspace(page: Page) {
 test("tablet operator navigates to import review and uses the bulk action bar @catalog-admin-integrations @tablet @browser-e2e-seed", async ({
   page,
 }, testInfo) => {
+  test.skip(
+    onCortenAdmin,
+    "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+  );
   test.setTimeout(120_000);
   await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
   await expectPageOk(page, "/catalog/integrations");
@@ -263,6 +268,10 @@ async function expectIntegrationHealthTriage(page: Page) {
 }
 
 test("catalog operator can inspect integration health triage @catalog-admin-integrations @tablet", async ({ page }) => {
+  test.skip(
+    onCortenAdmin,
+    "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+  );
   test.setTimeout(120_000);
 
   await openIntegrationHealthTriage(page);
@@ -301,6 +310,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("signed-in catalog operator sees the rebuilt primary import-to-promotion workbench @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten workbench draws its Run sync stage as a details summary, not an aria-expanded button disclosure",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -577,6 +590,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("scope-first admin journey: map a scope, sync it, edit and bulk-promote a candidate, and hand off to draft Catalog Items @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten workbench draws its import scope step as a details summary, not an aria-expanded button disclosure",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -761,6 +778,10 @@ test.describe.serial("catalog admin integrations", () => {
   });
 
   test("catalog operator can inspect integration health triage @catalog-admin-integrations", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten section nav does not yet mark a nested entry such as Integration health as the current page",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -779,6 +800,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect provider setup readiness on the v2 Provider detail page @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten provider page posts Create draft to its own /catalog/providers/{key}/draft route, where admin-web posts to the page's path",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -838,6 +863,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect job recovery and review reapply/replay controls @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten Source Observation review rows do not yet offer Reapply or Replay on a promoted observation (and the Run sync stage is a details summary, not a button)",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -904,6 +933,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect governance controls and health triage deep links @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten section nav does not yet mark the nested Settings entry current, here at its older /catalog/integrations/governance address",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,

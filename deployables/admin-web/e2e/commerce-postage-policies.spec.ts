@@ -10,6 +10,7 @@ import {
   skipDeployedAdminE2e,
   waitForProjectionPositionFromResponse,
   waitForProjectionPositionFromUrl,
+  onCortenAdmin,
   type ReadAfterWriteHeaderFactory,
 } from "./support/admin-e2e";
 
@@ -49,6 +50,16 @@ function pullRequestIdentity() {
 }
 
 async function setAuthenticatedColorMode(page: Page, mode: "light" | "dark") {
+  if (onCortenAdmin) {
+    // The Corten admin has no data-chase-theme root: its explicit color mode is html[data-theme].
+    const root = page.locator("html");
+    await root.evaluate((element, nextMode) => element.setAttribute("data-theme", nextMode), mode);
+    await expect(root).toHaveAttribute("data-theme", mode);
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
+    return;
+  }
   const themeRoot = page.locator("[data-chase-theme]").first();
   await expect(themeRoot).toBeVisible();
   await expect(themeRoot).toHaveAttribute("data-chase-theme", "");
@@ -181,8 +192,9 @@ test.describe("commerce admin postage policies", () => {
       await activationForm.getByLabel("Activation reason", { exact: true }).fill(activationReason);
       await expect(activationForm.getByLabel("Activation reason", { exact: true })).toHaveValue(activationReason);
       await activationForm.getByRole("button", { name: "Activate" }).click();
+      // The Corten admin's confirmation is a plain <dialog> (role dialog); admin-web's is an alertdialog.
       await page
-        .getByRole("alertdialog", { name: `Activate ${label}?` })
+        .getByRole(onCortenAdmin ? "dialog" : "alertdialog", { name: `Activate ${label}?` })
         .getByRole("button", { name: "Activate" })
         .click();
       await page.waitForURL(

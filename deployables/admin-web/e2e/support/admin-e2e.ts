@@ -22,6 +22,10 @@ export const platformAdminAccount = {
 const authApiTimeoutMs = 90_000;
 const pageReadyTimeoutMs = 90_000;
 
+// The Corten admin browser gate sets CHASE_SETS_BROWSER_E2E_SYSTEM=corten-admin; a test that reads
+// admin-web's own DOM shape is skipped there with the reason it differs.
+export const onCortenAdmin = process.env.CHASE_SETS_BROWSER_E2E_SYSTEM === "corten-admin";
+
 export const skipDeployedAdminE2e =
   process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true" &&
   (configuredAdminEmail.length === 0 || configuredAdminPassword.length === 0);
@@ -304,7 +308,7 @@ export async function expectAdminWebHydrated(page: Page) {
   while (Date.now() < deadline) {
     await recoverAdminError(page, { timeoutMs: 5_000 });
     try {
-      await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 10_000 });
+      await expectAdminPageScripted(page, 10_000);
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -314,6 +318,19 @@ export async function expectAdminWebHydrated(page: Page) {
   }
 
   throw lastError ?? new Error("Admin web did not hydrate.");
+}
+
+// admin-web marks <html data-admin-web-hydrated="true"> once React has hydrated. The Corten admin
+// (a page carrying Corten's `corten-shell` meta) draws plain forms on the server, so its page is
+// ready once parsed: its module scripts run before DOMContentLoaded.
+async function expectAdminPageScripted(page: Page, timeout: number) {
+  await page.waitForFunction(
+    () =>
+      document.documentElement.dataset.adminWebHydrated === "true" ||
+      (document.readyState !== "loading" && document.querySelector('meta[name="corten-shell"]') !== null),
+    undefined,
+    { timeout },
+  );
 }
 
 export async function recoverAdminError(page: Page, options: { timeoutMs?: number } = {}) {

@@ -6,6 +6,7 @@ import {
   expectAdminWebHydrated,
   expectPageOk,
   skipDeployedAdminE2e,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
@@ -31,6 +32,10 @@ test.describe.serial("catalog provider job diagnostics", () => {
     test(`inspects retained TCGplayer job outcomes in place on ${viewport.name} @catalog-admin-integrations`, async ({
       page,
     }, testInfo) => {
+      test.skip(
+        onCortenAdmin,
+        "the Corten provider page draws one disclosure per job at every width, where admin-web draws a phone and a desktop copy",
+      );
       test.setTimeout(180_000);
       test.skip(skipDeployedAdminE2e, SKIP_REASON);
 

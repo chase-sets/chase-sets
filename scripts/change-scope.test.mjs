@@ -156,6 +156,20 @@ function withRetiredMarketplaceSuiteIds(changedFiles, suites) {
     : remaining;
 }
 
+// Nor the Corten admin browser flag.
+const cortenAdminBrowserPaths = [
+  /^deployables\/corten-pilot\/(?:admin|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
+  /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^deployables\/admin-web\/e2e\/(?!catalog-staging-provider-sync\.uat\.|rendered-copy-sweep\.|ink-foil-visual-identity\.)[^/]+\.spec\.ts$/,
+  /^deployables\/admin-web\/e2e\/support\/(?:admin-e2e|seed-contract-gap)\.ts$/,
+  /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
+];
+
+function expectedCortenAdminBrowser(changedFiles) {
+  return changedFiles.some((file) => cortenAdminBrowserPaths.some((pattern) => pattern.test(file)));
+}
+
 // Nor the Corten pilot check flag.
 const cortenPilotCheckPaths = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
@@ -2428,6 +2442,7 @@ function expectedPublicPresenceEnrollment(base, workspaces) {
     requiredProofPaths: expectedRequiredProofPaths(base.changedFiles),
     catalogUatSyntheticRequired: expectedCatalogUatSynthetic(base.changedFiles),
     cortenMarketplaceBrowserRequired: expectedCortenMarketplaceBrowser(base.changedFiles),
+    cortenAdminBrowserRequired: expectedCortenAdminBrowser(base.changedFiles),
     cortenPilotCheckRequired: expectedCortenPilotCheck(base.changedFiles),
   };
   if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
@@ -2712,6 +2727,7 @@ describe("change-scope", () => {
       unitTestsRequired: false,
       catalogUatSyntheticRequired: false,
       cortenMarketplaceBrowserRequired: false,
+      cortenAdminBrowserRequired: false,
       cortenPilotCheckRequired: false,
       requiredProofPaths: [],
     });

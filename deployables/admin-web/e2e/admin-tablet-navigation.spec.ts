@@ -5,6 +5,7 @@ import {
   expectAdminWebHydrated,
   expectPageOk,
   skipDeployedAdminE2e,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 
 // #3430: below lg the admin shell renders a sticky section bar carrying a
@@ -51,6 +52,10 @@ test.describe("admin tablet navigation", () => {
   test("tablet operator reaches any catalog section in two taps with a persistent section trail @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -111,6 +116,10 @@ test.describe("admin tablet navigation", () => {
   });
 
   test("tablet operator keeps section orientation across a support workflow @admin-support", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -142,6 +151,10 @@ test.describe("admin tablet navigation", () => {
   });
 
   test("phone and desktop admin navigation stay unchanged @catalog-admin-integrations", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,

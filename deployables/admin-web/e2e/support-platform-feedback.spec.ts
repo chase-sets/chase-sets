@@ -6,10 +6,15 @@ import {
   expectPageOk,
   skipDeployedAdminE2e,
   waitForProjectionPositionFromResponse,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 
 test.describe("support admin platform feedback", () => {
   test("records seeded feedback furniture mobile @admin-support @browser-e2e-seed", async ({ page }, testInfo) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no data-chase-theme marker for the spec to switch between light and dark",
+    );
     await page.setViewportSize({ width: 390, height: 844 });
     await openSeededFeedback(page);
     const light = await feedbackFurniture(page, "light");
@@ -24,6 +29,10 @@ test.describe("support admin platform feedback", () => {
   });
 
   test("records seeded feedback furniture desktop @admin-support @browser-e2e-seed", async ({ page }, testInfo) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no data-chase-theme marker for the spec to switch between light and dark",
+    );
     await page.setViewportSize({ width: 1280, height: 900 });
     await openSeededFeedback(page);
     const light = await feedbackFurniture(page, "light");

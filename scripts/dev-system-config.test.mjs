@@ -22,7 +22,9 @@ import {
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
   createMarketplaceDevProcessDefinition,
+  browserE2eCortenAdminTarget,
   browserE2eCortenMarketplaceTarget,
+  cortenAdminBinaryPath,
   cortenMarketplaceBinaryPath,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
@@ -252,8 +254,85 @@ describe("dev system target env overrides", () => {
       browserE2eProductionTarget,
     );
     expect(() => resolveBrowserE2eSystemTarget({ CHASE_SETS_BROWSER_E2E_SYSTEM: "preview" })).toThrow(
-      /must be "development", "production" or "corten-marketplace"/,
+      /must be "development", "production", "corten-marketplace" or "corten-admin"/,
     );
+  });
+
+  it("serves admin from the Corten pilot's admin binary behind an ingress on the admin port, with the API's internal capability", () => {
+    expect(resolveBrowserE2eSystemTarget({ CHASE_SETS_BROWSER_E2E_SYSTEM: "corten-admin" })).toBe(
+      browserE2eCortenAdminTarget,
+    );
+    expect(isBrowserE2eTarget(browserE2eCortenAdminTarget)).toBe(true);
+    const processes = [
+      { name: "platform-api", env: { PORT: "6182" }, port: 6182 },
+      {
+        name: "admin-web",
+        workspace: "@chase-sets/app-admin-web",
+        env: {
+          PORT: "6172",
+          PLATFORM_API_URL: "http://localhost:6182",
+          VITE_PLATFORM_API_URL: "http://localhost:6182",
+        },
+        port: 6172,
+      },
+    ];
+    const [api, admin] = applyDevTargetEnvOverrides(browserE2eCortenAdminTarget, processes, {
+      ci: true,
+      environment: {},
+      platform: "linux",
+    });
+    expect(api.env.PLATFORM_INTERNAL_AUTH_SECRET).toBe(admin.env.PLATFORM_INTERNAL_AUTH_SECRET);
+    expect(api.env.PLATFORM_INTERNAL_AUTH_SECRET).toMatch(/\S/);
+    expect(api.env.CHASE_SETS_TRUST_FORWARDED_HEADERS).toBe("true");
+    expect(admin).toEqual({
+      name: "admin-web",
+      command: cortenAdminBinaryPath({}, "linux"),
+      args: [],
+      env: expect.objectContaining({
+        CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+        ADMIN_WEB_ORIGIN: "http://localhost:6172",
+        HOST: "127.0.0.1",
+        PORT: "6176",
+      }),
+      port: 6176,
+      publicPort: 6172,
+    });
+    expect(admin).not.toHaveProperty("workspace");
+    expect(
+      createBrowserE2eProductionIngressDefinitions([api, admin], {
+        apiUrl: "http://localhost:6182",
+        ingressScriptPath: "/repo/scripts/platform-compose-ingress.mjs",
+      }),
+    ).toEqual([
+      {
+        name: "admin-web-ingress",
+        command: "node",
+        args: [
+          "/repo/scripts/platform-compose-ingress.mjs",
+          "--port",
+          "6172",
+          "--label",
+          "admin-web",
+          "--web-target",
+          "http://127.0.0.1:6176",
+          "--api-target",
+          "http://localhost:6182",
+        ],
+        env: {},
+        port: 6172,
+      },
+    ]);
+    expect(cortenAdminBinaryPath({}, "linux")).toMatch(
+      /deployables[\\/]corten-pilot[\\/]target[\\/]debug[\\/]corten-pilot-admin$/,
+    );
+    expect(cortenAdminBinaryPath({ CORTEN_ADMIN_BINARY: "/opt/admin" }, "linux")).toBe("/opt/admin");
+    // The Corten marketplace target keeps admin-web as it is.
+    const [, marketplaceTargetAdmin] = applyDevTargetEnvOverrides(browserE2eCortenMarketplaceTarget, processes, {
+      ci: true,
+      environment: {},
+      platform: "linux",
+    });
+    expect(marketplaceTargetAdmin).toBe(processes[1]);
   });
 
   it("serves the marketplace from the Corten pilot binary behind an ingress on the marketplace port, with the API's internal capability", () => {
@@ -406,6 +485,7 @@ describe("dev system target env overrides", () => {
     expect(isBrowserE2eTarget("browser-e2e")).toBe(true);
     expect(isBrowserE2eTarget(browserE2eProductionTarget)).toBe(true);
     expect(isBrowserE2eTarget(browserE2eCortenMarketplaceTarget)).toBe(true);
+    expect(isBrowserE2eTarget(browserE2eCortenAdminTarget)).toBe(true);
     expect(isBrowserE2eTarget("marketplace-full")).toBe(false);
   });
 
