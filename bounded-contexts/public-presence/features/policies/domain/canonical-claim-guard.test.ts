@@ -1142,7 +1142,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
   // Repinned when the deployed browser E2E profile surface gained the Corten pilot's e2e root, after the Corten
   // marketplace's kept browser specs moved there; the C1-C7 normalization is unchanged.
-  [citationFencePaths.staticSurfaces]: "844aac4ddc409813405ac6e2a7546086baecf0bcd98f6bbf7faf7c4e6ee5265d",
+  // Repinned when marketplace-web was deleted: its E2E root and app source prefixes leave the browser-profile,
+  // route and jargon surfaces. The C1-C7 normalization is unchanged.
+  [citationFencePaths.staticSurfaces]: "7b35362148f7cd8d49c533fa6724fc0efaf9cfded2d07e2bc919c69b82d68756",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
