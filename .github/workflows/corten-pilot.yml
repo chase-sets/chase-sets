@@ -1,11 +1,11 @@
 name: Corten Pilot
 
-# The Corten pilot (deployables/corten-pilot) is a Cargo workspace of Rust apps; its marketplace serves
-# production. This workflow is advisory: it is not a required status check (main requires only
+# The Corten pilot (deployables/corten-pilot) is a Cargo workspace of Rust apps; its admin, marketplace
+# and public apps serve production. This workflow is advisory: it is not a required status check (main requires only
 # "PR Required"), the delivery loop waits only on required checks, and it does not run in the merge
 # queue, so it never blocks a merge. Platform PR's Corten Pilot Check runs the same steps (the
-# corten-pilot-check action) as a required gate when a change touches the pilot's marketplace or
-# platform code, its Cargo files or its export, and in the merge queue.
+# corten-pilot-check action) as a required gate when a change touches the pilot's admin, marketplace,
+# platform or public code, its Cargo files or its export, and in the merge queue.
 #
 # It runs on every pull request and every push to main, except changes to documentation alone, so
 # drift between main and the pilot shows up on the PR that causes it rather than days later. The
