@@ -92,3 +92,10 @@
   justify-content: center;
   margin-block: var(--space-5);
 }
+
+/* Stacked at phone width, a row's Open is a 44px touch target, as admin-web's card action is. */
+@media not (--wide) {
+  .open {
+    min-height: 2.75rem;
+  }
+}
