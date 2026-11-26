@@ -151,3 +151,10 @@
     border-bottom: 1px solid var(--color-border);
   }
 }
+
+/* Below the wide breakpoint, a 44px touch target, as admin-web's controls are; wider, the compact size stays. */
+@media not (--wide) {
+  .button {
+    min-height: var(--control-height-sm);
+  }
+}

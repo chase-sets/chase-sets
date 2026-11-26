@@ -2687,6 +2687,49 @@ async fn a_stacked_rows_action_is_a_44px_touch_target_at_phone_width() {
         assert!(stacked, "{path}: .{class} has no 44px rule below the wide breakpoint: {css}");
     }
 }
+/// The admin's small buttons and button links take the theme's small control height (44px, the design
+/// system's) below the wide breakpoint, as admin-web's controls do at its default density; wider,
+/// their compact sizes stay.
+#[test]
+fn the_admins_small_buttons_are_44px_touch_targets_at_phone_width() {
+    let sheets = [
+        ("operations/views/attention_page.css", include_str!("operations/views/attention_page.css"), ".open"),
+        ("views/live_status.css", include_str!("views/live_status.css"), ".reload"),
+        ("projections/views/detail_sheet.css", include_str!("projections/views/detail_sheet.css"), ".close"),
+        ("projections/views/console_page.css", include_str!("projections/views/console_page.css"), ".compact"),
+        ("views/policy_sheet.css", include_str!("views/policy_sheet.css"), ".close"),
+        ("catalog/views/attention_panel.css", include_str!("catalog/views/attention_panel.css"), ".small"),
+        ("growth/views/google_shopping_page.css", include_str!("growth/views/google_shopping_page.css"), ".small.button"),
+        ("catalog/views/bulk_rows.css", include_str!("catalog/views/bulk_rows.css"), ".small"),
+        ("providers/views/providers_page.css", include_str!("providers/views/providers_page.css"), ".button"),
+        ("growth/views/promo_page.css", include_str!("growth/views/promo_page.css"), ".small"),
+        (
+            "policy_console/views/policy_console_page.css",
+            include_str!("policy_console/views/policy_console_page.css"),
+            ".table .button",
+        ),
+        ("catalog/views/catalog_dialog.css", include_str!("catalog/views/catalog_dialog.css"), ".small"),
+        ("catalog/views/detail_page.css", include_str!("catalog/views/detail_page.css"), ".small"),
+        ("commerce/views/wallet_page.css", include_str!("commerce/views/wallet_page.css"), ".small"),
+        ("catalog/views/item_form.css", include_str!("catalog/views/item_form.css"), ".small"),
+        ("catalog/views/item_page.css", include_str!("catalog/views/item_page.css"), ".link"),
+        ("catalog/views/item_page.css", include_str!("catalog/views/item_page.css"), ".small"),
+        ("catalog/views/preview_dialog.css", include_str!("catalog/views/preview_dialog.css"), ".small"),
+        ("catalog/views/scope_page.css", include_str!("catalog/views/scope_page.css"), ".small"),
+        ("catalog/views/sync_batch_page.css", include_str!("catalog/views/sync_batch_page.css"), ".small"),
+    ];
+    for (file, css, selector) in sheets {
+        let phone = css.split("@media").skip(1).any(|block| {
+            let (query, rules) = block.split_once('{').unwrap_or((block, ""));
+            query.contains("not (--wide)")
+                && rules.split('}').next().is_some_and(|rule| {
+                    rule.split(['{', ',']).any(|s| s.trim() == selector) && rule.contains("height: var(--control-height-sm)")
+                })
+        });
+        assert!(phone, "{file}: {selector} has no 44px rule below the wide breakpoint");
+    }
+}
+
 #[tokio::test]
 async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     let pilot = Pilot::new().await;

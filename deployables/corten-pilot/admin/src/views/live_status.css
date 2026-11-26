@@ -58,3 +58,10 @@ corten-live[status="closed"] > .status .stale {
   padding: 0 var(--space-3);
   font-size: 0.875rem;
 }
+
+/* Below the wide breakpoint, a 44px touch target, as admin-web's controls are; wider, the compact size stays. */
+@media not (--wide) {
+  .reload {
+    min-height: var(--control-height-sm);
+  }
+}
