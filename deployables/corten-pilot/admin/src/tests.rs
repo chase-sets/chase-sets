@@ -11179,6 +11179,54 @@ async fn a_reader_sees_the_workbench_without_its_commands_and_a_stop_is_said() {
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage, as the API asks");
     assert!(daily_writes(&pilot).is_empty());
 }
+#[tokio::test]
+async fn tcgplayer_import_jobs_filter_by_operator_status_and_the_address_keeps_the_choice() {
+    let pilot = Pilot::new().await;
+    let at = "/catalog/integrations?providerKey=tcgplayer&section=import-jobs&jobStatus=failed";
+    let (status, _, html) = pilot.send(get(at, Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        integrations_calls(&pilot).iter().all(|call| !call.contains("jobStatus")),
+        "the choice is the pilot's, never sent to the API: {:?}",
+        integrations_calls(&pilot)
+    );
+    let start = html.find("data-catalog-import-job-status-filter=").expect("TCGplayer's jobs have the filter");
+    let form = &html[html[..start].rfind("<form").unwrap()..start + html[start..].find("</form>").unwrap()];
+    assert!(form.contains(r#"method="get" action="/catalog/integrations""#), "a GET form on the page itself: {form}");
+    assert!(form.contains(r#"data-catalog-import-job-status-filter="failed""#), "the address's choice: {form}");
+    assert!(
+        form.contains(r#"<input type="hidden" name="providerKey" value="tcgplayer">"#)
+            && form.contains(r#"<input type="hidden" name="section" value="import-jobs">"#)
+            && !form.contains(r#"type="hidden" name="jobStatus""#),
+        "Apply keeps the working set and sends the choice once: {form}"
+    );
+    assert!(
+        form.contains(r#"name="jobStatus""#) && form.contains(r#"<option value="failed" selected>Failed</option>"#),
+        "{form}"
+    );
+    let options: Vec<&str> =
+        form.match_indices("<option").map(|(i, _)| &form[i..i + form[i..].find("</option>").unwrap()]).collect();
+    let labels: Vec<&str> = options.iter().map(|o| &o[o.find('>').unwrap() + 1..]).collect();
+    assert_eq!(
+        labels,
+        ["All statuses", "Queued", "Running", "Stale", "Retried", "Partial", "Failed", "Cancelled", "Completed"],
+        "admin-web's options, in its order"
+    );
+    assert!(form.contains("<dt>Recent jobs</dt><dd>1</dd>") && form.contains("<dt>Failed</dt><dd>1</dd>"), "{form}");
+    assert!(
+        html.contains(r#"data-catalog-import-job-state="failed" data-catalog-import-job-operator-status="failed""#),
+        "each row carries its status for the stylesheet: {html}"
+    );
+    assert!(
+        html.contains("No Queued found") && !html.contains("No Failed found"),
+        "an empty state for each status with no jobs: {html}"
+    );
+
+    let (_, _, html) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&jobStatus=bogus", Some("catalog-reader"))).await;
+    assert!(html.contains(r#"data-catalog-import-job-status-filter="all""#), "an unknown status is all: {html}");
+    assert!(html.contains(r#"<option value="all" selected>All statuses</option>"#), "{html}");
+}
 
 #[tokio::test]
 async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {

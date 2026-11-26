@@ -33,6 +33,7 @@ mod import_context;
 mod integrations_page;
 mod item_list;
 mod item_page;
+mod job_status_filter;
 mod list_page;
 mod observation_page;
 mod operator_session;
@@ -77,6 +78,7 @@ pub use item_page::{
     IdForm, ItemBack, ItemPage, ItemScreen, Labels, ListForm, MetadataForm, PublishForm, ReferenceForm, RowForm, choice_label,
     item_page, item_transitions,
 };
+pub use job_status_filter::JobStatusFilter;
 pub use list_page::{
     BlueprintRow, CategoryRow, ComponentRow, DimensionRow, Empty, FieldRow, Filters, ListPage, MoreFilters, Pager, Pick,
     RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
@@ -111,6 +113,7 @@ pub const COMPONENTS: &[Component] = &[
     ObservationPage,
     IntegrationsPage,
     DailyPage,
+    JobStatusFilter,
     ImportContext,
     ProviderPage,
     Validation,

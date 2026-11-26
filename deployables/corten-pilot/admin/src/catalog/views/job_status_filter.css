@@ -1,0 +1,95 @@
+.filtered {
+  display: grid;
+  gap: var(--space-3);
+}
+.filter {
+  display: grid;
+  gap: var(--space-2);
+}
+.choose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+.pick {
+  display: grid;
+  gap: var(--space-1);
+  max-inline-size: 16rem;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+.summary > div {
+  display: flex;
+  gap: var(--space-2);
+}
+.summary dt {
+  color: var(--color-text-secondary);
+}
+.summary dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* Only the chosen status's count and, when it has no jobs, its empty state show. */
+.summary > [data-status],
+.none-found {
+  display: none;
+}
+.filtered:has(option[value="all"]:checked) .summary > [data-status="all"],
+.filtered:has(option[value="queued"]:checked) .summary > [data-status="queued"],
+.filtered:has(option[value="running"]:checked) .summary > [data-status="running"],
+.filtered:has(option[value="stale"]:checked) .summary > [data-status="stale"],
+.filtered:has(option[value="retried"]:checked) .summary > [data-status="retried"],
+.filtered:has(option[value="partial"]:checked) .summary > [data-status="partial"],
+.filtered:has(option[value="failed"]:checked) .summary > [data-status="failed"],
+.filtered:has(option[value="cancelled"]:checked) .summary > [data-status="cancelled"],
+.filtered:has(option[value="completed"]:checked) .summary > [data-status="completed"] {
+  display: flex;
+}
+.filtered:has(option[value="queued"]:checked) .none-found[data-status="queued"],
+.filtered:has(option[value="running"]:checked) .none-found[data-status="running"],
+.filtered:has(option[value="stale"]:checked) .none-found[data-status="stale"],
+.filtered:has(option[value="retried"]:checked) .none-found[data-status="retried"],
+.filtered:has(option[value="partial"]:checked) .none-found[data-status="partial"],
+.filtered:has(option[value="failed"]:checked) .none-found[data-status="failed"],
+.filtered:has(option[value="cancelled"]:checked) .none-found[data-status="cancelled"],
+.filtered:has(option[value="completed"]:checked) .none-found[data-status="completed"] {
+  display: block;
+}
+/* A job of another status than the chosen one is hidden, and the table with it when none is left. */
+.filtered:has(option[value="queued"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="queued"]),
+.filtered:has(option[value="running"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="running"]),
+.filtered:has(option[value="stale"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="stale"]),
+.filtered:has(option[value="retried"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="retried"]),
+.filtered:has(option[value="partial"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="partial"]),
+.filtered:has(option[value="failed"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="failed"]),
+.filtered:has(option[value="cancelled"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="cancelled"]),
+.filtered:has(option[value="completed"]:checked)
+  [data-catalog-import-job-operator-status]:not([data-catalog-import-job-operator-status="completed"]),
+.filtered:has(.none-found[data-status="queued"]):has(option[value="queued"]:checked) table,
+.filtered:has(.none-found[data-status="running"]):has(option[value="running"]:checked) table,
+.filtered:has(.none-found[data-status="stale"]):has(option[value="stale"]:checked) table,
+.filtered:has(.none-found[data-status="retried"]):has(option[value="retried"]:checked) table,
+.filtered:has(.none-found[data-status="partial"]):has(option[value="partial"]:checked) table,
+.filtered:has(.none-found[data-status="failed"]):has(option[value="failed"]:checked) table,
+.filtered:has(.none-found[data-status="cancelled"]):has(option[value="cancelled"]:checked) table,
+.filtered:has(.none-found[data-status="completed"]):has(option[value="completed"]:checked) table {
+  display: none;
+}
