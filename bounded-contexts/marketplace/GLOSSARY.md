@@ -119,7 +119,7 @@ A **Certificate Number Format** is the minimum and maximum count of digits that 
 Notes:
 
 - Only a Policy Rule that selects at least one Option can set one, so a format follows the selected Grading Company Option and never the `gradingCompany` text.
-- Every format set by a matching Policy Rule must hold. Where none matches, any non-empty certification number is accepted.
+- Every format set by a matching Policy Rule must hold. Where none matches, any non-empty certification number without control characters is accepted. A number a seller sets before publication is also at most 64 characters.
 - A format is not part of the Listing Evidence Requirement or its snapshot.
 
 ## Listing Evidence Requirement

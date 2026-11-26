@@ -12,6 +12,6 @@ export const publicFoundersOfferTermsPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:aefc1432b9c46510c87baad2917393f65506899345b49f6d14bf5a005b0f9c1f",
+  contentFingerprint: "sha256:6b29fd5ee0484bce5cce35494daa18a5c9a8d1a7d23e062c28c34da5b72d5103",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"founders-offer-terms">;

@@ -28,7 +28,7 @@ const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
 const currentQuoteEvidence = `${listingRuntime}:1386-1405; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:378-404; ${listingDomain}:571-610; ${listingDomain}:1174-1215; ${listingRuntime}:1954-2016; ${currentQuoteEvidence}`;
+const creationEvidence = `${listingDomain}:378-404; ${listingDomain}:571-610; ${listingDomain}:1181-1222; ${listingRuntime}:1954-2016; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -122,7 +122,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:967-976; ${listingDomain}:1257-1261`,
+            evidenceRef: `${listingDomain}:967-976; ${listingDomain}:1264-1268`,
           },
           {
             assertion:
@@ -131,7 +131,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:1165-1168; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:947-1083`,
+            evidenceRef: `${listingDomain}:1172-1175; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:947-1083`,
           },
           {
             assertion:

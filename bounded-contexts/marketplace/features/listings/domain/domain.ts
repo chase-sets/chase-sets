@@ -985,6 +985,13 @@ export function decideMarketplaceListing(
         command.certificateNumberFormats,
         "certification-number-invalid",
       );
+      // The seller types this number, so its length is bounded here. A number Inventory recorded is taken as
+      // recorded when a Listing is created. Anything over 128 code units is over 64 characters.
+      if (certificationNumber.length > 128 || Array.from(certificationNumber).length > 64)
+        throw new MarketplaceListingDomainError(
+          "certification-number-invalid",
+          "Certification numbers must be 64 characters or fewer.",
+        );
       return [{ type: "marketplace.listing.certification-number-set", data: { certificationNumber } }];
     }
     case "AddListingPhotos":
@@ -1661,16 +1668,14 @@ function normalizeCertificationNumber(
   certificateNumberFormats: readonly CertificateNumberFormat[],
   code: "command-rejected" | "certification-number-invalid",
 ): string {
-  const certificationNumber = (details.certificationNumber ?? "").replaceAll(/\s+/g, "");
+  const entered = details.certificationNumber ?? "";
+  const certificationNumber = entered.replaceAll(/\s+/g, "");
   if (!certificationNumber)
     throw new MarketplaceListingDomainError(code, "Graded cards require a certification number.");
-  // With no matched format any text is accepted, so refuse what the event store cannot hold: control
-  // characters, unpaired surrogates, and text longer than twice the longest format a policy can declare.
-  if (/[\p{Cc}\p{Cs}]/u.test(certificationNumber) || certificationNumber.length > 64)
-    throw new MarketplaceListingDomainError(
-      code,
-      "Certification numbers must be 64 characters or fewer with no control characters.",
-    );
+  // With no matched format any text is accepted, so refuse what the event store cannot hold. The surrogate
+  // check reads the text as entered: dropping whitespace first could join two halves into a pair.
+  if (/\p{Cs}/u.test(entered) || /\p{Cc}/u.test(certificationNumber))
+    throw new MarketplaceListingDomainError(code, "Certification numbers cannot contain control characters.");
   for (const { minimumDigits, maximumDigits } of certificateNumberFormats) {
     if (
       !/^\d+$/.test(certificationNumber) ||

@@ -920,31 +920,39 @@ describe("marketplace Graded Item Details on a created Listing", () => {
     ).toThrow("PSA certification numbers must use 8 to 10 digits.");
   });
 
+  const setWithNoFormat = (certificationNumber: string) =>
+    decideMarketplaceListing(importedGradedDraft(), {
+      ...setCertification,
+      certificationNumber,
+      certificateNumberFormats: [],
+    });
+
   it.each([
     ["a control character", "AB\u0000C"],
     ["an unpaired surrogate", "AB\uD800C"],
-    ["more than 64 characters", "A".repeat(65)],
+    ["surrogate halves that only whitespace keeps apart", "AB\uD83C \uDCCFC"],
   ])("refuses %s when no format matched, on the draft and on the seller's own create", (_case, unstorable) => {
-    const refusal = "Certification numbers must be 64 characters or fewer with no control characters.";
-    expect(() =>
-      decideMarketplaceListing(importedGradedDraft(), {
-        ...setCertification,
-        certificationNumber: unstorable,
-        certificateNumberFormats: [],
-      }),
-    ).toThrow(refusal);
+    const refusal = "Certification numbers cannot contain control characters.";
+    expect(() => setWithNoFormat(unstorable)).toThrow(refusal);
     expect(() => createdGradedCard({ gradedCard: gradedCard({ certificationNumber: unstorable }) })).toThrow(refusal);
   });
 
-  it("accepts 64 characters and paired surrogates when no format matched", () => {
-    for (const certificationNumber of ["A".repeat(64), "AB\u{1F0CF}C"])
-      expect(
-        decideMarketplaceListing(importedGradedDraft(), {
-          ...setCertification,
-          certificationNumber,
-          certificateNumberFormats: [],
-        }),
-      ).toEqual([{ type: "marketplace.listing.certification-number-set", data: { certificationNumber } }]);
+  it("refuses more than 64 characters typed on the draft and keeps a longer number Inventory recorded", () => {
+    expect(() => setWithNoFormat("A".repeat(65))).toThrow("Certification numbers must be 64 characters or fewer.");
+    expect(() => setWithNoFormat("\u{1F0CF}".repeat(65))).toThrow(
+      "Certification numbers must be 64 characters or fewer.",
+    );
+    const recorded = "A".repeat(65);
+    expect(createdGradedCard({ gradedCard: gradedCard({ certificationNumber: recorded }) })).toEqual(
+      gradedCard({ certificationNumber: recorded }),
+    );
+  });
+
+  it("accepts 64 characters, counted as characters, and paired surrogates when no format matched", () => {
+    for (const certificationNumber of ["A".repeat(64), "\u{1F0CF}".repeat(64), "AB\u{1F0CF}C"])
+      expect(setWithNoFormat(certificationNumber)).toEqual([
+        { type: "marketplace.listing.certification-number-set", data: { certificationNumber } },
+      ]);
   });
 
   it("creates an import draft without a number even when the item's supply holds one", () => {
