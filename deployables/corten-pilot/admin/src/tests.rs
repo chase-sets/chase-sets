@@ -2822,13 +2822,21 @@ async fn the_section_pages_are_a_rail_a_section_bar_a_sheet_and_a_phone_bar() {
     assert!(pages.contains(r#"command="show-modal" commandfor="admin-sections">Sections</button>"#), "{pages}");
     assert!(pages.contains(r#"id="admin-sections" aria-labelledby="admin-sections-title" closedby="any""#), "{pages}");
     assert!(pages.contains(r#"<h2 id="admin-sections-title">Sections</h2>"#), "{pages}");
+    // A client navigation patches the pages in place, so the sheet and More close themselves when
+    // one of their links is followed, or they would stay open over the next page.
+    let sheet = &pages[pages.find(r#"id="admin-sections""#).unwrap()..];
+    let sheet = &sheet[..sheet.find('>').unwrap()];
+    assert!(sheet.contains("click:section_nav.followed("), "{sheet}");
+    let list = &pages[pages.find(r#"id="admin-more""#).unwrap()..];
+    let list = &list[..list.find('>').unwrap()];
+    assert!(list.contains("click:section_nav.picked("), "{list}");
     // The phone bar: the first two pages and the current one, the rest under More.
     let bottom = &pages[pages.find("data-admin-bottom-nav").unwrap()..];
     let (shown, more) = bottom.split_at(bottom.find(r#"popovertarget="admin-more""#).unwrap());
     assert!(shown.contains(r#"href="/catalog/dimensions""#) && shown.contains(r#"href="/catalog/fields""#), "{shown}");
     assert!(!shown.contains(r#"href="/catalog/components""#), "{shown}");
     assert!(
-        more.contains(r#"<ul class="admin-nav__more" id="admin-more" popover>"#)
+        more.contains(r#"<ul class="admin-nav__more" id="admin-more" popover data-on='click:section_nav.picked($e,$t)'>"#)
             && more.contains(r#"href="/catalog/components""#),
         "{more}"
     );

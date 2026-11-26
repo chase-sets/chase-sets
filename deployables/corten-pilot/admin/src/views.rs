@@ -65,6 +65,7 @@ pub const COMPONENTS: &[Component] = &[
     corten_ui::MenuButton,
     Frame,
     AdminNav,
+    SectionNav,
     Section,
     IndexPage,
     Toasts,

@@ -157,10 +157,12 @@ fn phone_bar<'a>(entries: &[&'a NavItem], current: Option<&str>) -> (Vec<&'a Nav
 ///   from `wide` up, a Sections button that opens every page in a sheet (`NavigationDrawer`);
 /// - on a phone, a bar fixed at the bottom with the first pages and More (`BottomNav`).
 ///
-/// Each is drawn from one `req.nav_of`, so every copy of a link is marked alike. A navigation
-/// draws the element again, which closes the sheet. The home (`/`) is admin-web's root shell, with
-/// no section pages.
-#[component(css = AdminNav)]
+/// Each is drawn from one `req.nav_of`, so every copy of a link is marked alike. A client
+/// navigation patches the element in place, so an open sheet or More list would stay in the top
+/// layer: the script closes each when one of its links is followed, as admin-web's drawer does,
+/// and Corten's link handling then navigates. Without it a link is a full load, which draws both
+/// closed. The home (`/`) is admin-web's root shell, with no section pages.
+#[component(css = AdminNav, js)]
 pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let here = section_of(req.path());
     let home = req.path() == "/";
@@ -226,6 +228,7 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
                 id={AdminSectionsId}
                 aria-labelledby={AdminSectionsTitleId}
                 closedby="any"
+                on:click={js::followed(event, target)}
             >
                 <div class={SheetHeader {}}>
                     <h2 id={AdminSectionsTitleId}>{p.shell_sections()}</h2>
@@ -246,7 +249,7 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
                         if !more.is_empty() {
                             <li>
                                 <button type="button" class={Item} popovertarget={AdminMoreId}>{p.shell_more()}</button>
-                                <ul class={More} id={AdminMoreId} popover>
+                                <ul class={More} id={AdminMoreId} popover on:click={js::picked(event, target)}>
                                     for item in &more {
                                         <li><PageLink req={req} here={here} item={item} side={&side} /></li>
                                     }
