@@ -569,7 +569,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // `terms_` buyers accept the Terms of Service as `terms_api` says.
             // The `withheld_`, `eligible_`, `held_` and `wallet_` buyers hold the wallets `wallet_of` says.
             "payer" | "terms_accepted" | "terms_late" | "terms_inactive" | "terms_unconfirmed" | "terms_elsewhere"
-            | "withheld_small" | "withheld_ten" | "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_empty"
+            | "terms_broken" | "terms_stuck" | "withheld_small" | "withheld_ten" | "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_empty"
             | "wallet_unread" | "wallet_garbled" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
             // Saved payment methods: `card_reader` may only see them, `card_none` has none.
             "card_reader" => actor(&["orders.view"]),
@@ -1358,7 +1358,7 @@ fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderM
         let accepted = matches!(
             session,
             "terms_accepted" | "eligible_rich" | "held_rich" | "wallet_empty" | "wallet_unread" | "wallet_garbled"
-        ) || waits_for_source(headers, "identity");
+        ) || (waits_for_source(headers, "identity") && session != "terms_stuck");
         let withheld = !accepted && requested > 0;
         let applied =
             if withheld { 0 } else { requested.min(63_883).min(if session == "held_rich" { 50_000 } else { i64::MAX }) };
@@ -17130,6 +17130,40 @@ async fn an_acceptance_identity_does_not_confirm_keeps_the_orders_and_the_wallet
 }
 
 #[tokio::test]
+async fn keeps_withheld_credit_honest_when_terms_recovery_does_not_complete() {
+    let pilot = Pilot::new().await;
+    // Identity fails: the page again, withheld, saying so in its own words and not Identity's.
+    let (status, _, html) =
+        pilot.send(post("/account/payments/new", "terms_broken", "order_ids=ord_pay&intent=accept-terms", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("Terms acceptance could not be confirmed. Review the Terms or continue without wallet balance."),
+        "{page}"
+    );
+    assert!(!html.contains("sk_live_marker") && !html.contains("upstream detail"), "{html}");
+    assert!(page.contains("Wallet credit applied $0.00") && page.contains("Card charge $638.83"), "{page}");
+    assert!(html.contains(">Review Terms of Service</a>") && html.contains(r#"name="intent" value="accept-terms""#), "{html}");
+    assert_eq!(wallet_choices(&html), (true, true, true, true), "{html}");
+    // Identity records the acceptance but Payments' quote after it still withholds the wallet:
+    // the page says so, offers the Terms again and no wallet, and starts nothing.
+    let (status, headers, _) =
+        pilot.send(post("/account/payments/new", "terms_stuck", "order_ids=ord_pay&intent=accept-terms", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, _, html) = pilot.send(get(&to, Some("terms_stuck"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Accept the current Terms of Service to use wallet balance as payment."), "{page}");
+    assert!(page.contains("Wallet credit applied $0.00") && page.contains("Card charge $638.83"), "{page}");
+    assert_eq!(wallet_choices(&html), (true, true, true, true), "{html}");
+    assert!(html.contains(r#"<option value="none" selected>"#), "{html}");
+    assert_eq!(terms_accepts(&pilot), 2);
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"), "{calls:?}");
+}
+
+#[tokio::test]
 async fn while_the_read_after_accepting_catches_up_the_wallet_stays_withheld_with_a_refresh() {
     let pilot = Pilot::new().await;
     let (status, headers, _) =
@@ -17873,6 +17907,8 @@ fn terms_api(session: &str, method: &Method, uri: &Uri) -> Option<Response> {
     Some(match session {
         "payer" => committed(StatusCode::CREATED, "identity", "51", status),
         "terms_late" => committed(StatusCode::CREATED, "identity", "52", status),
+        "terms_stuck" => committed(StatusCode::CREATED, "identity", "53", status),
+        "terms_broken" => (StatusCode::INTERNAL_SERVER_ERROR, "upstream detail sk_live_marker").into_response(),
         "terms_elsewhere" => committed(StatusCode::CREATED, "settlement", "51", status),
         "terms_unconfirmed" => Json(status).into_response(),
         "terms_inactive" => {
