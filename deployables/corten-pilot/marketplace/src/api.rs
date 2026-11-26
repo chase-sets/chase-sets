@@ -2123,12 +2123,16 @@ pub struct FeeQuote {
     pub quote_fingerprint: String,
 }
 
+/// The wallet credit Payments applies to a quote: what was asked, what it applies (less while it
+/// withholds the wallet or a hold is on part of it), and what is left to pay outside the wallet.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct WalletCredit {
     #[serde(default)]
     pub requested_amount: String,
     #[serde(default)]
     pub applied_amount: String,
+    #[serde(default)]
+    pub external_amount: String,
 }
 
 /// The account's wallet balance (`GET /api/settlement/wallet`): what checkout applies to the

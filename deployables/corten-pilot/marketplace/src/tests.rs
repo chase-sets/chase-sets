@@ -567,9 +567,10 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "channel_reader" => actor(&["channels.view"]),
             // A buyer at checkout who may see the wallet and saved addresses and save a card; the
             // `terms_` buyers accept the Terms of Service as `terms_api` says.
-            "payer" | "terms_accepted" | "terms_late" | "terms_inactive" | "terms_unconfirmed" | "terms_elsewhere" => {
-                actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"])
-            }
+            // The `withheld_`, `eligible_`, `held_` and `wallet_` buyers hold the wallets `wallet_of` says.
+            "payer" | "terms_accepted" | "terms_late" | "terms_inactive" | "terms_unconfirmed" | "terms_elsewhere"
+            | "withheld_small" | "withheld_ten" | "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_empty"
+            | "wallet_unread" | "wallet_garbled" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
             // Saved payment methods: `card_reader` may only see them, `card_none` has none.
             "card_reader" => actor(&["orders.view"]),
             "card_none" => actor(&["orders.view", "orders.manage"]),
@@ -791,6 +792,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         };
     }
     if let Some(answer) = cart_commands(&stand, session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = wallet_of(session, uri.path()) {
         return answer;
     }
     if let Some(answer) = checkout_sessions(&stand, &method, &uri, &headers, &body) {
@@ -1282,14 +1286,36 @@ fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Op
     Some(committed(StatusCode::OK, "payments", "61", method_of(id, "card", "ready", verb == "default")))
 }
 
+/// The wallets of the buyers Start payment's wallet tests use; any other buyer's holds $25.00
+/// (`checkout_sessions`). `withheld_small`, `withheld_ten` and `withheld_rich` have not
+/// accepted the terms; `eligible_rich`, `held_rich` (a hold is on all but $500.00 of it, as
+/// `account_payments` quotes) and `wallet_garbled` (whose quote is not money) have; `wallet_empty`
+/// holds nothing and `wallet_unread`'s cannot be read.
+fn wallet_of(session: &str, path: &str) -> Option<Response> {
+    if path != "/api/settlement/wallet" {
+        return None;
+    }
+    let balance = match session {
+        "withheld_small" => "26.83",
+        "withheld_ten" => "10.00",
+        "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_garbled" => "99999.00",
+        "wallet_empty" => "0.00",
+        "wallet_unread" => return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        _ => return None,
+    };
+    Some(Json(json!({ "available_balance_amount": balance, "currency_code": "USD" })).into_response())
+}
+
 /// A buyer's payments, as Payments answers them. `pay_1` waits for the buyer with a Payment
 /// Intent's secret, `pay_cs` with a Checkout Session's; `pay_paid` is captured, `pay_failed`
 /// was declined, `pay_noemail`'s order has no email, `pay_slow` has not caught up with any
 /// write and `pay_broken` fails. Any other is not the account's. The orders: `ord_pay` ships to
 /// the checkout's address and is due 2026-10-29 and carries the seller's evidence, `ord_noemail` has
 /// no email, and `ord_gone` is not the account's. Payments quotes the card and a bank account, and
-/// refuses a wallet credit of $999.00 and withholds $25.00 until the terms are accepted; starting a
-/// payment (Continue to payment) starts `pay_new`.
+/// refuses a wallet credit of $999.00 and withholds any credit until the terms are accepted. The
+/// credit it applies is what was asked, at most the $638.83 total ($500.00 for `held_rich`), and
+/// each method's charge is its total less that credit; a quote's fingerprint names the credit it
+/// applied. Starting a payment (Continue to payment) starts `pay_new`.
 fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     if *method == Method::POST && uri.path() == "/api/marketplace/account/payments" {
         let sent: Value = serde_json::from_str(body).unwrap_or_default();
@@ -1323,19 +1349,35 @@ fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderM
                 "Requested balance credit exceeds the available wallet balance.",
             ));
         }
-        let quote = json!({
-            "payment_method_category": "card", "marketplace_checkout_fee_amount": "18.83",
-            "marketplace_checkout_fee_reduction_amount": "0.00", "total_amount": "638.83",
-            "processor_amount": "613.83", "quote_fingerprint": "fp-retry",
-        });
-        let bank = json!({
-            "payment_method_category": "bank-account", "marketplace_checkout_fee_amount": "6.20",
-            "marketplace_checkout_fee_reduction_amount": "12.63", "total_amount": "626.20",
-            "processor_amount": "601.20", "quote_fingerprint": "fp-bank",
-        });
-        // The wallet's $25.00 is withheld until the buyer accepts the current terms, as Settlement
-        // does: `terms_accepted` has, and a read after Identity's acceptance sees it, though one
-        // waiting for its write at 52 has not caught up.
+        let asked = query(&format!("?{}", uri.query().unwrap_or_default()));
+        let requested = asked.get("requestedBalanceCreditAmount").and_then(|a| platform::money::cents(a)).unwrap_or(0);
+        // The wallet is withheld until the buyer accepts the current terms, as Settlement does:
+        // `terms_accepted` and the `eligible_`, `held_` and `wallet_` buyers have, and a read
+        // after Identity's acceptance sees it, though one waiting for its write at 52 has not
+        // caught up.
+        let accepted = matches!(
+            session,
+            "terms_accepted" | "eligible_rich" | "held_rich" | "wallet_empty" | "wallet_unread" | "wallet_garbled"
+        ) || waits_for_source(headers, "identity");
+        let withheld = !accepted && requested > 0;
+        let applied =
+            if withheld { 0 } else { requested.min(63_883).min(if session == "held_rich" { 50_000 } else { i64::MAX }) };
+        let money = crate::payment_start::amount;
+        let quote = |category: &str, fee: &str, reduction: &str, total: i64, print: &str| {
+            json!({
+                "payment_method_category": category, "marketplace_checkout_fee_amount": fee,
+                "marketplace_checkout_fee_reduction_amount": reduction, "total_amount": money(total),
+                "processor_amount": money(total - applied),
+                "quote_fingerprint": if applied == 0 { print.to_owned() } else { format!("{print}+{}", money(applied)) },
+            })
+        };
+        let quote_card = quote("card", "18.83", "0.00", 63_883, "fp-retry");
+        let bank = quote("bank-account", "6.20", "12.63", 62_620, "fp-bank");
+        let wallet_credit = if session == "wallet_garbled" {
+            json!({ "requested_amount": money(requested), "applied_amount": "20.00junk", "external_amount": "0.00" })
+        } else {
+            json!({ "requested_amount": money(requested), "applied_amount": money(applied), "external_amount": money(63_883 - applied) })
+        };
         if waits_for_source(headers, "identity") && waits_for(headers).as_deref() == Some("52") {
             return Some(refusal(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -1343,8 +1385,7 @@ fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderM
                 "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
             ));
         }
-        let accepted = session == "terms_accepted" || waits_for_source(headers, "identity");
-        let reasons = if !accepted && uri.query().unwrap_or_default().contains("requestedBalanceCreditAmount=25.00") {
+        let reasons = if withheld {
             json!([{
                 "code": "wallet-terms-not-accepted",
                 "message": "Accept the current Terms of Service to use wallet balance as payment.",
@@ -1354,8 +1395,8 @@ fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderM
         };
         return Some(
             Json(json!({
-                "marketplace_checkout_fee": quote, "payment_method_quotes": [quote, bank],
-                "unavailable_reason_details": reasons,
+                "marketplace_checkout_fee": quote_card, "payment_method_quotes": [quote_card, bank],
+                "wallet_credit": wallet_credit, "unavailable_reason_details": reasons,
             }))
             .into_response(),
         );
@@ -16731,7 +16772,8 @@ async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_start
         "Sales tax $0.00",
         "Marketplace Checkout Fee $18.83",
         "Available balance 25.00 USD",
-        "Card charge $613.83",
+        "Wallet credit applied $0.00",
+        "Card charge $638.83",
         "Total due $638.83",
         "Seller evidence at acceptance Charizard Base Set",
     ] {
@@ -16751,7 +16793,7 @@ async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_start
     // and offers no wallet balance (the terms' part is `a_buyer_whose_wallet_awaits_the_terms_..`).
     assert!(html.contains(r#"<form id="#) && html.contains(r#"method="post" action="/account/payments/new""#), "{html}");
     assert!(page.contains("Accept the current Terms of Service to use wallet balance as payment."), "{page}");
-    assert!(html.contains(r#"<option value="max" disabled>Use up to $25.00</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="max" disabled>Use up to $0.00</option>"#), "{html}");
     assert!(html.contains(r#"<option value="platform-credit" disabled>Platform credit only</option>"#), "{html}");
     assert!(page.contains("Continue without wallet balance to pay the quoted external charge."), "{page}");
     // The phone's bar submits the same form.
@@ -16903,6 +16945,167 @@ async fn a_buyer_who_has_accepted_the_terms_is_offered_no_terms_action() {
     assert_eq!(terms_accepts(&pilot), 0);
 }
 
+/// A Start payment page's wallet as a buyer sees it: the summary's credit and charge, and the
+/// wallet choices the form offers.
+fn wallet_choices(html: &str) -> (bool, bool, bool, bool) {
+    let max_off = html.contains(r#"<option value="max" disabled>"#);
+    let custom_off = html.contains(r#"<option value="custom" disabled>"#);
+    let input_off = html.contains(r#"inputmode="decimal" disabled aria-describedby="start-custom-says""#);
+    let credit_only_off = html.contains(r#"<option value="platform-credit" disabled>"#);
+    (max_off, custom_off, input_off, credit_only_off)
+}
+
+#[tokio::test]
+async fn shows_withheld_wallet_credit_and_the_authoritative_charge_before_payment() {
+    let pilot = Pilot::new().await;
+    // Balances below, at a tenth of and far above the $638.83 total: Payments applies none of any
+    // while it withholds the wallet, so the page says so and quotes the whole charge.
+    for (session, balance, asked) in
+        [("withheld_small", "26.83", "26.83"), ("withheld_ten", "10.00", "10.00"), ("withheld_rich", "99999.00", "638.83")]
+    {
+        let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some(session))).await;
+        assert_eq!(status, StatusCode::OK, "{session}: {html}");
+        let page = text(&html);
+        for shown in [
+            format!("Available balance {balance} USD"),
+            "Wallet credit applied $0.00".to_owned(),
+            "Card charge $638.83".to_owned(),
+            "Total due $638.83".to_owned(),
+            "Accept the current Terms of Service to use wallet balance as payment.".to_owned(),
+            "Continue without wallet balance to pay the quoted external charge.".to_owned(),
+        ] {
+            assert!(page.contains(&shown), "{session}: {shown}: {page}");
+        }
+        // No remainder is promised from a balance Payments will not apply.
+        assert!(!page.contains("Using the maximum leaves"), "{session}: {page}");
+        assert!(!page.contains(&format!("Use up to ${balance}")), "{session}: {page}");
+        assert_eq!(wallet_choices(&html), (true, true, true, true), "{session}: {html}");
+        assert!(html.contains(r#"<option value="none" selected>"#), "{session}: {html}");
+        assert!(html.contains(">Review Terms of Service</a>") && page.contains("Accept Terms of Service"), "{session}: {page}");
+        // The form and the phone's bar both continue without the wallet.
+        assert_eq!(html.matches("Continue to payment</button>").count(), 2, "{session}: {html}");
+        let calls = pilot.stand.calls.lock().unwrap().clone();
+        let quoted = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/checkout/status")).unwrap();
+        assert!(quoted.path.contains(&format!("requestedBalanceCreditAmount={asked}")), "{session}: {}", quoted.path);
+    }
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"), "{calls:?}");
+    assert_eq!(terms_accepts(&pilot), 0);
+}
+
+#[tokio::test]
+async fn requires_explicit_external_continuation_when_wallet_credit_is_withheld() {
+    let pilot = Pilot::new().await;
+    let starts = |pilot: &Pilot| {
+        let calls = pilot.stand.calls.lock().unwrap();
+        calls.iter().filter(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").count()
+    };
+    // Marketplace's autostart is not carried: loading the page with it starts nothing.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay&autostart=1", Some("withheld_rich"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(starts(&pilot), 0);
+    // Asking for the wallet, by its most or a custom amount, starts nothing and says why.
+    for form in [
+        "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=",
+        "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=custom&requested_balance_credit_amount=20.00",
+    ] {
+        let (status, _, html) = pilot.send(post("/account/payments/new", "withheld_rich", form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{form}: {html}");
+        let page = text(&html);
+        assert!(page.contains("Wallet balance is not available for this payment"), "{form}: {page}");
+        assert!(page.contains("Accept the current Terms of Service to use wallet balance as payment."), "{form}: {page}");
+        assert!(page.contains("Wallet credit applied $0.00") && page.contains("Card charge $638.83"), "{form}: {page}");
+        assert_eq!(wallet_choices(&html), (true, true, true, true), "{form}: {html}");
+        assert_eq!(starts(&pilot), 0, "{form}");
+    }
+    // Continuing without the wallet starts the payment once, at the fresh quote for no credit.
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
+    let (status, headers, html) = pilot.send(post("/account/payments/new", "withheld_rich", form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_new?afterWrite="), "{headers:?}");
+    assert_eq!(starts(&pilot), 1);
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let started = calls.iter().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
+    let sent: Value = serde_json::from_str(&started.body).unwrap();
+    assert_eq!(sent["requestedBalanceCreditAmount"], Value::Null);
+    assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry");
+    assert_eq!(terms_accepts(&pilot), 0);
+}
+
+#[tokio::test]
+async fn preserves_eligible_and_no_wallet_payment_paths() {
+    let pilot = Pilot::new().await;
+    // Eligible for the whole total: the wallet pays it all, and platform credit only is offered.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("eligible_rich"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for shown in [
+        "Available balance 99999.00 USD",
+        "Wallet credit applied $638.83",
+        "Card charge $0.00",
+        "Total due $638.83",
+        "Using the maximum leaves $0.00 for secure external payment.",
+    ] {
+        assert!(page.contains(shown), "{shown}: {page}");
+    }
+    assert!(html.contains(r#"<option value="max" selected>Use up to $638.83</option>"#), "{html}");
+    assert_eq!(wallet_choices(&html), (false, false, false, false), "{html}");
+    assert!(!page.contains("Accept the current Terms of Service") && !page.contains("Wallet balance is not available"), "{page}");
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=";
+    let (status, _, html) = pilot.send(post("/account/payments/new", "eligible_rich", form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let started = calls.iter().rev().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
+    let sent: Value = serde_json::from_str(&started.body).unwrap();
+    assert_eq!(sent["requestedBalanceCreditAmount"], "638.83");
+    assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry+638.83");
+
+    // A hold on all but $500.00 of the same balance: Payments applies $500.00, the rest is charged,
+    // and platform credit only is not offered.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("held_rich"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for shown in [
+        "Available balance 99999.00 USD",
+        "Wallet credit applied $500.00",
+        "Card charge $138.83",
+        "Using the maximum leaves $138.83 for secure external payment.",
+    ] {
+        assert!(page.contains(shown), "{shown}: {page}");
+    }
+    assert!(html.contains(r#"<option value="max" selected>Use up to $500.00</option>"#), "{html}");
+    assert_eq!(wallet_choices(&html), (false, false, false, true), "{html}");
+
+    // Nothing in the wallet, and a wallet that cannot be read: no wallet to use and no Terms
+    // reason Payments did not give.
+    for (session, balance) in [("wallet_empty", Some("Available balance 0.00 USD")), ("wallet_unread", None)] {
+        let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some(session))).await;
+        assert_eq!(status, StatusCode::OK, "{session}: {html}");
+        let page = text(&html);
+        assert!(page.contains("No wallet balance is available for this checkout."), "{session}: {page}");
+        assert!(page.contains("Wallet credit applied $0.00") && page.contains("Card charge $638.83"), "{session}: {page}");
+        assert_eq!(balance.is_some_and(|b| page.contains(b)), balance.is_some(), "{session}: {page}");
+        assert!(!page.contains("Available balance") || balance.is_some(), "{session}: {page}");
+        for absent in ["Accept the current Terms of Service", "Wallet balance is not available", "Using the maximum leaves"] {
+            assert!(!page.contains(absent), "{session}: {absent}: {page}");
+        }
+        assert!(html.contains(r#"<option value="none" selected>"#), "{session}: {html}");
+        assert_eq!(wallet_choices(&html), (true, true, true, true), "{session}: {html}");
+    }
+
+    // A quote whose wallet credit is not money is not drawn and starts nothing.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, _, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("wallet_garbled"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, _, _) = pilot.send(post("/account/payments/new", "wallet_garbled", form, false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(
+        !calls[before..].iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"),
+        "{calls:?}"
+    );
+}
+
 #[tokio::test]
 async fn an_acceptance_identity_does_not_confirm_keeps_the_orders_and_the_wallet_withheld() {
     let pilot = Pilot::new().await;
@@ -16918,7 +17121,7 @@ async fn an_acceptance_identity_does_not_confirm_keeps_the_orders_and_the_wallet
         );
         assert!(page.contains("Purchase ord_pay") && page.contains("Total due $638.83"), "{session}: {page}");
         assert!(page.contains("Wallet balance is not available for this payment"), "{session}: {page}");
-        assert!(html.contains(r#"<option value="max" disabled>Use up to $25.00</option>"#), "{session}: {html}");
+        assert!(html.contains(r#"<option value="max" disabled>Use up to $0.00</option>"#), "{session}: {html}");
         assert!(html.contains(r#"name="intent" value="accept-terms""#), "{session}: {html}");
         assert_eq!(terms_accepts(&pilot), n + 1, "{session}");
     }
@@ -16940,7 +17143,7 @@ async fn while_the_read_after_accepting_catches_up_the_wallet_stays_withheld_wit
     assert!(page.contains("Wallet status is catching up. Refresh before using wallet balance."), "{page}");
     assert!(html.contains(&format!(r#"href="{}">Refresh wallet status</a>"#, to.replace('&', "&amp;"))), "{to}: {html}");
     assert!(!html.contains(r#"name="intent""#), "{html}");
-    assert!(html.contains(r#"<option value="max" disabled>Use up to $25.00</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="max" disabled>Use up to $0.00</option>"#), "{html}");
     // Continue to payment with the wallet while it catches up starts nothing.
     let action = to.replace("orderIds=ord_pay&", "");
     let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=";
