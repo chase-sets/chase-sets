@@ -4,6 +4,7 @@ import {
   authenticatePlatformAdmin,
   expectAdminPageReady,
   expectPageOk,
+  onCortenAdmin,
   skipDeployedAdminE2e,
 } from "./support/admin-e2e";
 
@@ -87,9 +88,7 @@ test.describe.serial("catalog import job status filter", () => {
 
         // Keyboard: All statuses -> Partial is five options down.
         await statusSelect.focus();
-        for (let step = 0; step < 5; step += 1) {
-          await page.keyboard.press("ArrowDown");
-        }
+        await chooseWithKeyboard(page, "ArrowDown", 5);
         await expect(statusSelect).toHaveValue("partial");
         await expect(filter).toHaveAttribute("data-catalog-import-job-status-filter", "partial");
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(1);
@@ -100,9 +99,7 @@ test.describe.serial("catalog import job status filter", () => {
         await expectNoHorizontalOverflow(page);
 
         // Keyboard: Partial -> Queued is four options up; only terminal rows were seeded.
-        for (let step = 0; step < 4; step += 1) {
-          await page.keyboard.press("ArrowUp");
-        }
+        await chooseWithKeyboard(page, "ArrowUp", 4);
         await expect(statusSelect).toHaveValue("queued");
         await expect(statusSelect).toBeVisible();
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(0);
@@ -118,7 +115,7 @@ test.describe.serial("catalog import job status filter", () => {
         await expectNoHorizontalOverflow(page);
 
         // Keyboard: Queued -> All statuses restores every loaded row.
-        await page.keyboard.press("ArrowUp");
+        await chooseWithKeyboard(page, "ArrowUp", 1);
         await expect(statusSelect).toHaveValue("all");
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(1);
         await expect(visibleJobRow(importModule, fixture.completedJobId)).toHaveCount(1);
@@ -274,6 +271,17 @@ async function expectEveryVisibleRowHasOperatorStatus(importModule: Locator, sta
   );
   expect(statuses.length).toBeGreaterThan(0);
   expect(new Set(statuses)).toEqual(new Set([status]));
+}
+
+// admin-web's native select changes its value on each arrow key. The Corten admin's select is the
+// customizable picker (appearance: base-select): the first arrow key opens the list, the next ones
+// move through it and Enter chooses, so it takes one more key at each end for the same choice.
+async function chooseWithKeyboard(page: Page, key: "ArrowDown" | "ArrowUp", steps: number): Promise<void> {
+  if (onCortenAdmin) await page.keyboard.press(key);
+  for (let step = 0; step < steps; step += 1) {
+    await page.keyboard.press(key);
+  }
+  if (onCortenAdmin) await page.keyboard.press("Enter");
 }
 
 function summaryRow(filter: Locator, label: string): Locator {

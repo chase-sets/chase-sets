@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  onCortenAdmin,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 type CurrentActorDisplay = Readonly<{
   account: Readonly<{ account_id: string; display_name: string | null; name: string | null }>;
@@ -46,10 +52,20 @@ test.describe("access admin users and memberships", () => {
       new RegExp(`/access/accounts/${actor.account.account_id}\\?tab=team&user=${user.user_id}$`),
     );
     await expectAdminPageReady(page, { heading: accountHeading });
-    await expect(page.getByText(user.user_id)).toBeVisible();
+    // The Corten admin's team tab draws a card for each user the viewer manages, and its audit
+    // rows name the user too, so the checks read the card that holds this user's ID.
+    const userScope = onCortenAdmin
+      ? page
+          .locator("section")
+          .filter({ has: page.locator("code", { hasText: user.user_id }) })
+          .last()
+      : page.locator(":root");
+    await expect(userScope.getByText(user.user_id, { exact: onCortenAdmin })).toBeVisible();
     await expect(page.getByText(userStatusLabel(user.status)).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Update Profile" })).toBeVisible();
-    await expect(page.getByRole("button", { name: user.status === "active" ? "Suspend" : "Reactivate" })).toBeVisible();
+    await expect(userScope.getByRole("button", { name: "Update Profile" })).toBeVisible();
+    await expect(
+      userScope.getByRole("button", { name: user.status === "active" ? "Suspend" : "Reactivate" }),
+    ).toBeVisible();
 
     await expectPageOk(page, "/access/memberships");
     await expectAdminPageReady(page, { heading: "Memberships" });

@@ -1652,7 +1652,10 @@ pub fn IntegrationsPage<'a>(t: Cat, req: &'a Req, surface: Surface, model: &'a R
         <Shell t={t} back={back} counts={counts}>
             match surface {
                 Surface::Health => {
-                    <AuditWorkspace t={t} req={req} audit={&model.audit_evidence} id="wb" />
+                    // admin-web's workspace hook, on a box that draws nothing of its own.
+                    <div class={Audit} data-catalog-audit-evidence-workspace="true">
+                        <AuditWorkspace t={t} req={req} audit={&model.audit_evidence} id="wb" />
+                    </div>
                     <HealthWorkspace t={t} health={&model.health_triage} />
                 }
                 Surface::Governance => {
