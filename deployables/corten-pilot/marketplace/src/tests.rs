@@ -570,7 +570,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // The `withheld_`, `eligible_`, `held_` and `wallet_` buyers hold the wallets `wallet_of` says.
             "payer" | "terms_accepted" | "terms_late" | "terms_inactive" | "terms_unconfirmed" | "terms_elsewhere"
             | "terms_broken" | "terms_stuck" | "withheld_small" | "withheld_ten" | "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_empty"
-            | "wallet_unread" | "wallet_garbled" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
+            | "wallet_unread" | "wallet_garbled" | "wallet_frozen" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
             // Saved payment methods: `card_reader` may only see them, `card_none` has none.
             "card_reader" => actor(&["orders.view"]),
             "card_none" => actor(&["orders.view", "orders.manage"]),
@@ -1289,8 +1289,9 @@ fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Op
 /// The wallets of the buyers Start payment's wallet tests use; any other buyer's holds $25.00
 /// (`checkout_sessions`). `withheld_small`, `withheld_ten` and `withheld_rich` have not
 /// accepted the terms; `eligible_rich`, `held_rich` (a hold is on all but $500.00 of it, as
-/// `account_payments` quotes) and `wallet_garbled` (whose quote is not money) have; `wallet_empty`
-/// holds nothing and `wallet_unread`'s cannot be read.
+/// `account_payments` quotes), `wallet_garbled` (whose quote is not money) and `wallet_frozen` (whose
+/// credit Payments withholds for a reason other than the terms) have; `wallet_empty` holds nothing
+/// and `wallet_unread`'s cannot be read.
 fn wallet_of(session: &str, path: &str) -> Option<Response> {
     if path != "/api/settlement/wallet" {
         return None;
@@ -1298,7 +1299,7 @@ fn wallet_of(session: &str, path: &str) -> Option<Response> {
     let balance = match session {
         "withheld_small" => "26.83",
         "withheld_ten" => "10.00",
-        "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_garbled" => "99999.00",
+        "withheld_rich" | "eligible_rich" | "held_rich" | "wallet_garbled" | "wallet_frozen" => "99999.00",
         "wallet_empty" => "0.00",
         "wallet_unread" => return Some(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
         _ => return None,
@@ -1312,7 +1313,8 @@ fn wallet_of(session: &str, path: &str) -> Option<Response> {
 /// write and `pay_broken` fails. Any other is not the account's. The orders: `ord_pay` ships to
 /// the checkout's address and is due 2026-10-29 and carries the seller's evidence, `ord_noemail` has
 /// no email, and `ord_gone` is not the account's. Payments quotes the card and a bank account, and
-/// refuses a wallet credit of $999.00 and withholds any credit until the terms are accepted. The
+/// refuses a wallet credit of $999.00 and withholds any credit until the terms are accepted, and
+/// `wallet_frozen`'s for a reason other than the terms. The
 /// credit it applies is what was asked, at most the $638.83 total ($500.00 for `held_rich`), and
 /// each method's charge is its total less that credit; a quote's fingerprint names the credit it
 /// applied. Starting a payment (Continue to payment) starts `pay_new`.
@@ -1357,11 +1359,21 @@ fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderM
         // caught up.
         let accepted = matches!(
             session,
-            "terms_accepted" | "eligible_rich" | "held_rich" | "wallet_empty" | "wallet_unread" | "wallet_garbled"
+            "terms_accepted"
+                | "eligible_rich"
+                | "held_rich"
+                | "wallet_empty"
+                | "wallet_unread"
+                | "wallet_garbled"
+                | "wallet_frozen"
         ) || (waits_for_source(headers, "identity") && session != "terms_stuck");
         let withheld = !accepted && requested > 0;
-        let applied =
-            if withheld { 0 } else { requested.min(63_883).min(if session == "held_rich" { 50_000 } else { i64::MAX }) };
+        let frozen = session == "wallet_frozen" && requested > 0;
+        let applied = if withheld || frozen {
+            0
+        } else {
+            requested.min(63_883).min(if session == "held_rich" { 50_000 } else { i64::MAX })
+        };
         let money = crate::payment_start::amount;
         let quote = |category: &str, fee: &str, reduction: &str, total: i64, print: &str| {
             json!({
@@ -1390,6 +1402,8 @@ fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderM
                 "code": "wallet-terms-not-accepted",
                 "message": "Accept the current Terms of Service to use wallet balance as payment.",
             }])
+        } else if frozen {
+            json!([{ "code": "wallet-credit-on-hold", "message": "Wallet credit is on hold while a review completes." }])
         } else {
             json!([])
         };
@@ -17030,6 +17044,43 @@ async fn requires_explicit_external_continuation_when_wallet_credit_is_withheld(
     assert_eq!(sent["requestedBalanceCreditAmount"], Value::Null);
     assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry");
     assert_eq!(terms_accepts(&pilot), 0);
+}
+
+#[tokio::test]
+async fn a_wallet_request_payments_withholds_for_another_reason_starts_nothing_until_the_buyer_continues_without_it() {
+    let pilot = Pilot::new().await;
+    let starts = |pilot: &Pilot| {
+        let calls = pilot.stand.calls.lock().unwrap();
+        calls.iter().filter(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").count()
+    };
+    // The buyer has accepted the terms, but Payments' fresh quote applies none of the wallet and
+    // says why. A wallet request, drawn before that or built by hand, is not charged in full
+    // outside the wallet: it starts nothing and the page says why.
+    for form in [
+        "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=",
+        "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=custom&requested_balance_credit_amount=20.00",
+    ] {
+        let (status, _, html) = pilot.send(post("/account/payments/new", "wallet_frozen", form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{form}: {html}");
+        let page = text(&html);
+        assert!(page.contains("Wallet credit is on hold while a review completes."), "{form}: {page}");
+        assert!(page.contains("Continue without wallet balance to pay the quoted external charge."), "{form}: {page}");
+        assert!(page.contains("Wallet credit applied $0.00") && page.contains("Card charge $638.83"), "{form}: {page}");
+        assert!(!page.contains("Accept the current Terms of Service"), "{form}: {page}");
+        assert_eq!(wallet_choices(&html), (true, true, true, true), "{form}: {html}");
+        assert_eq!(starts(&pilot), 0, "{form}");
+    }
+    // Continuing without the wallet starts the payment once, at the fresh quote for no credit.
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
+    let (status, headers, html) = pilot.send(post("/account/payments/new", "wallet_frozen", form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_new?afterWrite="), "{headers:?}");
+    assert_eq!(starts(&pilot), 1);
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let started = calls.iter().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
+    let sent: Value = serde_json::from_str(&started.body).unwrap();
+    assert_eq!(sent["requestedBalanceCreditAmount"], Value::Null);
+    assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry");
 }
 
 #[tokio::test]
