@@ -2,14 +2,18 @@
 //! payment summary (folded above the page on a phone, beside it from 64rem) with the seller's
 //! evidence at acceptance, the form (payment method and wallet credit, Continue to payment), every
 //! method's quote, and the purchases. On a phone Continue to payment is also in a bar at the bottom
-//! with the total. No script: the form posts to the page.
+//! with the total. While Payments withholds the wallet until the buyer accepts the current terms,
+//! the card says so above the form, with Review Terms of Service and Accept Terms of Service (or,
+//! while the read after accepting catches up, Refresh wallet status). No script: the forms post to
+//! the page.
 use corten::{i18n::Currency, prelude::*};
 
 use crate::{
     api::{FeeQuote, PaymentOrder},
     app::url,
-    payment_start::{StartForm, StartScreen, amount},
+    payment_start::{ACCEPT_TERMS, StartForm, StartPlace, StartScreen, amount},
     text::PaymentStartMsg,
+    views::on_marketplace,
 };
 
 /// The form, which the phone's bar submits too.
@@ -106,10 +110,20 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
     let count = screen.orders.len();
     let label = if count == 1 { t.purchase_singular() } else { t.purchase_plural() };
     let wallet = screen.wallet.as_ref();
-    let credit_only_off = totals.external_after_max > 0;
+    let withheld = screen.wallet_withheld();
+    let credit_only_off = withheld || totals.external_after_max > 0;
+    // A withheld wallet pays nothing, whatever the form was drawn with.
+    let mode = if withheld { "none" } else { chosen.balance_credit_mode.as_str() };
     let wallet_says = match wallet {
+        _ if withheld => t.wallet_external_only().to_owned(),
         Some(_) => t.maximum_leaves_external_payment(&money(t, &amount(totals.external_after_max))).to_string(),
         None => t.no_wallet_balance_is_available_for().to_owned(),
+    };
+    let withheld_says = screen.terms_reason().map_or(t.wallet_catching_up(), |reason| reason.message.as_str());
+    // The page read after the write it carries, which its forms and Refresh wallet status keep.
+    let action = url::BuyerPaymentNew { place: StartPlace { order_ids: None, after_write: screen.after_write.clone() } };
+    let refresh = url::BuyerPaymentNew {
+        place: StartPlace { order_ids: Some(screen.order_ids.join(",")), after_write: screen.after_write.clone() },
     };
     let custom_says = match wallet {
         Some(w) => t
@@ -127,10 +141,30 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
             <p class={Muted}>
                 {t.payment_covers_purchases(crate::text::payment_start_msg::PaymentCoversPurchases { count: &count.to_string(), purchase_label: label })}
             </p>
-            // What Payments withholds from this quote (the wallet's credit until the buyer accepts the
-            // current terms): marketplace's page does not say, and the payment is then charged in full
-            // (chase-sets/chase-sets#10820).
-            for reason in &screen.quote.unavailable_reason_details {
+            if withheld {
+                <div class={Banner} data-tone="warning" role="status">
+                    <p class={Strong}>{t.wallet_unavailable()}</p>
+                    <p>{withheld_says}</p>
+                </div>
+                if screen.pending {
+                    <p>{t.wallet_catching_up()}</p>
+                }
+                <div class={Actions}>
+                    <a class={(Button, Secondary)} href={on_marketplace("/terms")}>{t.terms_review()}</a>
+                    if screen.pending {
+                        <a class={(Button, Secondary)} href={&refresh}>{t.wallet_refresh()}</a>
+                    } else {
+                        <form method="post" action={&action}>
+                            <input type="hidden" name={f.order_ids} value={screen.order_ids.join(",")}>
+                            <input type="hidden" name={f.intent} value={ACCEPT_TERMS}>
+                            <button type="submit" class={Button}>{t.terms_accept()}</button>
+                        </form>
+                    }
+                </div>
+            }
+            // What else Payments withholds from this quote: marketplace's page does not say, and the
+            // payment is then charged in full (chase-sets/chase-sets#10820).
+            for reason in screen.quote.unavailable_reason_details.iter().filter(|r| screen.terms_reason().is_none_or(|terms| terms.code != r.code)) {
                 <div class={Banner} data-tone="warning" role="status">
                     <p>{&reason.message}</p>
                 </div>
@@ -140,7 +174,7 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                     <p>{error}</p>
                 </div>
             }
-            <form id={StartFormId} method="post" action={url::BuyerPaymentNew::default()} class={Fields}>
+            <form id={StartFormId} method="post" action={&action} class={Fields}>
                 <input type="hidden" name={f.order_ids} value={screen.order_ids.join(",")}>
                 <label class={Field}>
                     <span class={Label}>{t.payment_method()}</span>
@@ -162,11 +196,11 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                 <label class={Field}>
                     <span class={Label}>{t.wallet_balance()}</span>
                     <select name={f.balance_credit_mode} aria-describedby="start-wallet-says">
-                        <option value="none" selected={chosen.balance_credit_mode == "none"}>{t.do_not_use_balance()}</option>
-                        <option value="max" disabled={totals.available <= 0} selected={chosen.balance_credit_mode == "max"}>
+                        <option value="none" selected={mode == "none"}>{t.do_not_use_balance()}</option>
+                        <option value="max" disabled={withheld || totals.available <= 0} selected={mode == "max"}>
                             {t.use_up_to_amount(&money(t, &amount(totals.max_credit)))}
                         </option>
-                        <option value="custom" selected={chosen.balance_credit_mode == "custom"}>
+                        <option value="custom" disabled={withheld} selected={mode == "custom"}>
                             {t.use_a_custom_amount()}
                         </option>
                     </select>
@@ -179,6 +213,7 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                         value={&chosen.requested_balance_credit_amount}
                         placeholder="0.00"
                         inputmode="decimal"
+                        disabled={withheld}
                         aria-describedby="start-custom-says"
                     >
                     <span id="start-custom-says" class={Muted}>{&custom_says}</span>

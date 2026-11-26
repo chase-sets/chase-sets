@@ -14,6 +14,12 @@
 //! which the form carries; the pilot reads the orders and the wallet again when the form is posted,
 //! so the maximum is the one in effect. Payments checks the credit either way.
 //!
+//! When Payments withholds the wallet until the buyer accepts the current Terms of Service, the
+//! page says so beside Review Terms of Service and Accept Terms of Service, as marketplace's does.
+//! Accepting posts to the page: Identity records the acceptance, and the page is read again after
+//! Identity's write, so Payments' quote sees it and the wallet may pay. Until that read catches up
+//! the page cannot say the wallet may pay, and offers Refresh wallet status instead.
+//!
 //! Marketplace's `autostart=1`, which submits the form as the page loads, is not carried: nothing
 //! links to it.
 use corten::{
@@ -24,7 +30,9 @@ use platform::{money::cents, receipt::Receipt};
 use serde::Serialize;
 
 use crate::{
-    api::{ApiError, CheckoutSessions as _, PaymentCalls as _, PaymentOrder, PaymentPreview, Wallet},
+    api::{
+        ApiError, CheckoutSessions as _, ConsentCalls as _, PaymentCalls as _, PaymentOrder, PaymentPreview, ReasonDetail, Wallet,
+    },
     app::{ORDERS_MANAGE, Shared, read_failed, url},
     auth::{PaymentBuyer, Viewer},
     email_verification::{self, Purpose},
@@ -33,27 +41,43 @@ use crate::{
     views::{self, Layout},
 };
 
-/// The page's address: the orders to pay, comma separated, as marketplace's links write them.
+/// The page's address: the orders to pay, comma separated, as marketplace's links write them, and
+/// the receipt of the write the page reads after (accepting the Terms of Service).
 #[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct StartPlace {
     pub order_ids: Option<String>,
+    pub after_write: Option<String>,
 }
 
 impl StartPlace {
     /// The page for `order_ids`.
     pub fn of(order_ids: &[String]) -> Self {
-        StartPlace { order_ids: Some(order_ids.join(",")) }
+        StartPlace { order_ids: Some(order_ids.join(",")), after_write: None }
     }
 }
 
+/// The `intent` of Accept Terms of Service's form; Continue to payment's sends none.
+pub const ACCEPT_TERMS: &str = "accept-terms";
+
+/// The reason Payments gives for withholding the wallet until the buyer accepts the current terms.
+const TERMS_NOT_ACCEPTED: &str = "wallet-terms-not-accepted";
+
+/// Why `quote` withholds the wallet until the buyer accepts the current terms, if it does
+/// (marketplace's `walletTermsReason`).
+fn terms_reason(quote: &PaymentPreview) -> Option<&ReasonDetail> {
+    quote.unavailable_reason_details.iter().find(|reason| reason.code == TERMS_NOT_ACCEPTED)
+}
+
 /// Continue to payment's form: the orders, the payment method, and how much of the wallet to use
-/// (`none`, `max` or `custom` with its amount), in marketplace's names.
+/// (`none`, `max` or `custom` with its amount), in marketplace's names. Accept Terms of
+/// Service's sends the orders and its `intent` alone.
 #[derive(Clone, Debug, Default, Serialize, Fields)]
 #[serde(default)]
 pub struct StartForm {
     pub order_ids: String,
+    pub intent: String,
     pub payment_method_category: String,
     pub balance_credit_mode: String,
     pub requested_balance_credit_amount: String,
@@ -100,7 +124,9 @@ pub fn amount(cents: i64) -> String {
 }
 
 /// The page: the orders, the wallet if it was read, Payments' quote, the totals, the choices the
-/// form starts with, and why Continue to payment did not start one.
+/// form starts with, and why Continue to payment did not start one. `pending` is a quote read
+/// without the write the page reads after, which had not caught up; `after_write` is that
+/// write's receipt, which the page's forms and Refresh wallet status carry on.
 pub struct StartScreen {
     pub order_ids: Vec<String>,
     pub orders: Vec<PaymentOrder>,
@@ -109,6 +135,22 @@ pub struct StartScreen {
     pub totals: Totals,
     pub chosen: StartForm,
     pub error: Option<String>,
+    pub pending: bool,
+    pub after_write: Option<String>,
+}
+
+impl StartScreen {
+    /// Why Payments withholds the wallet until the buyer accepts the current terms, if it does.
+    pub fn terms_reason(&self) -> Option<&ReasonDetail> {
+        terms_reason(&self.quote)
+    }
+
+    /// Whether the wallet may not pay: Payments wants the terms accepted, or the read after
+    /// accepting them has not caught up, so the page cannot say it may (marketplace's
+    /// `walletWithheld`).
+    pub fn wallet_withheld(&self) -> bool {
+        self.pending || self.terms_reason().is_some()
+    }
 }
 
 /// The order ids in `value`, comma separated (`parseOrderIds`).
@@ -187,32 +229,59 @@ pub(crate) async fn page(
     if ids.is_empty() {
         return req.redirect(&url::Purchases::default());
     }
+    let receipt = Receipt::from_param(route.place.after_write.as_deref());
     let (orders, wallet, totals) = match orders_and_wallet(&config, &headers, &ids).await {
         Ok(read) => read,
         Err(read) => return read_answer(&req, &viewer, read),
     };
-    let caller = config.platform.caller(&headers, config.proto, None);
-    let quote = match caller.quote(&ids, "usd", Some(&amount(totals.max_credit)), "card").await {
-        Ok(quote) => quote,
+    let (quote, pending) = match page_quote(&config, &headers, &ids, &totals, receipt.as_ref()).await {
+        Ok(read) => read,
         Err(error) => return read_answer(&req, &viewer, Read::Api(error)),
     };
     let chosen = StartForm {
         order_ids: ids.join(","),
         payment_method_category: "card".to_owned(),
         balance_credit_mode: if totals.available > 0 { "max" } else { "none" }.to_owned(),
-        requested_balance_credit_amount: String::new(),
+        ..StartForm::default()
     };
-    let screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: None };
+    let after_write = receipt.as_ref().map(Receipt::param);
+    let screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: None, pending, after_write };
     draw(&req, &viewer, &screen, StatusCode::OK)
 }
 
+/// Payments' quote for the page (by card, with the most of the wallet), read after the write
+/// `receipt` names. A read that has not caught up with it is quoted without it and marked
+/// pending (marketplace's `onPending`): the page then does not say the wallet may pay.
+async fn page_quote(
+    config: &Shared,
+    headers: &HeaderMap,
+    ids: &[String],
+    totals: &Totals,
+    receipt: Option<&Receipt>,
+) -> Result<(PaymentPreview, bool), ApiError> {
+    let credit = amount(totals.max_credit);
+    let caller = config.platform.caller(headers, config.proto, receipt);
+    match caller.quote(ids, "usd", Some(&credit), "card").await {
+        Ok(quote) => Ok((quote, false)),
+        Err(error) if receipt.is_some() && error.catching_up() => {
+            tracing::info!("the quote has not caught up with the Terms of Service acceptance: {error}");
+            let caller = config.platform.caller(headers, config.proto, None);
+            Ok((caller.quote(ids, "usd", Some(&credit), "card").await?, true))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Continue to payment: Payments' quote for the chosen method and wallet credit, then a payment at
-/// it, and the payment's page, read after it. A refusal is the page again with why.
+/// it, and the payment's page, read after it. A refusal is the page again with why. A quote that
+/// withholds the wallet the buyer chose to use starts nothing: the page again says why, as
+/// marketplace's action answers. Accept Terms of Service posts here too (`accept_terms`).
 pub(crate) async fn start(
     req: Req,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    Params(route): Params<url::payments::BuyerPaymentNew>,
     Form(form): Form<StartForm>,
 ) -> HtmlResult {
     let t: PaymentStartMsg = req.t();
@@ -222,6 +291,10 @@ pub(crate) async fn start(
     }
     if ids.is_empty() {
         return req.redirect(&url::Purchases::default());
+    }
+    let receipt = Receipt::from_param(route.place.after_write.as_deref());
+    if form.intent == ACCEPT_TERMS {
+        return accept_terms(&req, &viewer, &config, &headers, ids, receipt.as_ref()).await;
     }
     let (orders, wallet, totals) = match orders_and_wallet(&config, &headers, &ids).await {
         Ok(read) => read,
@@ -233,33 +306,111 @@ pub(crate) async fn start(
         _ => None,
     };
     let method = Some(form.payment_method_category.trim()).filter(|m| !m.is_empty()).unwrap_or("card").to_owned();
-    let caller = config.platform.caller(&headers, config.proto, None);
+    let uses_wallet = credit.as_deref().and_then(cents).is_some_and(|c| c > 0);
+    let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let started = async {
         let quote = caller.quote(&ids, "usd", credit.as_deref(), &method).await?;
+        if uses_wallet && terms_reason(&quote).is_some() {
+            return Ok(None);
+        }
         let fingerprint = quote.marketplace_checkout_fee.quote_fingerprint.clone();
-        caller.start_payment(&ids, credit.as_deref(), &method, &fingerprint).await
+        caller.start_payment(&ids, credit.as_deref(), &method, &fingerprint).await.map(Some)
     };
     let refusal = match started.await {
-        Ok((payment, receipt)) => {
+        Ok(Some((payment, receipt))) => {
             let place = Place { after_write: receipt.as_ref().map(Receipt::param) };
             return req.redirect(&url::BuyerPayment { id: &payment.payment_id, place });
         }
+        // The page again says the wallet is withheld and why.
+        Ok(None) => None,
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
             return read_failed(&req, Some(&viewer), error, None);
         }
+        Err(error) if receipt.is_some() && error.catching_up() => Some(t.wallet_catching_up().to_owned()),
         Err(error) => {
             tracing::warn!("Continue to payment was refused: {error}");
-            error.refusal().unwrap_or(t.payment_could_not_be_started()).to_owned()
+            Some(error.refusal().unwrap_or(t.payment_could_not_be_started()).to_owned())
         }
     };
-    // The page again, quoted as it was drawn (by card, with the most of the wallet).
-    let quote = match caller.quote(&ids, "usd", Some(&amount(totals.max_credit)), "card").await {
-        Ok(quote) => quote,
-        Err(error) => return read_answer(&req, &viewer, Read::Api(error)),
-    };
     let chosen = StartForm { order_ids: ids.join(","), ..form };
-    let screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: Some(refusal) };
-    draw(&req, &viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY)
+    let after_write = receipt.as_ref().map(Receipt::param);
+    let screen = StartScreen {
+        order_ids: ids,
+        orders,
+        wallet,
+        quote: PaymentPreview::default(),
+        totals,
+        chosen,
+        error: refusal,
+        pending: false,
+        after_write,
+    };
+    again(&req, &viewer, &config, &headers, receipt.as_ref(), screen).await
+}
+
+/// Accept Terms of Service (marketplace's `accept-terms` intent): Identity records the buyer's
+/// acceptance of the current terms, once, and the page is read again after Identity's write. An
+/// answer that does not confirm Identity's write (none of its receipt's sources is Identity's) is
+/// the page again with the orders, saying so; the wallet stays withheld.
+async fn accept_terms(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    ids: Vec<String>,
+    receipt: Option<&Receipt>,
+) -> HtmlResult {
+    let t: PaymentStartMsg = req.t();
+    match config.platform.caller(headers, config.proto, None).accept_terms().await {
+        Ok(Some(accepted)) => {
+            let place = StartPlace { order_ids: Some(ids.join(",")), after_write: Some(accepted.param()) };
+            return req.redirect(&url::BuyerPaymentNew { place });
+        }
+        Ok(None) => tracing::warn!("Identity did not confirm accepting the Terms of Service"),
+        Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
+            return read_failed(req, Some(viewer), error, None);
+        }
+        Err(error) => tracing::warn!("accepting the Terms of Service failed: {error}"),
+    }
+    let (orders, wallet, totals) = match orders_and_wallet(config, headers, &ids).await {
+        Ok(read) => read,
+        Err(read) => return read_answer(req, viewer, read),
+    };
+    let chosen = StartForm {
+        order_ids: ids.join(","),
+        payment_method_category: "card".to_owned(),
+        balance_credit_mode: "none".to_owned(),
+        ..StartForm::default()
+    };
+    let screen = StartScreen {
+        order_ids: ids,
+        orders,
+        wallet,
+        quote: PaymentPreview::default(),
+        totals,
+        chosen,
+        error: Some(t.terms_accept_failed().to_owned()),
+        pending: false,
+        after_write: receipt.map(Receipt::param),
+    };
+    again(req, viewer, config, headers, receipt, screen).await
+}
+
+/// `screen` again after a post that started nothing, quoted as the page quotes it (by card, with
+/// the most of the wallet).
+async fn again(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    receipt: Option<&Receipt>,
+    mut screen: StartScreen,
+) -> HtmlResult {
+    match page_quote(config, headers, &screen.order_ids, &screen.totals, receipt).await {
+        Ok((quote, pending)) => (screen.quote, screen.pending) = (quote, pending),
+        Err(error) => return read_answer(req, viewer, Read::Api(error)),
+    }
+    draw(req, viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
 fn draw(req: &Req, viewer: &Viewer, screen: &StartScreen, status: StatusCode) -> HtmlResult {
