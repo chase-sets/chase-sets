@@ -88,16 +88,16 @@ export type MarketplaceItemListingRow = Readonly<{
   public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }>;
 
-/** A stored grade without a grading company and grade as text is not served. */
+/** A stored grade whose grading company and grade are not both text is not served. Neither label is branched on. */
 function copyGradedCard(card: unknown): MarketplaceGradedCardDetails | null {
   if (!isRecord(card)) return null;
-  const gradingCompany = publicText(card.gradingCompany);
-  const grade = publicText(card.grade);
-  if (gradingCompany === null || grade === null) return null;
+  const labels = publicTextList([card.gradingCompany, card.grade]);
+  if (labels.length !== 2) return null;
+  const [companyLabel, gradeLabel] = labels as [string, string];
   const population = card.population;
   return {
-    gradingCompany,
-    grade,
+    gradingCompany: companyLabel,
+    grade: gradeLabel,
     certificationNumber: publicText(card.certificationNumber),
     population: isRecord(population)
       ? {
