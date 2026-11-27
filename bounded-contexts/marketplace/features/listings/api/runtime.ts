@@ -99,7 +99,7 @@ import {
   marketplaceListingEvidencePolicy,
 } from "../../listing-evidence-policy/domain/policy";
 import { evaluateEvidenceCoverage } from "../domain/evidence-coverage";
-import { normalizeListingPhoto } from "./listing-photo-normalization";
+import { listingPhotoStorageBaseKey, normalizeListingPhoto } from "./listing-photo-normalization";
 import { parseAcquisitionCostSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
 import {
   decideSellerListingAvailability,
@@ -1655,7 +1655,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       photos.push(
         await normalizeListingPhoto({
           sourceBody: upload.body,
-          storageBaseKey: `marketplace/listings/${params.accountId}/${params.listingId}/${photoId}`,
+          storageBaseKey: listingPhotoStorageBaseKey(params.listingId, photoId),
           photoId,
           originalFilename: upload.originalFilename,
           altText: upload.altText ?? null,
@@ -2405,7 +2405,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const photoId = createId("lpho");
       const replacement = await normalizeListingPhoto({
         sourceBody: params.upload.body,
-        storageBaseKey: `marketplace/listings/${params.accountId}/${params.listingId}/${photoId}`,
+        storageBaseKey: listingPhotoStorageBaseKey(params.listingId, photoId),
         photoId,
         originalFilename: params.upload.originalFilename,
         altText: params.upload.altText ?? target.altText,

@@ -15,6 +15,11 @@ import {
 const LISTING_PHOTO_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const DISPLAY_NORMALIZATION_VERSION = "trim-alpha-v1";
 
+/** Where a Listing photo's files are stored. The key appears in public image URLs, so it names no account. */
+export function listingPhotoStorageBaseKey(listingId: string, photoId: string): string {
+  return `marketplace/listings/${listingId}/${photoId}`;
+}
+
 export const LISTING_PHOTO_VARIANT_SPECS: readonly Readonly<{
   role: Exclude<MarketplaceListingPhotoAssetRole, "source">;
   width: number;
