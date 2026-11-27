@@ -111,7 +111,19 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
    * Inventory's current record of the item, echoing a snapshot so that snapshot matches it; the cases that read
    * Inventory's database pass its authority.
    */
-  const recording = (value: ReturnType<typeof snapshot> = snapshot()): InventoryCurrentItemPort => ({
+  const recording = (
+    value: Readonly<{
+      catalogItemId: string;
+      productId: string;
+      storageLocationId: string;
+      storageLocationName: string;
+      shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
+      totalQuantity: number;
+      acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode: string | null;
+    }> = snapshot(),
+  ): InventoryCurrentItemPort => ({
     resolve: async () => ({
       catalogItemId: value.catalogItemId,
       productId: value.productId,
@@ -299,11 +311,7 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
             { ...snapshot(), idempotencyKey: "snapshot_validation_attempt_0001" },
             draftContext,
           ),
-        () =>
-          owner().listings.createBatchDraftListingFromInventorySnapshot(
-            { ...invalid, idempotencyKey: "snapshot_validation_attempt_0001" },
-            draftContext,
-          ),
+        () => owner().listings.createBatchDraftListingFromInventorySnapshot(invalid, draftContext),
       ]) {
         await expect(create()).rejects.toThrow();
         expect(await counts()).toEqual({ items: 0, locations: 0, events: 0 });
