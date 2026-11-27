@@ -987,7 +987,7 @@ fn Found<'a>(t: SearchMsg, i: ItemMsg, screen: &'a SearchScreen, results: &'a Se
                 <a class={Secondary} href={&on_marketplace(SAVED_SEARCH)}>{t.page_save_search()}</a>
             </div>
         }
-        <LoadMore t={t} place={screen.place()} terms={terms} shown={shown} cursor={cursor} failed={false} />
+        <LoadMore t={t} place={screen.place()} terms={terms} shown={shown} cursor={cursor} failed={false} kept={None} />
     }
 }
 
@@ -1017,7 +1017,8 @@ pub fn ResultRows<'a>(
 /// without it, the address with a page more (`more=`), at the first result it adds. Hidden when
 /// there is no more, so a patch can still replace it. With JavaScript it also sends itself as the
 /// reader comes near (`search.near`), unless a load just failed. After a failed load it says so,
-/// and its button tries again.
+/// and its button tries again. Drawn by a patch that added rows, it puts `kept`, the address of
+/// the rows the page now shows, in place of the history entry's (`search.grown`).
 #[component(css = SearchPage)]
 pub fn LoadMore<'a>(
     t: SearchMsg,
@@ -1026,6 +1027,7 @@ pub fn LoadMore<'a>(
     shown: usize,
     cursor: Option<&'a str>,
     failed: bool,
+    kept: Option<&'a str>,
 ) -> impl Patch {
     let next = Terms { more: shown, ..terms.clone() };
     let action = format!("{}#result-{}", place.href(&Terms::default()), shown + 1);
@@ -1038,7 +1040,10 @@ pub fn LoadMore<'a>(
             action={&action}
             data-patch
             hidden={cursor.is_none()}
-            on:connect={(cursor.is_some() && !failed).then(|| handlers::near(target, signal))}
+            on:connect={match kept {
+                Some(kept) => Some(handlers::grown(target, signal, kept)),
+                None => (cursor.is_some() && !failed).then(|| handlers::near(target, signal)),
+            }}
         >
             for (key, value) in &pairs {
                 <input type="hidden" name={key} value={value}>

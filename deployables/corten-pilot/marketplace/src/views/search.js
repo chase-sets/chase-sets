@@ -150,6 +150,20 @@ export function near(form, signal) {
 }
 
 /**
+ * Load more's patch added rows: put `address`, the address that draws every row the page now
+ * shows (`more=`), in place of the history entry's, so Back from an item and a reload draw them
+ * again, as corten-ui's tabs keep their place. The patch leaves the address it was sent from
+ * (corten-run/corten#1406). Then watch for the next page, as `near` does.
+ * @param {HTMLFormElement} form
+ * @param {AbortSignal} signal
+ * @param {string} address
+ */
+export function grown(form, signal, address) {
+  if (location.pathname + location.search !== address) history.replaceState(history.state, "", address);
+  near(form, signal);
+}
+
+/**
  * Enter in a facet's option search finds, as typing does; it does not send the filters.
  * @param {KeyboardEvent} event
  */
