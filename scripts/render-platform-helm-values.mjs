@@ -448,6 +448,8 @@ export function buildPlatformHelmStagingValues(options = {}) {
       "public-web": {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
+      // admin-corten serves admin.staging, so admin-web is not deployed.
+      "admin-web": { enabled: false },
       "platform-api": {
         ...doksStagingApiOverrides,
         env: stagingApiValues.components["platform-api"].env,
@@ -478,7 +480,6 @@ export function buildPlatformHelmStagingValues(options = {}) {
 // platform-bootstrap is a short pre-rollout hook and is deliberately absent.
 const productionAppComponentRequests = {
   "public-web": { cpu: "200m", memory: "256Mi" },
-  "admin-web": { cpu: "100m", memory: "256Mi" },
   "platform-api": { cpu: "250m", memory: "512Mi" },
   "platform-worker": { cpu: "200m", memory: "512Mi" },
 };
@@ -511,9 +512,9 @@ export function buildPlatformHelmProductionValues(options = {}) {
       },
     },
     components: {
-      // The Corten admin, marketplace and public apps. The deploy renders admin-corten and public-corten disabled
-      // while their React apps serve their hosts (admin-web for admin.chasesets.com, public-web for chasesets.com
-      // and www.chasesets.com). marketplace-corten always serves marketplace.chasesets.com.
+      // The Corten admin, marketplace and public apps. The deploy renders public-corten disabled while public-web
+      // serves chasesets.com and www.chasesets.com. admin-corten always serves admin.chasesets.com and
+      // marketplace-corten always serves marketplace.chasesets.com.
       ...productionComponents,
       ...Object.fromEntries(
         Object.entries(productionAppComponentRequests).map(([name, requests]) => [
@@ -524,6 +525,8 @@ export function buildPlatformHelmProductionValues(options = {}) {
           },
         ]),
       ),
+      // admin-corten serves admin.chasesets.com, so admin-web is not deployed.
+      "admin-web": { enabled: false },
     },
   };
 }
@@ -563,41 +566,10 @@ export function renderPlatformHelmStagingValues() {
   );
 }
 
-// The app that serves admin.staging. STAGING_ADMIN_APP is a GitHub variable, so a rollback to admin-web
-// is a variable change and a deploy, with no pull request. Unset means the default; any other value fails.
-export const STAGING_ADMIN_APPS = Object.freeze(["admin-corten", "admin-web"]);
-export const defaultStagingAdminApp = "admin-corten";
-
-export function resolveStagingAdminApp(env = {}) {
-  return resolveAdminAppVariable(env, "STAGING_ADMIN_APP", defaultStagingAdminApp);
-}
-
-// The app that serves admin.chasesets.com, from the production environment's PRODUCTION_ADMIN_APP. It
-// defaults to admin-web; switching production to the Corten admin is its own reviewed change.
-export const PRODUCTION_ADMIN_APPS = STAGING_ADMIN_APPS;
-export const defaultProductionAdminApp = "admin-web";
-
-export function resolveProductionAdminApp(env = {}) {
-  return resolveAdminAppVariable(env, "PRODUCTION_ADMIN_APP", defaultProductionAdminApp);
-}
-
-// The admin app for a staging or production deploy; null for any other environment.
-export function resolveAdminApp(env = {}, environment) {
-  if (environment === "staging") return { ...resolveStagingAdminApp(env), variable: "STAGING_ADMIN_APP" };
-  if (environment === "production") return { ...resolveProductionAdminApp(env), variable: "PRODUCTION_ADMIN_APP" };
-  return null;
-}
-
-function resolveAdminAppVariable(env, variable, defaultApp) {
-  const value = String(env[variable] ?? "").trim();
-  if (value === "") {
-    return { app: defaultApp, source: "default" };
-  }
-  if (!STAGING_ADMIN_APPS.includes(value)) {
-    throw new Error(`${variable} must be one of ${STAGING_ADMIN_APPS.join(", ")}; got "${value}".`);
-  }
-  return { app: value, source: "variable" };
-}
+// The Corten admin serves admin.staging and admin.chasesets.com. There is no variable to choose admin-web:
+// rolling back is reverting to an earlier release (docs/runbooks/staging-admin-app.md,
+// docs/runbooks/production-admin-app.md).
+export const adminApp = "admin-corten";
 
 // The Corten marketplace serves marketplace.staging, the staging root and marketplace.chasesets.com. There is no
 // variable to choose marketplace-web: rolling back is reverting to an earlier release
@@ -652,7 +624,6 @@ export function buildDoksIngressValues(options = {}) {
   }
 
   const production = environment === "production";
-  const adminApp = production ? resolveProductionAdminApp(env).app : resolveStagingAdminApp(env).app;
   const publicApp = production ? resolveProductionPublicApp(env).app : resolveStagingPublicApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();

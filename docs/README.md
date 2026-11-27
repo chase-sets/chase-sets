@@ -128,10 +128,10 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Customer Feedback Privacy Operations](./runbooks/customer-feedback-privacy.md): retention preview/execution, privacy holds, redaction propagation, and sensitive export incident response.
 - [Facility Return Intake](./runbooks/facility-return-intake.md) — custody, discrepancy, unidentified-package, outage, wrong-facility, and correction procedures.
 
-- [Staging Admin App](./runbooks/staging-admin-app.md): which app serves admin.staging, the STAGING_ADMIN_APP switch, and the rollback to admin-web.
+- [Staging Admin App](./runbooks/staging-admin-app.md): the Corten admin serving admin.staging, what each staging deploy checks, and rollback by earlier release.
 - [Staging Marketplace App](./runbooks/staging-marketplace-app.md): the Corten marketplace serving marketplace.staging, what each staging deploy checks, and rollback by earlier release.
 - [Staging Public App](./runbooks/staging-public-app.md): the STAGING_PUBLIC_APP switch between the Corten public app and public-web on www.staging, and its rollback.
-- [Production Admin App](./runbooks/production-admin-app.md): which app serves admin.chasesets.com, the PRODUCTION_ADMIN_APP switch, its rollback, and recovering from a refused deploy.
+- [Production Admin App](./runbooks/production-admin-app.md): the Corten admin serving admin.chasesets.com, rollback by earlier release, and recovering from a refused deploy.
 - [Production Marketplace App](./runbooks/production-marketplace-app.md): the Corten marketplace serving marketplace.chasesets.com, rollback by earlier release, and recovering from a refused deploy.
 - [Production Public App](./runbooks/production-public-app.md): which app serves chasesets.com and www.chasesets.com, the gates before the PRODUCTION_PUBLIC_APP switch, its rollback, and recovering from a refused deploy.
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.

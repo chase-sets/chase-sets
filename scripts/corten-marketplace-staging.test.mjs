@@ -28,11 +28,11 @@ const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplac
 const options = {
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenMarketplaceImage: image,
-  // public-corten serves www.staging, so a staging deploy needs its image too.
+  // admin-corten and public-corten serve admin.staging and www.staging, so a staging deploy needs their images too.
+  cortenAdminImage: image.replace("corten-marketplace", "corten-admin"),
   cortenPublicImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-public@${digest}`,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
-  // admin-web serving admin.staging withholds the admin pilot, so these marketplace cases may omit its image.
-  env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", STAGING_ADMIN_APP: "admin-web" },
+  env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
   managedPostgresCaSha256: "b".repeat(64),
 };
 const workload = "chase-sets-platform-chase-sets-platform-marketplace-corten";
@@ -47,7 +47,8 @@ describe("Corten marketplace staging, first slice", () => {
       // Moved for the production admin and public switches (PRODUCTION_ADMIN_APP, PRODUCTION_PUBLIC_APP), the staged Corten
       // images and best-effort PROXIES, then for retiring marketplace-web: no PRODUCTION_MARKETPLACE_APP, and the
       // marketplace signed-in smoke runs whenever production serves a marketplace.
-      "deploy-production": "9eabad66f3039a0bcd0fda196becdf3bbebbc59a69f127fbfb2c55ab300d9c48",
+      // Then for retiring admin-web: no PRODUCTION_ADMIN_APP, and admin-corten is always readied and smoked.
+      "deploy-production": "f54c4edc1b26f819ad9e3890afcad9a82a5c4144823e0c056c316f618db54dbe",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -68,7 +69,8 @@ describe("Corten marketplace staging, first slice", () => {
     for (const [file, sha] of Object.entries({
       // Moved for retiring marketplace-web: the chart has no marketplace component.
       "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
-      "values.production.yaml": "2d12059c80fe6ac167b48df4c3140a1e7f0a4902fe9789d89d1fcffc8744a8ec",
+      // Then for retiring admin-web: production keeps no admin-web resources and disables it.
+      "values.production.yaml": "dc49af728c4543cfa44866842cae5977cb120fe526063f32486a7de66a634313",
     })) {
       expect(
         createHash("sha256")
@@ -199,9 +201,13 @@ describe("Corten marketplace staging, first slice", () => {
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
     expect(buildHelmUpgradeArgs(options)).toContain(`components.marketplace-corten.image=${image}`);
     expect(parseArgs(["deploy", "--corten-marketplace-image", image], {}).cortenMarketplaceImage).toBe(image);
-    expect(() => buildHelmUpgradeArgs({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } })).toThrow(
-      "corten-marketplace-image is staging and production only.",
-    );
+    expect(() =>
+      buildHelmUpgradeArgs({
+        ...options,
+        cortenAdminImage: undefined,
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" },
+      }),
+    ).toThrow("corten-marketplace-image is staging and production only.");
     expect(() =>
       buildHelmUpgradeArgs({ ...options, cortenMarketplaceImage: image.split("@")[0] + ":latest" }),
     ).toThrow();
@@ -213,12 +219,8 @@ describe("Corten marketplace staging, first slice", () => {
         }),
       ).toThrow("chase-sets-corten-marketplace repository");
     }
-    // Both pilots pinned while admin-corten serves admin.staging (STAGING_ADMIN_APP unset).
-    const both = buildHelmUpgradeArgs({
-      ...options,
-      env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
-      cortenAdminImage: image.replace("corten-marketplace", "corten-admin"),
-    });
+    // Both pilots pinned: admin-corten serves admin.staging.
+    const both = buildHelmUpgradeArgs(options);
     expect(both).toContain(`components.admin-corten.image=${image.replace("corten-marketplace", "corten-admin")}`);
     expect(both).toContain(`components.marketplace-corten.image=${image}`);
   });
@@ -274,7 +276,8 @@ describe("Corten marketplace staging, first slice", () => {
   it("has no advisory marketplace step: the enforcing checks cover the pilot that serves marketplace.staging", () => {
     const steps = workflow.jobs["deploy-staging"].steps.map(({ name }) => name);
     expect(steps).not.toContain("Advisory Corten marketplace smoke");
-    expect(steps[steps.indexOf("Advisory Corten public smoke") - 1]).toBe("Advisory Corten admin smoke");
+    expect(steps).not.toContain("Advisory Corten admin smoke");
+    expect(steps[steps.indexOf("Advisory Corten public smoke") - 1]).toBe("Smoke check");
     expect(JSON.parse(read("package.json")).scripts).not.toHaveProperty("smoke:corten-marketplace");
   });
 

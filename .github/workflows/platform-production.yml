@@ -1292,8 +1292,9 @@ jobs:
       - build-image
       - build-corten-pilot-images
     # Deploy Staging starts whatever the pilot images job's result, and never after a
-    # cancellation. The deploy script then fails on a missing image only for a pilot
-    # that serves its host (admin-corten, unless STAGING_ADMIN_APP=admin-web).
+    # cancellation. The deploy script then fails on a missing image for a pilot that
+    # serves its host (admin-corten and marketplace-corten always, public-corten unless
+    # STAGING_PUBLIC_APP=public-web).
     if: >-
       !cancelled() &&
       needs.resolve-release.result == 'success' &&
@@ -1303,7 +1304,6 @@ jobs:
     outputs:
       deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
-      admin_app: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
       # Set only when staging deployed and so smoked the Corten admin; production deploys this digest.
       corten_admin_image: ${{ steps.staging_kubernetes_deploy.outputs.corten_admin_image }}
       # The same for the Corten marketplace.
@@ -1407,9 +1407,6 @@ jobs:
       # DOKS ingress load balancer IPv4 for live serving and retained diagnostics.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
-      # The app that serves admin.staging: admin-corten, or admin-web to roll back (docs/runbooks/staging-admin-app.md).
-      # Unset means admin-corten; the deploy script refuses any other value and records which one served.
-      STAGING_ADMIN_APP: ${{ vars.STAGING_ADMIN_APP || '' }}
       # The app that serves www.staging: public-corten, or public-web to roll back
       # (docs/runbooks/staging-public-app.md). Unset means public-corten; the deploy script refuses any other
       # value and records which one served.
@@ -2198,8 +2195,7 @@ jobs:
                 end
             ] | unique | select(length > 0) | join(",")')"
 
-          # With no admin image, the deploy script fails while admin-corten serves admin.staging. Under
-          # STAGING_ADMIN_APP=admin-web it does not deploy the pilot at all, image or not (withheldCortenPilots).
+          # admin-corten serves admin.staging, so with no admin image the deploy script fails.
           corten_image_args=()
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
@@ -2284,7 +2280,6 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
-          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
@@ -2311,12 +2306,9 @@ jobs:
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
+            "https://admin-corten.staging.chasesets.com/health/ready"
             "https://marketplace-corten.staging.chasesets.com/health/ready"
           )
-          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
-          if [ "$ADMIN_APP" != "admin-web" ]; then
-            ingress_urls+=("https://admin-corten.staging.chasesets.com/health/ready")
-          fi
           # public-corten runs only while it serves www.staging; under STAGING_PUBLIC_APP=public-web it is not deployed (withheldCortenPilots).
           if [ "$PUBLIC_APP" != "public-web" ]; then
             ingress_urls+=("https://public-corten.staging.chasesets.com/health/ready")
@@ -2389,7 +2381,6 @@ jobs:
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
-          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
           # Signs in and opens a marketplace account page on marketplace.staging.
           SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN: "true"
@@ -2398,7 +2389,7 @@ jobs:
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin, marketplace-corten serves marketplace and ${PUBLIC_APP} serves www."
+          echo "Smoking the live staging hosts served by DOKS; admin-corten serves admin, marketplace-corten serves marketplace and ${PUBLIC_APP} serves www."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -2420,13 +2411,10 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
-          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
-          if [ "$ADMIN_APP" != "admin-web" ]; then
-            node ./scripts/platform-ingress-wait.mjs \
-              --attempts 1 \
-              --expect-status 200 \
-              --url "https://admin-corten.staging.chasesets.com/health/ready"
-          fi
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 1 \
+            --expect-status 200 \
+            --url "https://admin-corten.staging.chasesets.com/health/ready"
           node ./scripts/platform-ingress-wait.mjs \
             --attempts 1 \
             --expect-status 200 \
@@ -2457,38 +2445,6 @@ jobs:
             exit 1
           fi
           echo "Catalog asset CDN root returned expected protected status 403."
-
-      # While admin-corten serves admin.staging, the Smoke check above already
-      # runs the authenticated admin smoke against it, so this step only says
-      # so. Under STAGING_ADMIN_APP=admin-web it smokes the pilot at
-      # admin-corten, advisory: it never fails Deploy Staging.
-      - name: Advisory Corten admin smoke
-        timeout-minutes: 12
-        if: env.SHOULD_DEPLOY != 'false'
-        continue-on-error: true
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          SMOKE_SOURCE: staging-corten-admin-smoke
-          SMOKE_UTM_CAMPAIGN: staging-main
-          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
-          SMOKE_FETCH_ATTEMPTS: "24"
-          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
-          SMOKE_FETCH_TIMEOUT_MS: "15000"
-        run: |
-          set -euo pipefail
-          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
-          if [ "$ADMIN_APP" != "admin-web" ]; then
-            echo "admin-corten serves admin.staging, so the Smoke check above smoked it with the admin required."
-            exit 0
-          fi
-          echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."
 
       # While public-corten serves www.staging, the Smoke check above already runs the derived public
       # route walk against it (the landing smoke), so this step only says so. Under STAGING_PUBLIC_APP=public-web
@@ -3408,7 +3364,6 @@ jobs:
     if: needs.deploy-staging.outputs.deployed == 'true'
     environment: production
     outputs:
-      admin_app: ${{ steps.production_kubernetes_deploy.outputs.admin_app }}
       public_app: ${{ steps.production_kubernetes_deploy.outputs.public_app }}
       rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
       rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
@@ -3438,8 +3393,6 @@ jobs:
       PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
       PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
-      # admin-web (the default) or admin-corten; see docs/runbooks/production-admin-app.md.
-      PRODUCTION_ADMIN_APP: ${{ vars.PRODUCTION_ADMIN_APP || '' }}
       # public-web (the default) or public-corten, for chasesets.com and www.chasesets.com; see docs/runbooks/production-public-app.md.
       PRODUCTION_PUBLIC_APP: ${{ vars.PRODUCTION_PUBLIC_APP || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
@@ -4545,9 +4498,9 @@ jobs:
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
           # The Corten apps believe X-Forwarded-For only from the ingress pods in PROXIES. A discovery failure
-          # leaves PROXIES empty, and the deploy script then refuses before Helm, because marketplace-corten
-          # always serves marketplace.chasesets.com (and so do admin-corten and public-corten once
-          # PRODUCTION_ADMIN_APP or PRODUCTION_PUBLIC_APP selects them).
+          # leaves PROXIES empty, and the deploy script then refuses before Helm, because admin-corten and
+          # marketplace-corten always serve admin.chasesets.com and marketplace.chasesets.com (and so does
+          # public-corten once PRODUCTION_PUBLIC_APP selects it).
           ingress_pod_cidrs=""
           if ingress_nodes="$(kubectl -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json \
             | jq -ce '[.items[] | select(.status.phase == "Running") | .spec.nodeName] | unique | select(length > 0)')" \
@@ -4569,8 +4522,8 @@ jobs:
           fi
           add_optional_runtime_env "PROXIES" "$ingress_pod_cidrs"
 
-          # Production deploys the Corten admin image that Deploy Staging deployed and smoked. Under admin-web
-          # the script does not deploy the pilot, image or not; under admin-corten it refuses a missing image.
+          # Production deploys the Corten admin image that Deploy Staging deployed and smoked. admin-corten serves
+          # admin.chasesets.com, so the script refuses a missing image.
           corten_image_args=()
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")

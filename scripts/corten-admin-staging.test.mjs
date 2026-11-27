@@ -16,7 +16,6 @@ import {
   buildHelmUpgradeArgs,
   parseArgs,
   platformKubernetesWorkloads,
-  recordStagingAdminApp,
   withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
@@ -45,7 +44,8 @@ describe("Corten admin staging deployment", () => {
       // Moved for the production admin and public switches (PRODUCTION_ADMIN_APP, PRODUCTION_PUBLIC_APP), the staged Corten
       // images and best-effort PROXIES, then for retiring marketplace-web: no PRODUCTION_MARKETPLACE_APP, and the
       // marketplace signed-in smoke runs whenever production serves a marketplace.
-      "deploy-production": "9eabad66f3039a0bcd0fda196becdf3bbebbc59a69f127fbfb2c55ab300d9c48",
+      // Then for retiring admin-web: no PRODUCTION_ADMIN_APP, and admin-corten is always readied and smoked.
+      "deploy-production": "f54c4edc1b26f819ad9e3890afcad9a82a5c4144823e0c056c316f618db54dbe",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -67,7 +67,8 @@ describe("Corten admin staging deployment", () => {
       // Moved for retiring marketplace-web: the base values no longer carry the marketplace component,
       // and production no longer disables it.
       "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
-      "values.production.yaml": "2d12059c80fe6ac167b48df4c3140a1e7f0a4902fe9789d89d1fcffc8744a8ec",
+      // Then for retiring admin-web: production keeps no admin-web resources and disables it.
+      "values.production.yaml": "dc49af728c4543cfa44866842cae5977cb120fe526063f32486a7de66a634313",
     })) {
       expect(
         createHash("sha256")
@@ -99,7 +100,7 @@ describe("Corten admin staging deployment", () => {
     expect(
       buildDoksIngressValues({
         environment: "production",
-        env: { PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1", PRODUCTION_ADMIN_APP: "admin-corten" },
+        env: { PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
       }).hosts.some(({ host }) => host.includes("corten")),
     ).toBe(false);
     const dns = read("infrastructure/digitalocean/platform/locals.tf");
@@ -141,7 +142,7 @@ describe("Corten admin staging deployment", () => {
     );
   });
 
-  it("renders the staging Deployment, Service and TLS host without changing production workloads", () => {
+  it("renders the staging Deployment, Service and TLS host, and keeps that host out of production", () => {
     const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
     const render = (overlay, extra = []) => {
       const args = ["template", "chase-sets-platform", "infrastructure/helm/platform", "--values", overlay, ...extra];
@@ -197,19 +198,18 @@ describe("Corten admin staging deployment", () => {
     ).toBe(name);
     const productionArgs = buildHelmUpgradeArgs({
       ...options,
-      cortenAdminImage: undefined,
-      // marketplace-corten serves marketplace.chasesets.com, so production always carries its staged image.
+      // admin-corten and marketplace-corten serve production, so production always carries their staged images.
       cortenMarketplaceImage: image.replace("corten-admin", "corten-marketplace"),
       cortenPublicImage: undefined,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: "10.244.0.0/25" },
       env: { ...options.env, PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
     });
-    expect(
-      render(
-        "infrastructure/helm/platform/values.production.yaml",
-        productionArgs.slice(productionArgs.indexOf("--values") + 2),
-      ).some((item) => item.metadata.name === name),
-    ).toBe(false);
+    const production = render(
+      "infrastructure/helm/platform/values.production.yaml",
+      productionArgs.slice(productionArgs.indexOf("--values") + 2),
+    );
+    expect(production.some((item) => item.kind === "Deployment" && item.metadata.name === name)).toBe(true);
+    expect(JSON.stringify(production)).not.toContain("admin-corten.staging.chasesets.com");
     expect(() =>
       render("infrastructure/helm/platform/values.staging.yaml", ["--set", "doksIngress.enabled=true"]),
     ).toThrow("component.image is required");
@@ -221,7 +221,7 @@ describe("Corten admin staging deployment", () => {
     expect(() => buildHelmUpgradeArgs({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } })).toThrow(
       "corten-admin-image is staging and production only.",
     );
-    // Production under its default (admin-web) does not deploy the pilot, whatever image it was given.
+    // Production deploys the same pinned image, since admin-corten serves admin.chasesets.com too.
     const production = buildHelmUpgradeArgs({
       ...options,
       cortenMarketplaceImage: image.replace("corten-admin", "corten-marketplace"),
@@ -229,7 +229,7 @@ describe("Corten admin staging deployment", () => {
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", PROXIES: "10.244.0.0/25" },
     });
     expect(production.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
-      "components.admin-corten.enabled=false",
+      `components.admin-corten.image=${image}`,
     ]);
     expect(() => buildHelmUpgradeArgs({ ...options, cortenAdminImage: image.split("@")[0] + ":latest" })).toThrow();
     expect(() =>
@@ -257,82 +257,29 @@ describe("Corten admin staging deployment", () => {
     expect(read("Dockerfile.corten-admin.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("requires pilot readiness in both staging ingress wait and admin smoke unless admin-web serves admin", () => {
+  it("requires pilot readiness in both the staging ingress wait and the Smoke check, with no advisory admin step", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const url = "https://admin-corten.staging.chasesets.com/health/ready";
-    const adminApp = "${{ steps.staging_kubernetes_deploy.outputs.admin_app }}";
-    const gate = 'if [ "$ADMIN_APP" != "admin-web" ]; then';
     const wait = steps.find(({ name }) => name === "Wait for staging ingress URLs");
-    expect(wait.env.ADMIN_APP).toBe(adminApp);
-    // Under admin-web the pilot is not deployed at all, so no image can bring it back into the wait or smoke.
-    expect(wait.env).not.toHaveProperty("CORTEN_ADMIN_IMAGE");
-    expect(wait.run).toContain(`${gate}\n  ingress_urls+=("${url}")\nfi`);
-    expect(wait.run.split(url)).toHaveLength(2);
     const smoke = steps.find(({ name }) => name === "Smoke check");
-    expect(smoke.env.ADMIN_APP).toBe(adminApp);
-    expect(smoke.env).not.toHaveProperty("CORTEN_ADMIN_IMAGE");
+    // admin-corten serves admin.staging on every deploy, so neither check is gated.
+    expect(wait.run).toContain(`  "${url}"\n`);
+    expect(wait.run.split(url)).toHaveLength(2);
     expect(smoke.run).toContain(
-      `${gate}\n  node ./scripts/platform-ingress-wait.mjs \\\n    --attempts 1 \\\n    --expect-status 200 \\\n    --url "${url}"\nfi`,
+      `node ./scripts/platform-ingress-wait.mjs \\\n  --attempts 1 \\\n  --expect-status 200 \\\n  --url "${url}"\n`,
     );
     expect(smoke.run.split(url)).toHaveLength(2);
-    // The gates read the deploy step's resolved app, never the raw variable, so they agree with the ingress.
     for (const step of [wait, smoke]) {
-      expect(step.run).not.toMatch(/\$\{?STAGING_ADMIN_APP/);
-      expect(step.run).not.toContain("CORTEN_ADMIN_IMAGE");
+      expect(step.env).not.toHaveProperty("ADMIN_APP");
+      expect(step.run).not.toMatch(/ADMIN_APP/);
     }
-    // Each conditional gate names the rule that makes the pilot advisory.
-    const pointer =
-      "# admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).";
-    const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
-    for (const run of [wait.run, smoke.run, advisory.run]) {
-      expect(run.split(pointer)).toHaveLength(2);
-    }
-    // The enforcing smoke runs the admin smoke against admin.staging, whichever app serves it.
+    // The enforcing smoke runs the authenticated admin smoke against admin.staging.
     expect(smoke.env.SMOKE_REQUIRE_ADMIN).toBe("true");
     expect(smoke.run).toContain('"https://${admin_domain}"');
+    // The advisory step only reported which app served admin.staging, so it is gone with the switch.
+    expect(steps.map(({ name }) => name)).not.toContain("Advisory Corten admin smoke");
   });
 
-  it("keeps the advisory admin smoke step after the Smoke check, smoking nothing and saying why", () => {
-    const steps = workflow.jobs["deploy-staging"].steps;
-    const names = steps.map(({ name }) => name);
-    const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
-    expect(names.indexOf("Advisory Corten admin smoke")).toBe(names.indexOf("Smoke check") + 1);
-    expect(advisory["continue-on-error"]).toBe(true);
-    expect(advisory.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
-
-    const secrets = Object.values(advisory.env)
-      .flatMap((value) => [...String(value).matchAll(/secrets\.([A-Z_]+)/g)].map((match) => match[1]))
-      .sort();
-    expect(secrets).toEqual(
-      [
-        "DIGITALOCEAN_ACCESS_TOKEN",
-        "PLATFORM_ADMIN_EMAIL",
-        "PLATFORM_ADMIN_PASSWORD",
-        "SPACES_ACCESS_ID",
-        "SPACES_ACCESS_ID",
-        "SPACES_SECRET_KEY",
-        "SPACES_SECRET_KEY",
-      ].sort(),
-    );
-    expect(advisory.run).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
-    expect(advisory.run).not.toContain("set -x");
-    expect(advisory.env).not.toHaveProperty("CORTEN_ADMIN_IMAGE");
-    expect(advisory.env.ADMIN_APP).toBe("${{ steps.staging_kubernetes_deploy.outputs.admin_app }}");
-    // While the pilot serves admin.staging the Smoke check smoked it with the admin required. Under admin-web the
-    // pilot is not deployed, so there is nothing to smoke; either way the step only says which case applied.
-    expect(advisory.run).toBe(
-      [
-        "set -euo pipefail",
-        "# admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).",
-        'if [ "$ADMIN_APP" != "admin-web" ]; then',
-        '  echo "admin-corten serves admin.staging, so the Smoke check above smoked it with the admin required."',
-        "  exit 0",
-        "fi",
-        'echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."',
-        "",
-      ].join("\n"),
-    );
-  });
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {
     const build = workflow.jobs["build-corten-pilot-images"];
     const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
@@ -582,126 +529,71 @@ describe("Corten admin staging deployment", () => {
   });
 });
 
-describe("the staging admin app switch", () => {
+describe("admin-corten serves admin.staging", () => {
   const withoutAdminImage = { ...options, cortenAdminImage: undefined };
-  const withApp = (base, STAGING_ADMIN_APP) => ({ ...base, env: { ...base.env, STAGING_ADMIN_APP } });
+  // Values a leftover STAGING_ADMIN_APP may hold until it is deleted from the environment.
+  const leftovers = [undefined, "", "admin-corten", "admin-web", "not-an-app"];
+  const withLeftover = (base, STAGING_ADMIN_APP) => ({ ...base, env: { ...base.env, STAGING_ADMIN_APP } });
 
-  it("reads STAGING_ADMIN_APP from the staging environment's variables for the whole Deploy Staging job", () => {
+  it("reads no admin app variable in Deploy Staging", () => {
     const job = workflow.jobs["deploy-staging"];
     expect(job.environment).toBe("staging");
-    expect(job.env.STAGING_ADMIN_APP).toBe("${{ vars.STAGING_ADMIN_APP || '' }}");
-    expect(job.outputs.admin_app).toBe("${{ steps.staging_kubernetes_deploy.outputs.admin_app }}");
-    const deploy = job.steps.find(({ id }) => id === "staging_kubernetes_deploy");
-    expect(deploy.run).toContain('--github-summary "$GITHUB_STEP_SUMMARY" \\\n');
-    // Only the deploy step reads the variable, through the script, so one resolution decides the ingress and the gates.
-    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_ADMIN_APP/);
+    expect(job.env).not.toHaveProperty("STAGING_ADMIN_APP");
+    expect(job.outputs).not.toHaveProperty("admin_app");
+    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/STAGING_ADMIN_APP|ADMIN_APP/);
   });
 
-  it("keeps admin-corten off the advisory list and withholds it only while admin-web serves admin.staging", () => {
+  it("keeps admin-corten off the advisory list and never withholds it", () => {
     expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual([]);
-    const staging = (env) => withheldCortenPilots({ ...options, env });
-    expect(staging({})).toEqual([]);
-    expect(staging({ STAGING_ADMIN_APP: "admin-corten" })).toEqual([]);
-    expect(staging({ STAGING_ADMIN_APP: "admin-web" })).toEqual(["admin-corten"]);
-    expect(() => staging({ STAGING_ADMIN_APP: "admin" })).toThrow("STAGING_ADMIN_APP must be one of");
+    for (const value of leftovers) {
+      expect(withheldCortenPilots(withLeftover(options, value))).toEqual([]);
+    }
   });
 
-  it("fails a deploy without the admin image while the pilot serves admin.staging", () => {
-    for (const value of [undefined, "", "admin-corten"]) {
-      expect(() => buildHelmUpgradeArgs(withApp(withoutAdminImage, value))).toThrow(
+  it("fails a deploy without the admin image, whatever a leftover variable says", () => {
+    for (const value of leftovers) {
+      expect(() => buildHelmUpgradeArgs(withLeftover(withoutAdminImage, value))).toThrow(
         "corten-admin-image is required on staging: admin-corten is not an advisory pilot.",
       );
     }
   });
 
-  it("renders the pilot disabled while admin-web serves admin.staging, whether or not its image was given", () => {
-    // helm --wait --atomic waits for every enabled pod, so a pilot that never becomes ready would fail the rollback.
-    for (const base of [withoutAdminImage, options]) {
-      const args = buildHelmUpgradeArgs(withApp(base, "admin-web"));
-      expect(args[args.indexOf("components.admin-corten.enabled=false") - 1]).toBe("--set");
-      expect(args.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
-        "components.admin-corten.enabled=false",
-      ]);
-    }
-    expect(buildHelmUpgradeArgs(options)).toContain(`components.admin-corten.image=${image}`);
-    expect(buildHelmUpgradeArgs(options)).not.toContain("components.admin-corten.enabled=false");
-  });
-
-  it("refuses any other value before Helm runs", () => {
-    for (const value of ["admin", "ADMIN-WEB", "public-web", "admin-corten,admin-web"]) {
-      expect(() => buildHelmUpgradeArgs(withApp(options, value))).toThrow("STAGING_ADMIN_APP must be one of");
-    }
-  });
-
-  it("routes admin.staging to the selected app in the Helm arguments", () => {
-    const adminRoot = (STAGING_ADMIN_APP) => {
+  it("deploys the pilot with its image and routes admin.staging to it, whatever a leftover variable says", () => {
+    for (const value of leftovers) {
       const args = buildHelmUpgradeArgs({
         ...options,
-        env: { ...options.env, DOKS_INGRESS_TARGET: "192.0.2.1", STAGING_ADMIN_APP },
+        env: { ...options.env, DOKS_INGRESS_TARGET: "192.0.2.1", STAGING_ADMIN_APP: value },
       });
-      const hostIndex = args.find((arg) =>
-        /^doksIngress\.hosts\[\d+\]\.host=admin\.staging\.chasesets\.com$/.test(arg),
-      );
-      const host = hostIndex.match(/hosts\[(\d+)\]/)[1];
+      expect(args.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
+        `components.admin-corten.image=${image}`,
+      ]);
+      const hostArg = args.find((arg) => /^doksIngress\.hosts\[\d+\]\.host=admin\.staging\.chasesets\.com$/.test(arg));
+      const host = hostArg.match(/hosts\[(\d+)\]/)[1];
       const services = args.filter(
         (arg) => arg.startsWith(`doksIngress.hosts[${host}].paths[`) && arg.includes(".service="),
       );
-      return services.at(-1).split("=")[1];
-    };
-    expect(adminRoot(undefined)).toBe("admin-corten");
-    expect(adminRoot("admin-web")).toBe("admin-web");
+      expect(services.at(-1).split("=")[1]).toBe("admin-corten");
+      expect(args.join(" ")).not.toContain(".service=admin-web");
+    }
+    expect(buildPlatformHelmStagingValues().components["admin-web"]).toEqual({ enabled: false });
   });
 
-  it("says which app served admin and why, in the summary, the step output and the deploy record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "staging-admin-app-"));
-    try {
-      const record = (env) => {
-        const summary = join(dir, `summary-${env.STAGING_ADMIN_APP ?? "unset"}.md`);
-        const output = join(dir, `output-${env.STAGING_ADMIN_APP ?? "unset"}.txt`);
-        const result = recordStagingAdminApp({ env, githubSummaryPath: summary, githubOutputPath: output });
-        return { result, summary: read(summary), output: read(output) };
-      };
-      const unset = record({});
-      expect(unset.result).toEqual({ app: "admin-corten", source: "default", adminCorten: "deployed" });
-      expect(unset.summary).toContain(
-        "admin.staging is served by admin-corten (STAGING_ADMIN_APP is unset, so the default applies).",
-      );
-      expect(unset.output).toBe("admin_app=admin-corten\nadmin_app_source=default\n");
-      expect(unset.summary).not.toContain("not deployed");
-      const rolledBack = record({ STAGING_ADMIN_APP: "admin-web" });
-      expect(rolledBack.result).toEqual({ app: "admin-web", source: "variable", adminCorten: "not-deployed" });
-      expect(rolledBack.summary).toBe(
-        "### Staging admin app\n\n" +
-          "admin.staging is served by admin-web (STAGING_ADMIN_APP=admin-web).\n\n" +
-          "admin-corten is not deployed while admin-web serves admin.staging.\n\n",
-      );
-      expect(rolledBack.output).toBe("admin_app=admin-web\nadmin_app_source=variable\n");
-      expect(() => record({ STAGING_ADMIN_APP: "admin" })).toThrow("STAGING_ADMIN_APP must be one of");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+  it("keeps no admin app in the deploy record", () => {
+    for (const value of leftovers) {
+      const evidence = buildDeploymentEvidence({ ...withLeftover(options, value), workloads: {} });
+      expect(evidence).not.toHaveProperty("stagingAdminApp");
+      expect(evidence).not.toHaveProperty("productionAdminApp");
     }
-    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingAdminApp;
-    expect(evidence({})).toEqual({ app: "admin-corten", source: "default", adminCorten: "deployed" });
-    expect(evidence({ STAGING_ADMIN_APP: "admin-web" })).toEqual({
-      app: "admin-web",
-      source: "variable",
-      adminCorten: "not-deployed",
-    });
-    expect(
-      buildDeploymentEvidence({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" }, workloads: {} }),
-    ).not.toHaveProperty("stagingAdminApp");
     // parseArgs reads the summary path only from the flag, so no other command writes a summary by inheriting it.
     expect(parseArgs(["deploy", "--github-summary", "s.md"], {}).githubSummaryPath).toBe("s.md");
     expect(parseArgs(["deploy"], { GITHUB_STEP_SUMMARY: "s.md" }).githubSummaryPath).toBeUndefined();
   });
 
-  it("writes the rollback steps the runbook promises", () => {
+  it("says in the runbook that rollback is an earlier release", () => {
     const runbook = read("docs/runbooks/staging-admin-app.md");
-    expect(runbook).toContain(
-      "gh variable set STAGING_ADMIN_APP --repo chase-sets/chase-sets --env staging --body admin-web",
-    );
-    expect(runbook).toContain("gh variable delete STAGING_ADMIN_APP --repo chase-sets/chase-sets --env staging");
-    expect(runbook).toContain("-f force_deploy=true");
+    expect(runbook).toContain("admin-corten serves admin.staging on every staging deploy.");
+    expect(runbook).toContain("To roll back, deploy an earlier release_ref.");
+    expect(runbook).not.toContain("gh variable set STAGING_ADMIN_APP");
     expect(read("docs/README.md")).toContain("(./runbooks/staging-admin-app.md)");
   });
 });

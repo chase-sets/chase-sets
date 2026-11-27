@@ -87,29 +87,12 @@ const stripeEndpointRotationDelta = [
     purpose: "application-runtime",
   },
 ];
-// #11327: the advisory Corten admin smoke at deploy-staging position 43 shifts later anchors by one and reuses
-// the smoke's existing staging credentials; no new secret reaches the job.
-const cortenAdminSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 43 }];
-const cortenAdminSmokeDelta = [
-  "DIGITALOCEAN_ACCESS_TOKEN",
-  "SPACES_ACCESS_ID",
-  "SPACES_SECRET_KEY",
-  "SPACES_ACCESS_ID",
-  "SPACES_SECRET_KEY",
-  "PLATFORM_ADMIN_EMAIL",
-  "PLATFORM_ADMIN_PASSWORD",
-].map((secretName) => ({
-  file: workflowPath,
-  jobId: "deploy-staging",
-  stepAnchor: "name:Advisory Corten admin smoke#43",
-  secretName,
-  purpose: "terraform-infra",
-}));
-// The advisory Corten marketplace smoke that sat at deploy-staging position 44 was deleted with marketplace-web's
-// retirement from staging and production, together with the nine grants its reviewed insertion had added; later
-// anchors moved back by one. The advisory Corten public smoke at position 44, after the admin one, shifts later
-// anchors by one. It adds no secret, so it adds no grant.
-const cortenPublicSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 44 }];
+// The advisory Corten admin smoke that sat at deploy-staging position 43 was deleted with admin-web's retirement
+// from staging and production, together with the seven grants its reviewed insertion had added, and so was the
+// advisory Corten marketplace smoke that sat at position 44 with marketplace-web's, together with its nine; later
+// anchors moved back by one each time. The advisory Corten public smoke at position 43 shifts later anchors by one.
+// It adds no secret, so it adds no grant.
+const cortenPublicSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 43 }];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1179,8 +1162,6 @@ describe("managed Postgres authority source generator", () => {
         .concat(ebaySandboxOAuthDelta)
         .concat(stripeEndpointRotationDelta)
         .concat(catalogCompletionManifestDelta)
-        .map((record) => applyStepInsertions(record, cortenAdminSmokeStepInsertion))
-        .concat(cortenAdminSmokeDelta)
         .concat(cortenMarketplaceImageDelta)
         .filter(
           (record) =>

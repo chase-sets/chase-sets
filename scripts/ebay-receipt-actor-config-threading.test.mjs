@@ -117,6 +117,7 @@ describe("staging eBay receipt actor configuration threading", () => {
       namespace: "chase-sets-platform",
       timeout: "10m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+      cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`,
       cortenMarketplaceImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"c".repeat(64)}`,
       managedPostgresCaSha256,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", PROXIES: "10.244.0.0/25" },

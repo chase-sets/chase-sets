@@ -4,17 +4,12 @@ import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
-import {
-  buildDoksIngressValues,
-  buildPlatformHelmProductionValues,
-  resolveProductionAdminApp,
-} from "./render-platform-helm-values.mjs";
+import { adminApp, buildDoksIngressValues, buildPlatformHelmProductionValues } from "./render-platform-helm-values.mjs";
 import {
   buildDeploymentEvidence,
   buildHelmUpgradeArgs,
   deployPlatformToKubernetes,
   platformKubernetesWorkloads,
-  recordAdminApp,
   recordDeployedCortenAdminImage,
   withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
@@ -35,7 +30,8 @@ const production = (env = {}, overrides = {}) => ({
   managedPostgresCaSha256: "b".repeat(64),
   ...overrides,
 });
-const adminCorten = { PRODUCTION_ADMIN_APP: "admin-corten" };
+// A variable left behind after admin-web was retired, until it is deleted from the environment.
+const leftover = { PRODUCTION_ADMIN_APP: "admin-web" };
 const pilotArgs = (args) => args.filter((arg) => String(arg).startsWith("components.admin-corten."));
 const adminRoot = (args) => {
   const hostArg = args.find((arg) => /^doksIngress\.hosts\[\d+\]\.host=admin\.chasesets\.com$/.test(arg));
@@ -46,199 +42,123 @@ const adminRoot = (args) => {
     .split("=")[1];
 };
 const pilotWorkload = "chase-sets-platform-chase-sets-platform-admin-corten";
+const webWorkload = "chase-sets-platform-chase-sets-platform-admin-web";
 
-describe("production admin app switch", () => {
-  it("defaults to admin-web, takes admin-corten only by name, and refuses anything else", () => {
-    expect(resolveProductionAdminApp({})).toEqual({ app: "admin-web", source: "default" });
-    expect(resolveProductionAdminApp({ PRODUCTION_ADMIN_APP: " admin-corten " })).toEqual({
-      app: "admin-corten",
-      source: "variable",
-    });
-    // The staging variable never moves production.
-    expect(resolveProductionAdminApp({ STAGING_ADMIN_APP: "admin-corten" }).app).toBe("admin-web");
-    for (const value of ["admin", "ADMIN-CORTEN", "admin-corten,admin-web"]) {
-      expect(() => buildHelmUpgradeArgs(production({ PRODUCTION_ADMIN_APP: value }))).toThrow(
-        "PRODUCTION_ADMIN_APP must be one of",
+describe("production admin app", () => {
+  it("serves admin.chasesets.com from admin-corten with the staged image, whatever a leftover variable says", () => {
+    expect(adminApp).toBe("admin-corten");
+    for (const env of [{}, leftover, { PRODUCTION_ADMIN_APP: "not-an-app" }]) {
+      const args = buildHelmUpgradeArgs(production(env));
+      expect(pilotArgs(args)).toEqual([`components.admin-corten.image=${image}`]);
+      expect(args[args.indexOf(`components.admin-corten.image=${image}`) - 1]).toBe("--set-string");
+      expect(adminRoot(args)).toBe("admin-corten");
+      expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
+      expect(withheldCortenPilots(production(env))).toEqual(["public-corten"]);
+    }
+    const { deployments } = platformKubernetesWorkloads(production());
+    expect(deployments).toContain(pilotWorkload);
+    expect(deployments).not.toContain(webWorkload);
+    // The certificate covers the same names as before: no new host or DNS record.
+    const names = (env) =>
+      buildDoksIngressValues({ environment: "production", env: production(env).env }).tls.certificate.dnsNames;
+    expect(names(leftover)).toEqual(names({}));
+  });
+
+  it("no longer deploys admin-web in production", () => {
+    expect(buildPlatformHelmProductionValues().components["admin-web"]).toEqual({ enabled: false });
+    const values = read("infrastructure/helm/platform/values.production.yaml");
+    expect(values).toContain("  admin-web:\n    enabled: false\n");
+    expect(values).not.toMatch(/\n {2}admin-web:\n {4}resources:/);
+    const routes = JSON.stringify(
+      buildDoksIngressValues({ environment: "production", env: production().env }).hosts.flatMap(({ paths }) => paths),
+    );
+    expect(routes).not.toContain('"service":"admin-web"');
+  });
+
+  it("refuses before Helm, saying how to recover, when there is no staged image", () => {
+    for (const env of [{}, leftover]) {
+      const refusal = () => buildHelmUpgradeArgs(production(env, { cortenAdminImage: undefined }));
+      expect(refusal).toThrow("corten-admin-image is required on production: admin-corten serves admin.chasesets.com");
+      expect(refusal).toThrow("No production change was made, and production keeps serving the last release.");
+      expect(refusal).toThrow("To recover, fix the Corten admin image build and deploy again");
+    }
+  });
+
+  it("refuses before Helm, saying how to recover, when there is no PROXIES", () => {
+    const envOverrides = { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" };
+    const refusal = () => buildHelmUpgradeArgs(production({}, { envOverrides }));
+    expect(refusal).toThrow(
+      "PROXIES is required on production: the ingress pod CIDRs could not be read, and the Corten admin",
+    );
+    expect(refusal).toThrow("No production change was made, and production keeps serving the last release.");
+    expect(refusal).toThrow("To recover, fix the ingress pod CIDR discovery and deploy again");
+    // An empty value never gets this far: every runtime env override must be non-empty.
+    for (const PROXIES of ["", " "]) {
+      expect(() => buildHelmUpgradeArgs(production({}, { envOverrides: { ...envOverrides, PROXIES } }))).toThrow(
+        "PROXIES is required",
       );
     }
   });
 
-  it("does not deploy admin-corten while admin-web serves admin.chasesets.com, with or without an image", () => {
-    for (const overrides of [{}, { cortenAdminImage: undefined }]) {
-      for (const env of [{}, { PRODUCTION_ADMIN_APP: "admin-web" }]) {
-        const args = buildHelmUpgradeArgs(production(env, overrides));
-        expect(pilotArgs(args)).toEqual(["components.admin-corten.enabled=false"]);
-        expect(args[args.indexOf("components.admin-corten.enabled=false") - 1]).toBe("--set");
-        expect(adminRoot(args)).toBe("admin-web");
-        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten", "public-corten"]);
-      }
-    }
-    const withoutProxies = production(
-      {},
-      {
-        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" },
-      },
-    );
-    // The Corten marketplace serves marketplace.chasesets.com whichever app serves admin, so PROXIES is
-    // required either way.
-    expect(() => buildHelmUpgradeArgs(withoutProxies)).toThrow(
-      "PROXIES is required on production: the ingress pod CIDRs could not be read",
-    );
+  it("serves the marketplace from marketplace-corten beside the admin", () => {
+    const args = buildHelmUpgradeArgs(production());
+    expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
+      `components.marketplace-corten.image=${marketplaceImage}`,
+    ]);
   });
 
-  it("serves admin.chasesets.com from admin-corten with the staged image under admin-corten", () => {
-    const args = buildHelmUpgradeArgs(production(adminCorten));
-    expect(pilotArgs(args)).toEqual([`components.admin-corten.image=${image}`]);
-    expect(args[args.indexOf(`components.admin-corten.image=${image}`) - 1]).toBe("--set-string");
-    expect(adminRoot(args)).toBe("admin-corten");
-    expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
-    expect(withheldCortenPilots(production(adminCorten))).toEqual(["public-corten"]);
-    expect(platformKubernetesWorkloads(production(adminCorten)).deployments).toContain(pilotWorkload);
-    // The certificate covers the same names either way: no new host or DNS record.
-    const names = (env) =>
-      buildDoksIngressValues({ environment: "production", env: production(env).env }).tls.certificate.dnsNames;
-    expect(names(adminCorten)).toEqual(names({}));
-  });
-
-  it("refuses before Helm, saying how to recover, when admin-corten has no staged image", () => {
-    const refusal = () => buildHelmUpgradeArgs(production(adminCorten, { cortenAdminImage: undefined }));
-    expect(refusal).toThrow("corten-admin-image is required on production while PRODUCTION_ADMIN_APP=admin-corten");
-    expect(refusal).toThrow("No production change was made.");
-    expect(refusal).toThrow(
-      "set PRODUCTION_ADMIN_APP=admin-web (or delete it) in the production environment and re-run",
-    );
-    expect(refusal).toThrow("return staging to the Corten admin and deploy again");
-  });
-
-  it("refuses before Helm, saying how to recover, when admin-corten has no PROXIES", () => {
-    const envOverrides = { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" };
-    const refusal = () => buildHelmUpgradeArgs(production(adminCorten, { envOverrides }));
-    expect(refusal).toThrow("PROXIES is required on production while PRODUCTION_ADMIN_APP=admin-corten");
-    expect(refusal).toThrow("No production change was made.");
-    expect(refusal).toThrow(
-      "set PRODUCTION_ADMIN_APP=admin-web (or delete it) in the production environment and re-run",
-    );
-    // An empty value never gets this far: every runtime env override must be non-empty.
-    for (const PROXIES of ["", " "]) {
-      expect(() =>
-        buildHelmUpgradeArgs(production(adminCorten, { envOverrides: { ...envOverrides, PROXIES } })),
-      ).toThrow("PROXIES is required");
-    }
-  });
-
-  it("serves the marketplace from marketplace-corten whichever app serves admin", () => {
-    for (const env of [{}, adminCorten]) {
-      const args = buildHelmUpgradeArgs(production(env));
-      expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
-        `components.marketplace-corten.image=${marketplaceImage}`,
-      ]);
-    }
-  });
-
-  it("does not wait for admin-corten under admin-web and waits for it under admin-corten", async () => {
-    const deploy = async (env) => {
-      const calls = [];
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      try {
-        const options = production(env, {
+  it("waits for admin-corten on every production deploy and warns about nothing admin", async () => {
+    const calls = [];
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await deployPlatformToKubernetes({
+        ...production(leftover, {
           release: "chase-sets-platform",
           namespace: "chase-sets-platform",
           timeout: "30s",
           rolloutsEnabled: false,
-        });
-        await deployPlatformToKubernetes({
-          ...options,
-          spawn: (command, args) => {
-            calls.push({ command, args });
-            const child = new EventEmitter();
-            child.stdin = { end: () => {} };
-            queueMicrotask(() => child.emit("close", 0));
-            return child;
-          },
-        });
-        return {
-          waited: calls.filter(({ command }) => command === "kubectl").map(({ args }) => args.join(" ")),
-          warnings: error.mock.calls.flat(),
-        };
-      } finally {
-        error.mockRestore();
-      }
-    };
-    const web = await deploy({});
-    expect(web.waited.some((args) => args.includes("platform-api"))).toBe(true);
-    expect(web.waited.filter((args) => args.includes(pilotWorkload))).toEqual([]);
-    expect(web.warnings).toContain(
-      "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
-    );
-    const corten = await deploy(adminCorten);
-    expect(corten.waited.filter((args) => args.includes(pilotWorkload))).toHaveLength(1);
-    expect(corten.warnings.filter((message) => message.includes("admin-corten"))).toEqual([]);
-  });
-
-  it("says which app served admin in the summary, the step output and the deploy record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "production-admin-app-"));
-    try {
-      const record = (env, name) => {
-        const githubSummaryPath = join(dir, `${name}.md`);
-        const githubOutputPath = join(dir, `${name}.txt`);
-        const result = recordAdminApp({ env, githubSummaryPath, githubOutputPath }, "production");
-        return { result, summary: read(githubSummaryPath), output: read(githubOutputPath) };
-      };
-      const web = record({}, "web");
-      expect(web.result).toEqual({ app: "admin-web", source: "default", adminCorten: "not-deployed" });
-      expect(web.summary).toBe(
-        "### Production admin app\n\n" +
-          "admin.chasesets.com is served by admin-web (PRODUCTION_ADMIN_APP is unset, so the default applies).\n\n" +
-          "admin-corten is not deployed while admin-web serves admin.chasesets.com.\n\n",
-      );
-      expect(web.output).toBe("admin_app=admin-web\nadmin_app_source=default\n");
-      const corten = record(adminCorten, "corten");
-      expect(corten.summary).toBe(
-        "### Production admin app\n\nadmin.chasesets.com is served by admin-corten (PRODUCTION_ADMIN_APP=admin-corten).\n\n",
-      );
-      expect(corten.output).toBe("admin_app=admin-corten\nadmin_app_source=variable\n");
+        }),
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          const child = new EventEmitter();
+          child.stdin = { end: () => {} };
+          queueMicrotask(() => child.emit("close", 0));
+          return child;
+        },
+      });
+      const waited = calls.filter(({ command }) => command === "kubectl").map(({ args }) => args.join(" "));
+      expect(waited.some((args) => args.includes("platform-api"))).toBe(true);
+      expect(waited.filter((args) => args.includes(pilotWorkload))).toHaveLength(1);
+      expect(waited.filter((args) => args.includes(`/${webWorkload} `))).toEqual([]);
+      expect(error.mock.calls.flat().filter((message) => String(message).includes("admin"))).toEqual([]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      error.mockRestore();
     }
-    const evidence = (env) => buildDeploymentEvidence({ ...production(env), workloads: {} });
-    expect(evidence({}).productionAdminApp).toEqual({
-      app: "admin-web",
-      source: "default",
-      adminCorten: "not-deployed",
-    });
-    expect(evidence(adminCorten).productionAdminApp).toEqual({
-      app: "admin-corten",
-      source: "variable",
-      adminCorten: "deployed",
-    });
-    expect(evidence({})).not.toHaveProperty("stagingAdminApp");
   });
 
-  it("hands production only the image staging deployed, and only when staging deployed it", () => {
+  it("keeps no admin app in the deploy record", () => {
+    for (const env of [{}, leftover]) {
+      const evidence = buildDeploymentEvidence({ ...production(env), workloads: {} });
+      expect(evidence).not.toHaveProperty("productionAdminApp");
+      expect(evidence).not.toHaveProperty("stagingAdminApp");
+    }
+  });
+
+  it("hands production only the image staging deployed, and only from a staging deploy", () => {
     const dir = mkdtempSync(join(tmpdir(), "staged-corten-admin-"));
     try {
-      const staging = (env, name) => {
-        const githubOutputPath = join(dir, `${name}.txt`);
-        const options = {
-          cortenAdminImage: image,
-          envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
-          env,
-          githubOutputPath,
-        };
-        const adminApp = recordAdminApp({ ...options, githubOutputPath: undefined }, "staging");
-        const written = recordDeployedCortenAdminImage(options, adminApp);
-        let output = "";
-        try {
-          output = read(githubOutputPath);
-        } catch {
-          output = "";
-        }
-        return { written, output };
+      const githubOutputPath = join(dir, "staging.txt");
+      const staging = {
+        cortenAdminImage: image,
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+        env: { STAGING_ADMIN_APP: "admin-web" },
+        githubOutputPath,
       };
-      expect(staging({}, "serving")).toEqual({ written: image, output: `corten_admin_image=${image}\n` });
-      expect(staging({ STAGING_ADMIN_APP: "admin-web" }, "withheld")).toEqual({ written: null, output: "" });
+      // A leftover STAGING_ADMIN_APP no longer withholds the handoff.
+      expect(recordDeployedCortenAdminImage(staging)).toBe(image);
+      expect(read(githubOutputPath)).toBe(`corten_admin_image=${image}\n`);
       expect(
-        recordDeployedCortenAdminImage(production(adminCorten), { adminCorten: "deployed" }),
+        recordDeployedCortenAdminImage(production()),
         "a production deploy never writes the staging output",
       ).toBeNull();
     } finally {
@@ -274,7 +194,7 @@ describe("production admin app switch", () => {
   });
 });
 
-describe("Deploy Production wiring for the admin switch", () => {
+describe("Deploy Production wiring for the Corten admin", () => {
   const job = workflow.jobs["deploy-production"];
   const deploy = job.steps.find(({ id }) => id === "production_kubernetes_deploy");
 
@@ -297,10 +217,13 @@ describe("Deploy Production wiring for the admin switch", () => {
     );
   });
 
-  it("reads PRODUCTION_ADMIN_APP from the production environment and the image from Deploy Staging", () => {
+  it("reads no admin app variable and takes the image from Deploy Staging", () => {
     expect(job.environment).toBe("production");
-    expect(job.env.PRODUCTION_ADMIN_APP).toBe("${{ vars.PRODUCTION_ADMIN_APP || '' }}");
-    expect(job.outputs.admin_app).toBe("${{ steps.production_kubernetes_deploy.outputs.admin_app }}");
+    expect(job.env).not.toHaveProperty("PRODUCTION_ADMIN_APP");
+    expect(job.outputs).not.toHaveProperty("admin_app");
+    expect(workflow.jobs["deploy-staging"].env).not.toHaveProperty("STAGING_ADMIN_APP");
+    expect(workflow.jobs["deploy-staging"].outputs).not.toHaveProperty("admin_app");
+    expect(workflowText).not.toMatch(/ADMIN_APP|admin_app/);
     expect(workflow.jobs["deploy-staging"].outputs.corten_admin_image).toBe(
       "${{ steps.staging_kubernetes_deploy.outputs.corten_admin_image }}",
     );
@@ -309,11 +232,9 @@ describe("Deploy Production wiring for the admin switch", () => {
       'if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")\nfi',
     );
     expect(deploy.run).toContain('  "${corten_image_args[@]}" \\\n  --github-summary "$GITHUB_STEP_SUMMARY" \\\n');
-    // Only the deploy script reads the variable, so one resolution decides the ingress and the pilot.
-    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?PRODUCTION_ADMIN_APP/);
   });
 
-  it("discovers PROXIES best-effort with staging's exact query, so a failure cannot hold an admin-web release", () => {
+  it("discovers PROXIES with staging's exact query and leaves a failure to the deploy script's refusal", () => {
     const query = (run) => run.slice(run.indexOf("'.items as $items"), run.indexOf('join(",")\'') + 10);
     const staging = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
     expect(query(deploy.run)).toBe(query(staging.run));
@@ -325,7 +246,7 @@ describe("Deploy Production wiring for the admin switch", () => {
     expect(deploy.run).not.toContain('--runtime-env "PROXIES=');
   });
 
-  it("smokes admin.chasesets.com with the authenticated admin smoke whichever app serves it", () => {
+  it("smokes admin.chasesets.com with the authenticated admin smoke", () => {
     const smoke = job.steps.find(({ name }) => name === "Smoke check");
     expect(smoke.env).toMatchObject({
       SMOKE_REQUIRE_ADMIN: "true",
@@ -337,17 +258,17 @@ describe("Deploy Production wiring for the admin switch", () => {
     expect(canary.run).toContain('canary_urls=("https://${public_domain}" "https://${admin_domain}")');
   });
 
-  it("writes the switch, the failed-switch response and both recoveries into the runbook", () => {
+  it("writes the refusals, their recoveries and rollback by earlier release into the runbook", () => {
     const runbook = read("docs/runbooks/production-admin-app.md");
     for (const line of [
-      "gh variable set PRODUCTION_ADMIN_APP --repo chase-sets/chase-sets --env production --body admin-corten",
-      "gh variable delete PRODUCTION_ADMIN_APP --repo chase-sets/chase-sets --env production",
-      "A failed switch shows as a red Deploy Production that rolled back to admin-web. The response is to fix forward on staging, not to retry production.",
+      "admin-corten serves admin.chasesets.com on every production deploy.",
+      "To roll back, deploy an earlier release_ref.",
       '"corten-admin-image is required on production"',
       '"PROXIES is required on production"',
     ]) {
       expect(runbook).toContain(line);
     }
+    expect(runbook).not.toContain("gh variable set PRODUCTION_ADMIN_APP");
     expect(read("docs/README.md")).toContain("(./runbooks/production-admin-app.md)");
   });
 });

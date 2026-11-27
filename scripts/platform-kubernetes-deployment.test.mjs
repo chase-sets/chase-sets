@@ -92,11 +92,16 @@ const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platfo
 const stagingCortenAdminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
 const stagingCortenMarketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"e".repeat(64)}`;
 const stagingCortenPublicImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@sha256:${"f".repeat(64)}`;
-// marketplace-corten serves marketplace.chasesets.com, so every production deploy carries the image staging
-// deployed and the ingress pod CIDRs it believes X-Forwarded-For from.
+// admin-corten serves admin.chasesets.com and marketplace-corten serves marketplace.chasesets.com, so every
+// production deploy carries the images staging deployed and the ingress pod CIDRs they believe X-Forwarded-For from.
 const productionProxies = "10.244.0.0/25";
-const productionMarketplacePilot = { cortenMarketplaceImage: stagingCortenMarketplaceImage };
+const productionMarketplacePilot = {
+  cortenAdminImage: stagingCortenAdminImage,
+  cortenMarketplaceImage: stagingCortenMarketplaceImage,
+};
 const productionMarketplaceArgv = [
+  "--corten-admin-image",
+  stagingCortenAdminImage,
   "--corten-marketplace-image",
   stagingCortenMarketplaceImage,
   "--runtime-env",
@@ -460,13 +465,10 @@ function failedRollbackCaptureCompletions() {
   ];
 }
 
-// What every production deploy says about the admin app while PRODUCTION_ADMIN_APP is unset.
+// What every production deploy says about the public app while PRODUCTION_PUBLIC_APP is unset.
 const productionAdminWebLines = [
-  "admin.chasesets.com is served by admin-web (PRODUCTION_ADMIN_APP is unset, so the default applies).",
-  "admin-corten is not deployed while admin-web serves admin.chasesets.com.",
   "chasesets.com and www.chasesets.com are served by public-web (PRODUCTION_PUBLIC_APP is unset, so the default applies).",
   "public-corten is not deployed while public-web serves chasesets.com and www.chasesets.com.",
-  "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
   "Warning: public-corten is not deployed because public-web serves chasesets.com and www.chasesets.com (PRODUCTION_PUBLIC_APP=public-web).",
 ];
 
@@ -2010,6 +2012,41 @@ describe("platform Kubernetes deployment", () => {
       rollouts: ["proof-chase-sets-platform-public-web", "proof-chase-sets-platform-marketplace"],
       jobs: ["proof-chase-sets-platform-platform-bootstrap"],
     });
+  });
+
+  it("waits on admin-corten, never admin-web, in staging and production, and leaves live values alone", () => {
+    const web = "proof-chase-sets-platform-admin-web";
+    const corten = "proof-chase-sets-platform-admin-corten";
+    for (const environment of ["staging", "production"]) {
+      const { deployments, rollouts, jobs } = platformKubernetesWorkloads({
+        release: "proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: environment },
+      });
+      const targets = [...deployments, ...rollouts, ...jobs];
+      expect(targets, environment).not.toContain(web);
+      expect(targets, environment).toContain(corten);
+      expect(targets, environment).toContain("proof-chase-sets-platform-platform-api");
+    }
+    // Previews keep admin-web until it is removed from them.
+    const preview = platformKubernetesWorkloads({
+      release: "proof",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-123" },
+    });
+    expect([...preview.deployments, ...preview.rollouts]).toContain(web);
+    // The rollback path reads the release's live values, so an earlier release that still enabled admin-web is
+    // waited on as it was deployed.
+    expect(
+      platformKubernetesWorkloads({
+        values: {
+          components: {
+            ...sampleValues.components,
+            "admin-web": { enabled: true, kind: "service", rollout: { enabled: false } },
+          },
+        },
+        release: "proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      }).deployments,
+    ).toContain(web);
   });
 
   it("waits on no marketplace-web anywhere, and leaves live values alone", () => {
@@ -7911,24 +7948,18 @@ describe("advisory Corten pilots without an image", () => {
     expect(JSON.stringify(result)).toContain(publicWorkload);
   });
 
-  it("does not deploy admin-corten while admin-web serves admin.staging, whether or not its image was built", async () => {
-    for (const cortenAdminImage of [adminImage, undefined]) {
-      const { result, warnings, helm, waited } = await deployStaging({
-        env: { STAGING_ADMIN_APP: "admin-web" },
-        cortenAdminImage,
-      });
-      const disabled = helm.indexOf("components.admin-corten.enabled=false");
-      expect(helm[disabled - 1]).toBe("--set");
-      expect(helm.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
-        "components.admin-corten.enabled=false",
-      ]);
-      expect(warnings).toContain(
-        "Warning: admin-corten is not deployed because admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web).",
-      );
-      expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
-      expect(waited.filter((args) => args.includes(adminWorkload))).toEqual([]);
-      expect(JSON.stringify(result)).not.toContain(adminWorkload);
-    }
+  it("deploys admin-corten whatever a leftover STAGING_ADMIN_APP says", async () => {
+    const { result, warnings, helm, waited } = await deployStaging({
+      env: { STAGING_ADMIN_APP: "admin-web" },
+    });
+    expect(helm.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
+      `components.admin-corten.image=${adminImage}`,
+    ]);
+    expect(warnings.filter((message) => message.includes("admin"))).toEqual([]);
+    expect(waited.filter((args) => args.includes(adminWorkload))).toHaveLength(1);
+    // admin-web is disabled in the staging values, so the deploy does not wait for it.
+    expect(waited.filter((args) => args.includes("/proof-chase-sets-platform-admin-web "))).toEqual([]);
+    expect(JSON.stringify(result)).toContain(adminWorkload);
   });
 
   it("deploys marketplace-corten whatever a leftover STAGING_MARKETPLACE_APP says", async () => {
