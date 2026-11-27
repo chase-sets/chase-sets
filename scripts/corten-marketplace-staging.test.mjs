@@ -68,10 +68,12 @@ describe("Corten marketplace staging, first slice", () => {
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
       // Moved for retiring marketplace-web: the chart has no marketplace component.
-      "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
+      // Then for retiring public-web: the base values no longer carry the public-web component.
+      "values.yaml": "a89b9bf980f0f88d66a328159214ffe66e674b390eb6f978d5afdb2afbb8851d",
       // Then for retiring admin-web: production keeps no admin-web resources and disables it.
       // Then for retiring public-web: production keeps no public-web resources and disables it.
-      "values.production.yaml": "79b7079f9bf88824a1cd41b1c3376cb009f26f5d7cfe7fd98df3dfeafe404af3",
+      // Then for removing public-web from the base values: production no longer needs to disable it.
+      "values.production.yaml": "ffad93ff3250226b95a9c41b9df3d532d9adeb0dfb981b301978c793be311f63",
     })) {
       expect(
         createHash("sha256")

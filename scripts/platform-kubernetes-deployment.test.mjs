@@ -1492,7 +1492,8 @@ describe("platform Kubernetes deployment", () => {
     // smuggle a conflicting relay value past the overlay.
     expect(helmCall.args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
     expect(helmCall.args.join(" ")).toContain("global.envOverrides.DEPLOYMENT_ENVIRONMENT=staging");
-    expect(helmCall.args.join(" ")).toContain("components.public-web.rollout.enabled=true");
+    // public-web is retired, so platform-api is the one Rollout left.
+    expect(helmCall.args.join(" ")).not.toContain("components.public-web.");
     expect(helmCall.args.join(" ")).not.toContain("components.marketplace.");
     expect(helmCall.args.join(" ")).toContain("components.platform-api.rollout.enabled=true");
   });
@@ -1932,10 +1933,10 @@ describe("platform Kubernetes deployment", () => {
       expect.arrayContaining([
         "global.betaWave.inviteCount=250",
         "global.betaWave.rolloutExposurePercent=25",
-        "components.public-web.rollout.canary.pauseAfterWeight=25",
         "components.platform-api.rollout.canary.pauseAfterWeight=25",
       ]),
     );
+    expect(args.join(" ")).not.toContain("components.public-web.");
     expect(() => buildWaveExposureHelmSetArgs({ betaWaveSize: "250" })).toThrow("supplied together");
     expect(() => buildWaveExposureHelmSetArgs({ betaWaveSize: "250", betaWaveRolloutExposure: "15" })).toThrow(
       "analyzed Argo weight",
@@ -7301,7 +7302,6 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
 
   it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
     const memoryByComponent = {
-      "public-web": "1216Mi",
       "admin-web": "960Mi",
       "platform-api": "1408Mi",
       "platform-worker": "960Mi",
@@ -7312,7 +7312,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       const args = deployArgs("preview", release);
       expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
       const pods = documents(helmTemplate(templateArgs(args))).filter((item) => item.spec?.template);
-      expect(pods).toHaveLength(6);
+      expect(pods).toHaveLength(5);
       expect(pods.map((item) => item.metadata.labels["app.kubernetes.io/component"]).sort()).toEqual(
         Object.keys(memoryByComponent).sort(),
       );
@@ -7372,7 +7372,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       const workloads = rendered.filter(
         (item) => item.spec?.template && item.metadata.labels["app.kubernetes.io/component"] !== "preview-postgres",
       );
-      expect(workloads).toHaveLength(5);
+      expect(workloads).toHaveLength(4);
       for (const workload of workloads) {
         const container = workload.spec.template.spec.containers[0];
         const env = Object.fromEntries(container.env.filter((entry) => "value" in entry).map((e) => [e.name, e.value]));
@@ -7982,7 +7982,7 @@ describe("advisory Corten pilots without an image", () => {
     ]);
     expect(warnings.filter((message) => message.includes("public"))).toEqual([]);
     expect(waited.filter((args) => args.includes(publicWorkload))).toHaveLength(1);
-    // public-web is disabled in the staging values, so the deploy does not wait for it.
+    // public-web is not in the values at all, so the deploy does not wait for it.
     expect(waited.filter((args) => args.includes("/proof-chase-sets-platform-public-web "))).toEqual([]);
     expect(JSON.stringify(result)).toContain(publicWorkload);
   });

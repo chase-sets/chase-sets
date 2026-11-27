@@ -152,7 +152,7 @@ describe("preview Postgres connection demand (#10022)", () => {
     const baseline = previewPostgresDemand();
     const scaledWeb = previewPostgresDemand({
       readSource: withRuntimeValues((values) => {
-        values.components["public-web"].replicas = 2;
+        values.components["admin-web"].replicas = 2;
       }),
     });
     expect(scaledWeb.demand).toBe(baseline.demand);

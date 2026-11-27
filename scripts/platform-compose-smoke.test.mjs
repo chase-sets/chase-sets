@@ -28,9 +28,11 @@ describe("platform-compose-smoke", () => {
   it("covers every enabled platform Helm component, matching the deployables the Dockerfile ships", () => {
     const names = composeSmokeComponentNames();
     expect(names).toEqual(
-      expect.arrayContaining(["public-web", "admin-web", "platform-api", "platform-worker", "platform-bootstrap"]),
+      expect.arrayContaining(["admin-web", "platform-api", "platform-worker", "platform-bootstrap"]),
     );
+    // The Corten apps serve the marketplace and the public site from their own images.
     expect(names).not.toContain("marketplace");
+    expect(names).not.toContain("public-web");
   });
 
   it("substitutes every DATABASE_URL-shaped secret with the compose Postgres URL", () => {
@@ -108,9 +110,9 @@ describe("platform-compose-smoke", () => {
     // platform-worker talks to Postgres directly and never calls
     // platform-api over HTTP, so it (correctly) has no
     // CHASE_SETS_INTERNAL_API_ORIGIN entry in the Helm chart -- only
-    // platform-api itself and the two web deployables do.
+    // platform-api itself and the web deployable do.
     const values = buildComposeSmokeValues();
-    for (const componentName of ["public-web", "admin-web", "platform-api"]) {
+    for (const componentName of ["admin-web", "platform-api"]) {
       expect(envValue(values.components[componentName], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
         composeSmokePlatformApiOrigin,
       );
@@ -156,12 +158,13 @@ describe("platform-compose-smoke", () => {
     expect(() => renderComposeSmokeEnvFile("does-not-exist")).toThrow(/Unknown platform Helm component/);
   });
 
-  it("gives the three ingress-fronted services the rendered forwarded-headers switch through their env files only", () => {
+  it("gives the two ingress-fronted services the rendered forwarded-headers switch through their env files only", () => {
     const switchName = "CHASE_SETS_TRUST_FORWARDED_HEADERS";
     const rendered = buildPlatformHelmValues();
     const compose = parseYaml(readFileSync(new URL("../docker-compose.pr-smoke.yml", import.meta.url), "utf8"));
 
-    for (const componentName of ["public-web", "admin-web", "platform-api"]) {
+    expect(compose.services).not.toHaveProperty("public-web");
+    for (const componentName of ["admin-web", "platform-api"]) {
       const runtimeEntries = rendered.components[componentName].env.filter((entry) => entry.name === switchName);
       expect(runtimeEntries, componentName).toEqual([{ name: switchName, value: "true" }]);
       const switchLines = renderComposeSmokeEnvFile(componentName)

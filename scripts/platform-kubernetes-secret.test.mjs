@@ -21,6 +21,8 @@ import {
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
 import {
+  buildPlatformHelmProductionValues,
+  buildPlatformHelmStagingValues,
   buildPlatformHelmValues,
   isDatabaseSecretKey,
   platformHelmPreviewPostgresName,
@@ -152,6 +154,52 @@ describe("platform Kubernetes secret", () => {
   });
   it("collects unique secret keys from Helm values", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
+  });
+
+  it.each([
+    ["staging", buildPlatformHelmStagingValues],
+    ["production", buildPlatformHelmProductionValues],
+  ])("writes every key a component deployed on %s reads, including the environment-only apps", (environment, build) => {
+    // No base component reads the Discord invite since public-web left the base values; only the Corten
+    // public app does, from the environment's own components. Dropping it would empty that key on apply.
+    const overlay = build().components;
+    const deployed = { ...buildPlatformHelmValues({ deploymentEnvironment: environment }).components };
+    for (const [name, component] of Object.entries(overlay)) {
+      if (component.enabled === false) delete deployed[name];
+      else if (component.env) deployed[name] = component;
+    }
+    const read = [
+      ...new Set(
+        Object.values(deployed).flatMap((component) =>
+          (component.env ?? [])
+            .filter((entry) => entry.secret && !entry.optional)
+            .map((entry) => entry.secretKey ?? entry.name),
+        ),
+      ),
+    ];
+    const keys = collectPlatformSecretKeys(undefined, { deploymentEnvironment: environment, env: {} });
+    expect(read).toContain("CHASE_SETS_DISCORD_INVITE_URL");
+    expect(read.filter((key) => !keys.includes(key))).toEqual([]);
+    const summary = summarizePlatformSecret({ deploymentEnvironment: environment, env: {}, secretName: "synthetic" });
+    expect(summary.keys).toEqual(keys);
+    const env = Object.fromEntries(keys.map((key) => [key, "synthetic-value"]));
+    const bundle = buildPlatformSecretBundle({
+      deploymentEnvironment: environment,
+      env,
+      secretName: "synthetic",
+      observabilityEnabled: false,
+    });
+    expect(Object.keys(bundle.runtimeSecret.data)).toContain("CHASE_SETS_DISCORD_INVITE_URL");
+  });
+
+  it("keeps the environment-only apps' keys out of previews and out of explicit values", () => {
+    expect(collectPlatformSecretKeys(undefined, { deploymentEnvironment: "preview", env: {} })).not.toContain(
+      "CHASE_SETS_DISCORD_INVITE_URL",
+    );
+    expect(collectPlatformSecretKeys(sampleValues, { deploymentEnvironment: "production", env: {} })).toEqual([
+      "DATABASE_URL_CHECKOUT",
+      "STRIPE_SECRET_KEY",
+    ]);
   });
 
   describe("production Payments webhook overlap key", () => {

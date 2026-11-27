@@ -8,6 +8,7 @@ import {
   buildDoksIngressValues,
   buildPlatformHelmProductionValues,
   buildPlatformHelmStagingValues,
+  buildPlatformHelmValues,
   publicApp,
 } from "./render-platform-helm-values.mjs";
 import {
@@ -92,10 +93,12 @@ describe("production public app", () => {
   });
 
   it("no longer deploys public-web in production", () => {
-    expect(buildPlatformHelmProductionValues().components["public-web"]).toEqual({ enabled: false });
-    const values = read("infrastructure/helm/platform/values.production.yaml");
-    expect(values).toContain("  public-web:\n    enabled: false\n");
-    expect(values).not.toMatch(/\n {2}public-web:\n {4}resources:/);
+    // The base values carry no public-web component, so production has nothing to disable.
+    expect(buildPlatformHelmValues().components).not.toHaveProperty("public-web");
+    expect(buildPlatformHelmProductionValues().components).not.toHaveProperty("public-web");
+    for (const file of ["values.yaml", "values.production.yaml"]) {
+      expect(read(`infrastructure/helm/platform/${file}`)).not.toMatch(/\n {2}public-web:\n/);
+    }
     const routes = JSON.stringify(
       buildDoksIngressValues({ environment: "production", env: production().env }).hosts.flatMap(({ paths }) => paths),
     );

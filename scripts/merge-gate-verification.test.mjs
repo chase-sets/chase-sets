@@ -127,7 +127,7 @@ describe("capacity headroom preflight", () => {
     };
     expect(evaluateMergeGateCapacity({ ...input, pods: { items: [] } }).passed).toBe(true);
     const result = evaluateMergeGateCapacity({ ...input, pods: { items: previewPods } });
-    expect(result.measurement.committed).toEqual({ cpuMillicores: 500, memoryMib: 5056, pods: 5 });
+    expect(result.measurement.committed).toEqual({ cpuMillicores: 400, memoryMib: 3840, pods: 4 });
     expect(result.passed).toBe(false);
     expect(result.errors).toEqual([expect.stringContaining("insufficient preview-pool headroom (memory:")]);
   });

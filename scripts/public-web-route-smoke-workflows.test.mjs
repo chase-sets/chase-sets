@@ -19,14 +19,13 @@ const expectedCallerInventory = {
   ".github/workflows/platform-compose-boot-smoke.yml": { healthy: 1, no5xx: 0 },
   ".github/workflows/platform-ephemeral-verification.yml": { healthy: 1, no5xx: 0 },
   ".github/workflows/platform-merge-gate-verification.yml": { healthy: 1, no5xx: 0 },
-  ".github/workflows/platform-pr.yml": { healthy: 1, no5xx: 1 },
-  ".github/workflows/platform-production.yml": { healthy: 2, no5xx: 1 },
+  ".github/workflows/platform-pr.yml": { healthy: 1, no5xx: 0 },
+  ".github/workflows/platform-production.yml": { healthy: 2, no5xx: 0 },
   ".github/workflows/platform-staging-admin-smoke.yml": { healthy: 1, no5xx: 0 },
   ".github/workflows/platform-staging-rollback-drill.yml": { healthy: 2, no5xx: 0 },
   "scripts/staging-bootstrap-hook-drill.mjs": { healthy: 1, no5xx: 0 },
 };
 
-const setupPnpmWorkspaceAction = "./.github/actions/setup-pnpm-workspace";
 const servers = [];
 
 function callerSourceFiles() {
@@ -61,29 +60,6 @@ function runnerNo5xxCallers(relativePath, document) {
         : [],
     ),
   );
-}
-
-function runnerNo5xxPrerequisiteViolations(relativePath, document) {
-  return runnerNo5xxCallers(relativePath, document).flatMap((caller) => {
-    const prerequisiteIndex = caller.job.steps.findIndex(
-      (step, stepIndex) =>
-        stepIndex < caller.stepIndex &&
-        step.uses === setupPnpmWorkspaceAction &&
-        String(step.with?.install) === "true" &&
-        step.if === caller.step.if,
-    );
-    return prerequisiteIndex >= 0
-      ? []
-      : [`${relativePath}:${caller.jobName} must install the pinned pnpm workspace before its runner-side no-5xx call`];
-  });
-}
-
-function workflowFilesWithRunnerNo5xxCalls() {
-  return callerSourceFiles()
-    .filter((relativePath) => relativePath.startsWith(".github/workflows/"))
-    .filter((relativePath) =>
-      readFileSync(path.join(repoRoot, relativePath), "utf8").includes("pnpm run smoke:public-web-routes"),
-    );
 }
 
 function withChangedFileEnvironmentCleared(action) {
@@ -752,48 +728,6 @@ describe("admin API retry", () => {
   });
 });
 
-function workflowFormPnpmArgs(caller, baseUrl) {
-  expect(caller.step.run, `${caller.relativePath}:${caller.jobName}`).toMatch(
-    /pnpm run smoke:public-web-routes -- \\\n\s+--base-url "[^"]+" \\\n\s+--mode no-5xx/,
-  );
-  return ["run", "smoke:public-web-routes", "--", "--base-url", baseUrl, "--mode", "no-5xx"];
-}
-
-function runWorkflowFormPublicRouteSmoke(args) {
-  const onWindows = process.platform === "win32";
-  const command = onWindows ? process.env.ComSpec : "pnpm";
-  if (!command) throw new Error("The Windows command processor is unavailable.");
-  const child = spawn(command, onWindows ? ["/d", "/s", "/c", "pnpm", ...args] : args, {
-    cwd: repoRoot,
-    env: { ...process.env, NO_COLOR: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => {
-    stdout += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk;
-  });
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`workflow-form public route smoke exceeded 15000ms: ${stdout}\n${stderr}`));
-    }, 15_000);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal, stdout, stderr });
-    });
-  });
-}
-
 describe("public route smoke workflow composition", () => {
   it("keeps the re-derived caller inventory complete with exact modes", () => {
     const discovered = {};
@@ -824,90 +758,16 @@ describe("public route smoke workflow composition", () => {
     }
   });
 
-  it("installs the pinned pnpm workspace before every runner-side no-5xx caller", () => {
-    const workflowFiles = workflowFilesWithRunnerNo5xxCalls();
+  it("keeps no runner-side public-web boot or no-5xx caller now that the image carries no public-web", () => {
+    const workflowFiles = callerSourceFiles().filter((relativePath) => relativePath.startsWith(".github/workflows/"));
     const callers = workflowFiles.flatMap((relativePath) =>
       runnerNo5xxCallers(relativePath, parseWorkflow(relativePath)),
     );
-    expect(
-      callers.map(({ relativePath, jobName }) => `${relativePath}:${jobName}`),
-      "the runner-side no-5xx caller inventory changed",
-    ).toEqual([
-      ".github/workflows/platform-pr.yml:docker-image",
-      ".github/workflows/platform-production.yml:build-image",
-    ]);
-
-    expect(
-      workflowFiles.flatMap((relativePath) =>
-        runnerNo5xxPrerequisiteViolations(relativePath, parseWorkflow(relativePath)),
-      ),
-    ).toEqual([]);
-  });
-
-  it.each(["removed", "moved after the call"])(
-    "rejects a planted pnpm workspace prerequisite that is %s",
-    (mutation) => {
-      for (const relativePath of workflowFilesWithRunnerNo5xxCalls()) {
-        const document = structuredClone(parseWorkflow(relativePath));
-        const [caller] = runnerNo5xxCallers(relativePath, document);
-        expect(caller, `${relativePath} must expose its runner-side no-5xx caller`).toBeDefined();
-
-        const prerequisiteIndex = caller.job.steps.findIndex(
-          (step) => step.uses === setupPnpmWorkspaceAction && String(step.with?.install) === "true",
-        );
-        expect(prerequisiteIndex, `${relativePath} must expose its pnpm workspace prerequisite`).toBeGreaterThanOrEqual(
-          0,
-        );
-        const [prerequisite] = caller.job.steps.splice(prerequisiteIndex, 1);
-        if (mutation === "moved after the call") {
-          const [mutatedCaller] = runnerNo5xxCallers(relativePath, document);
-          mutatedCaller.job.steps.splice(mutatedCaller.stepIndex + 1, 0, prerequisite);
-        }
-
-        expect(runnerNo5xxPrerequisiteViolations(relativePath, document)).toEqual([
-          `${relativePath}:${caller.jobName} must install the pinned pnpm workspace before its runner-side no-5xx call`,
-        ]);
-      }
-    },
-  );
-
-  it.each(["missing", "mismatched"])(
-    "rejects a planted pnpm workspace prerequisite if condition that is %s",
-    (mutation) => {
-      for (const relativePath of workflowFilesWithRunnerNo5xxCalls()) {
-        const document = structuredClone(parseWorkflow(relativePath));
-        const [caller] = runnerNo5xxCallers(relativePath, document);
-        expect(caller, `${relativePath} must expose its runner-side no-5xx caller`).toBeDefined();
-
-        const prerequisite = caller.job.steps.find(
-          (step) => step.uses === setupPnpmWorkspaceAction && String(step.with?.install) === "true",
-        );
-        expect(prerequisite, `${relativePath} must expose its pnpm workspace prerequisite`).toBeDefined();
-        if (mutation === "missing") delete prerequisite.if;
-        else prerequisite.if = "false";
-
-        expect(runnerNo5xxPrerequisiteViolations(relativePath, document)).toEqual([
-          `${relativePath}:${caller.jobName} must install the pinned pnpm workspace before its runner-side no-5xx call`,
-        ]);
-      }
-    },
-  );
-
-  it("executes the asserted workflow-form invocation through the repository pnpm alias", async () => {
-    const callers = workflowFilesWithRunnerNo5xxCalls().flatMap((relativePath) =>
-      runnerNo5xxCallers(relativePath, parseWorkflow(relativePath)),
-    );
-    const fixture = await startCompositionServer({ deliberatelyBroken: false });
-    const invocations = callers.map((caller) => workflowFormPnpmArgs(caller, fixture.baseUrl));
-    expect(invocations).toHaveLength(2);
-    expect(invocations[1]).toEqual(invocations[0]);
-
-    const result = await runWorkflowFormPublicRouteSmoke(invocations[0]);
-
-    expect(result.code).toBe(0);
-    expect(result.signal).toBeNull();
-    expect(fixture.requests.length).toBeGreaterThan(0);
-    expect(result.stdout).toMatch(/\[public-route-smoke] Passed [1-9]\d* fetchable members in no-5xx mode/);
+    expect(callers.map(({ relativePath, jobName }) => `${relativePath}:${jobName}`)).toEqual([]);
+    for (const relativePath of workflowFiles) {
+      const source = readFileSync(path.join(repoRoot, relativePath), "utf8");
+      expect(source, relativePath).not.toMatch(/^\s*boot_smoke public-web(?:\s|$)/m);
+    }
   });
 
   it("keeps every deployed caller enforcing and free of swallowed exits", () => {
@@ -1003,5 +863,120 @@ describe("public route smoke workflow composition", () => {
       expect(scope.clusterPreviewRequired).toBe(false);
       expect(scope.composeSmokeRequired).toBe(false);
     });
+  });
+});
+
+const landingWebOptOutWorkflows = [
+  ".github/workflows/platform-compose-boot-smoke.yml",
+  ".github/workflows/platform-ephemeral-verification.yml",
+  ".github/workflows/platform-merge-gate-verification.yml",
+  ".github/workflows/platform-pr.yml",
+];
+
+// Only the landing host is in play: admin sign-in and the admin surface are off, so a request for "/" can only be
+// the landing home page.
+const landingOnlyEnv = {
+  PLATFORM_ADMIN_EMAIL: "",
+  PLATFORM_ADMIN_PASSWORD: "",
+  SMOKE_CHECK_ADMIN_SURFACE: "false",
+};
+
+function smokeLandingWebValues(document) {
+  return Object.values(document.jobs ?? {}).flatMap((job) => [
+    ...(Object.hasOwn(job.env ?? {}, "SMOKE_LANDING_WEB") ? [job.env.SMOKE_LANDING_WEB] : []),
+    ...(job.steps ?? []).flatMap((step) =>
+      Object.hasOwn(step.env ?? {}, "SMOKE_LANDING_WEB") ? [step.env.SMOKE_LANDING_WEB] : [],
+    ),
+  ]);
+}
+
+describe("platform smoke landing web opt-out", () => {
+  it("skips only the landing home page and the public route walk under SMOKE_LANDING_WEB=absent", async () => {
+    const fixture = await startCompositionServer();
+    const result = await runPlatformSmoke(fixture.baseUrl, {
+      env: { ...landingOnlyEnv, SMOKE_LANDING_WEB: "absent" },
+    });
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(fixture.requests).toEqual(["/api/health/ready"]);
+    expect(result.stderr).toContain(
+      "Skipping the landing home page and the public route walk; SMOKE_LANDING_WEB is absent.",
+    );
+    expect(result.stdout).toContain("Platform smoke checks passed.");
+  });
+
+  it("still walks the landing home page and the public routes when SMOKE_LANDING_WEB is unset", async () => {
+    const fixture = await startCompositionServer();
+    const result = await runPlatformSmoke(fixture.baseUrl, { env: landingOnlyEnv });
+
+    expect(result.code).toBe(1);
+    expect(fixture.requests.slice(0, 2)).toEqual(["/", "/api/health/ready"]);
+    expect(fixture.requests).toContain("/faq");
+    expect(result.stderr).toContain("[status-5xx] faq (/faq)");
+  });
+
+  it("keeps the native MCP leg under SMOKE_LANDING_WEB=absent", async () => {
+    const fixture = await startCompositionServer();
+    const result = await runPlatformSmoke(fixture.baseUrl, {
+      env: { ...landingOnlyEnv, SMOKE_LANDING_WEB: "absent", SMOKE_REQUIRE_NATIVE_MCP: "true" },
+    });
+
+    // The fixture answers /mcp with HTML, so the leg fails; the request proves it ran.
+    expect(fixture.requests.slice(0, 2)).toEqual(["/api/health/ready", "/mcp"]);
+    expect(fixture.requests).not.toContain("/");
+    expect(fixture.requests).not.toContain("/faq");
+    expect(result.stderr).not.toContain("[status-5xx]");
+    expect(result.code).toBe(1);
+  });
+
+  it("keeps the waitlist leg under SMOKE_LANDING_WEB=absent", async () => {
+    const fixture = await startCompositionServer();
+    const result = await runPlatformSmoke(fixture.baseUrl, {
+      env: { ...landingOnlyEnv, SMOKE_LANDING_WEB: "absent", SMOKE_WRITE_WAITLIST: "true" },
+    });
+
+    // The fixture returns no commit receipt, so the leg fails; the request proves it ran.
+    expect(fixture.requests).toEqual(["/api/health/ready", "/api/public-presence/waitlist"]);
+    expect(result.stderr).toContain("waitlist signup did not return");
+    expect(result.code).toBe(1);
+  });
+
+  it("refuses any other SMOKE_LANDING_WEB value before requesting anything", async () => {
+    const fixture = await startCompositionServer();
+    const result = await runPlatformSmoke(fixture.baseUrl, {
+      env: { ...landingOnlyEnv, SMOKE_LANDING_WEB: "absnet" },
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('SMOKE_LANDING_WEB must be "absent" or unset, got "absnet".');
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it("is set to absent by exactly the preview and Compose Boot Smoke workflows", () => {
+    const workflowFiles = callerSourceFiles().filter((relativePath) => relativePath.startsWith(".github/workflows/"));
+    const setters = workflowFiles.filter((relativePath) =>
+      readFileSync(path.join(repoRoot, relativePath), "utf8").includes("SMOKE_LANDING_WEB"),
+    );
+    expect(setters).toEqual(landingWebOptOutWorkflows);
+    for (const relativePath of setters) {
+      const values = smokeLandingWebValues(parseWorkflow(relativePath));
+      expect(values.length, relativePath).toBeGreaterThan(0);
+      expect(new Set(values), relativePath).toEqual(new Set(["absent"]));
+    }
+
+    // Staging and production smoke the real public app, so neither may opt out.
+    for (const relativePath of [
+      ".github/workflows/platform-production.yml",
+      ".github/workflows/platform-staging-admin-smoke.yml",
+      ".github/workflows/platform-staging-rollback-drill.yml",
+    ]) {
+      expect(readFileSync(path.join(repoRoot, relativePath), "utf8"), relativePath).not.toContain("SMOKE_LANDING_WEB");
+    }
+    const scriptReaders = callerSourceFiles().filter(
+      (relativePath) =>
+        relativePath.startsWith("scripts/") &&
+        readFileSync(path.join(repoRoot, relativePath), "utf8").includes("SMOKE_LANDING_WEB"),
+    );
+    expect(scriptReaders).toEqual(["scripts/platform-smoke.mjs"]);
   });
 });

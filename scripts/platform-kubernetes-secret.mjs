@@ -8,6 +8,7 @@ import {
   buildPlatformHelmValues,
   managedPostgresCaItemPath,
   managedPostgresCaMountPath,
+  platformEnvironmentComponents,
   platformHelmPreviewPostgresName,
 } from "./render-platform-helm-values.mjs";
 import { managedPostgresConnectionUrl } from "./terraform-state-database-urls.mjs";
@@ -25,12 +26,21 @@ export const managedPostgresCaSecretName = "chase-sets-platform-runtime";
 export const managedPostgresCaSecretKey = "managed-postgres-ca.crt";
 export const managedPostgresCaFieldManager = "chase-sets-managed-postgres-ca";
 
+// Without explicit values, the key set also covers the components only this environment deploys,
+// so a key that no base component reads (the public app's Discord invite) is still written. A caller
+// that passes its own values owns the whole component set, unless it passes environmentComponents too.
 export function collectPlatformSecretKeys(values, options = {}) {
+  const environmentComponents =
+    options.environmentComponents ?? (values ? {} : platformEnvironmentComponents(options.deploymentEnvironment));
   values ??= buildPlatformHelmValues({ deploymentEnvironment: options.deploymentEnvironment });
   const env = options.env ?? process.env;
   const keys = new Set();
+  const components = [
+    ...Object.values(values.components ?? {}),
+    ...Object.values(environmentComponents).filter((component) => component.enabled !== false),
+  ];
 
-  for (const component of Object.values(values.components ?? {})) {
+  for (const component of components) {
     for (const entry of component.env ?? []) {
       if (!entry.secret) continue;
       const key = entry.secretKey ?? entry.name;
@@ -205,6 +215,11 @@ export function exportManagedPostgresDatabaseEnv(options) {
   return { keyCount: lines.length, keys: Object.keys(databaseEnv) };
 }
 
+function environmentComponentsFor(options, deploymentEnvironment) {
+  if (options.environmentComponents) return options.environmentComponents;
+  return options.values ? {} : platformEnvironmentComponents(deploymentEnvironment, { repoRoot: options.repoRoot });
+}
+
 export function buildPlatformSecretManifest(options = {}) {
   return buildPlatformSecretBundle(options).runtimeSecret;
 }
@@ -214,11 +229,13 @@ export function buildPlatformSecretBundle(options = {}) {
   const deploymentEnvironment =
     options.deploymentEnvironment ?? options.env?.DEPLOYMENT_ENVIRONMENT ?? process.env.DEPLOYMENT_ENVIRONMENT;
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot, deploymentEnvironment });
+  const environmentComponents = environmentComponentsFor(options, deploymentEnvironment);
   const secretName = options.secretName ?? values.global?.existingSecretName;
   const namespace = options.namespace;
   const observabilityEnabled = options.observabilityEnabled ?? env.OBSERVABILITY_ENABLED ?? true;
   const secretKeys =
-    options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled, env });
+    options.secretKeys ??
+    collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled, env, environmentComponents });
   const previewPostgres = buildPreviewPostgresSecretMaterial({ ...options, values, env, secretKeys });
   const collectorTokenKey = values.observability?.exporter?.secretKey;
   const collectorRuntimeEnv =
@@ -602,10 +619,16 @@ async function applyManifest(options) {
 export function summarizePlatformSecret(options = {}) {
   const deploymentEnvironment = options.deploymentEnvironment ?? options.env?.DEPLOYMENT_ENVIRONMENT;
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot, deploymentEnvironment });
+  const environmentComponents = environmentComponentsFor(options, deploymentEnvironment);
   const observabilityEnabled = options.observabilityEnabled ?? options.env?.OBSERVABILITY_ENABLED ?? true;
   const secretKeys =
     options.secretKeys ??
-    collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled, env: options.env });
+    collectPlatformSecretKeys(values, {
+      deploymentEnvironment,
+      observabilityEnabled,
+      env: options.env,
+      environmentComponents,
+    });
   const previewPostgres = buildPreviewPostgresSecretMaterial({
     ...options,
     values,

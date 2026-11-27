@@ -47,6 +47,9 @@ const adminEmail = getSmokeEnv("PLATFORM_ADMIN_EMAIL");
 const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
 const writeWaitlist = (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
 const requireLanding = readBooleanEnv("SMOKE_REQUIRE_LANDING", true);
+// Previews and Compose Boot Smoke route only the platform API on the landing host, so their workflows say there is
+// no landing web app with SMOKE_LANDING_WEB=absent. That skips only the landing home page and the public route walk.
+const landingWebPresent = readLandingWebPresence();
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
 // The admin home and the platform API through it are checked unless a caller that smokes only another origin
 // turns them off, so an admin outage does not fail that smoke.
@@ -84,6 +87,14 @@ function readBooleanEnv(name, defaultValue) {
   }
 
   return ["1", "true", "yes", "on"].includes(value);
+}
+
+// Any set value other than "absent" is refused, so a typo can never skip the landing page or the route walk.
+function readLandingWebPresence() {
+  const value = getSmokeEnv("SMOKE_LANDING_WEB");
+  if (!value) return true;
+  if (value === "absent") return false;
+  throw new Error(`SMOKE_LANDING_WEB must be "absent" or unset, got ${JSON.stringify(value)}.`);
 }
 
 function readPositiveIntegerEnv(name, defaultValue) {
@@ -620,12 +631,18 @@ async function main() {
   }
 
   if (requireLanding) {
-    await expectOk("landing home", `${landingUrl}/`);
+    if (landingWebPresent) {
+      await expectOk("landing home", `${landingUrl}/`);
+    }
     await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
-    await smokePublicWebRoutes({
-      baseUrl: landingUrl,
-      mode: "healthy",
-    });
+    if (landingWebPresent) {
+      await smokePublicWebRoutes({
+        baseUrl: landingUrl,
+        mode: "healthy",
+      });
+    } else {
+      console.warn("Skipping the landing home page and the public route walk; SMOKE_LANDING_WEB is absent.");
+    }
   } else {
     console.warn("Skipping landing smoke; SMOKE_REQUIRE_LANDING is not true.");
   }

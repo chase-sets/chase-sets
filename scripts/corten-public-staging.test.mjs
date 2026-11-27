@@ -16,6 +16,7 @@ import {
   platformKubernetesWorkloads,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
+import { collectPlatformSecretKeys } from "./platform-kubernetes-secret.mjs";
 
 const read = (file) => readFileSync(file, "utf8").replaceAll("\r\n", "\n");
 const workflowText = read(".github/workflows/platform-production.yml");
@@ -68,10 +69,12 @@ describe("Corten public staging, first slice", () => {
     for (const [file, sha] of Object.entries({
       // Moved for retiring marketplace-web: the base values no longer carry the marketplace component,
       // and production no longer disables it.
-      "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
+      // Then for retiring public-web: the base values no longer carry the public-web component.
+      "values.yaml": "a89b9bf980f0f88d66a328159214ffe66e674b390eb6f978d5afdb2afbb8851d",
       // Then for retiring admin-web: production keeps no admin-web resources and disables it.
       // Then for retiring public-web: production keeps no public-web resources and disables it.
-      "values.production.yaml": "79b7079f9bf88824a1cd41b1c3376cb009f26f5d7cfe7fd98df3dfeafe404af3",
+      // Then for removing public-web from the base values: production no longer needs to disable it.
+      "values.production.yaml": "ffad93ff3250226b95a9c41b9df3d532d9adeb0dfb981b301978c793be311f63",
     })) {
       expect(
         createHash("sha256")
@@ -176,19 +179,13 @@ describe("Corten public staging, first slice", () => {
       DEPLOYMENT_ENVIRONMENT: "staging",
     });
     expect(env).not.toHaveProperty("CHASE_SETS_TRUST_FORWARDED_HEADERS");
-    // Every secret it reads is one a deployed web host already reads from the same key.
+    // Every secret it reads is written to the staging runtime Secret, though no base component reads it now.
     const secrets = component.env.filter(({ secret }) => secret);
     expect(secrets.map(({ name }) => name)).toEqual(["CHASE_SETS_DISCORD_INVITE_URL"]);
-    const existing = new Set(
-      [
-        ...Object.values(buildPlatformHelmValues().components),
-        buildPlatformHelmStagingValues().components["admin-corten"],
-        buildPlatformHelmStagingValues().components["marketplace-corten"],
-      ].flatMap((other) => (other.env ?? []).filter(({ secret }) => secret).map(({ secretKey }) => secretKey)),
-    );
+    const written = collectPlatformSecretKeys(undefined, { deploymentEnvironment: "staging", env: {} });
     for (const { name, secretKey } of secrets) {
       expect(secretKey).toBe(name);
-      expect(existing.has(secretKey), secretKey).toBe(true);
+      expect(written, secretKey).toContain(secretKey);
     }
     expect(platformKubernetesWorkloads(options).deployments).toContain(workload);
     expect(droppedAdvisoryCortenPilots(options)).not.toContain("public-corten");
@@ -325,8 +322,10 @@ describe("Corten public staging, first slice", () => {
   });
 
   it("no longer deploys public-web on staging or routes to it", () => {
-    expect(buildPlatformHelmStagingValues().components["public-web"]).toEqual({ enabled: false });
-    expect(read("infrastructure/helm/platform/values.staging.yaml")).toContain("  public-web:\n    enabled: false\n");
+    // The base values carry no public-web component, so staging has nothing to disable.
+    expect(buildPlatformHelmValues().components).not.toHaveProperty("public-web");
+    expect(buildPlatformHelmStagingValues().components).not.toHaveProperty("public-web");
+    expect(read("infrastructure/helm/platform/values.staging.yaml")).not.toMatch(/\n {2}public-web:\n/);
     const routes = JSON.stringify(
       buildDoksIngressValues({ environment: "staging", env: { DOKS_INGRESS_TARGET: "192.0.2.1" } }).hosts.flatMap(
         ({ paths }) => paths,

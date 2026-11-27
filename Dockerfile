@@ -36,8 +36,7 @@ COPY --chown=node:node packages ./packages
 COPY --chown=node:node bounded-contexts ./bounded-contexts
 COPY --chown=node:node deployables ./deployables
 
-RUN pnpm --filter @chase-sets/app-public-web run build \
-  && pnpm --filter @chase-sets/app-admin-web run build \
+RUN pnpm --filter @chase-sets/app-admin-web run build \
   && pnpm --filter @chase-sets/app-agent-apps run build \
   && pnpm --filter @chase-sets/app-platform-api run build \
   && pnpm --filter @chase-sets/app-platform-worker run build
@@ -63,7 +62,6 @@ COPY --chown=node:node infrastructure ./infrastructure
 COPY --chown=node:node packages ./packages
 COPY --chown=node:node bounded-contexts ./bounded-contexts
 COPY --chown=node:node deployables ./deployables
-COPY --chown=node:node --from=build /app/deployables/public-web/build ./deployables/public-web/build
 COPY --chown=node:node --from=build /app/deployables/admin-web/build ./deployables/admin-web/build
 COPY --chown=node:node --from=build /app/deployables/agent-apps/build ./deployables/agent-apps/build
 COPY --chown=node:node --from=build /app/deployables/platform-api/dist ./deployables/platform-api/dist
@@ -135,4 +133,4 @@ POPULATION_IMAGE_ASSERT
 
 EXPOSE 8080
 
-CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]
+CMD ["pnpm", "--filter", "@chase-sets/app-platform-api", "run", "start:production"]

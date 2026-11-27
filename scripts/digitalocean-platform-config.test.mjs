@@ -4479,7 +4479,9 @@ describe("DigitalOcean platform configuration", () => {
     const smokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
     expect(smokeStep).toContain("if: steps.release_image.outputs.built == 'true'");
     expect(smokeStep).not.toContain("app-marketplace-web");
-    expect(smokeStep).toContain('boot_smoke public-web "@chase-sets/app-public-web" /');
+    // The image no longer builds public-web, so the smoke boots admin-web, the one web host it still builds.
+    expect(smokeStep).not.toContain("app-public-web");
+    expect(smokeStep).toContain('boot_smoke admin-web "@chase-sets/app-admin-web" /health/live 18081');
 
     const pushStep = workflowStep(platformProductionWorkflow, "Push release image");
     expect(pushStep).toContain('docker push "$RELEASE_IMAGE"');
@@ -4517,8 +4519,11 @@ describe("DigitalOcean platform configuration", () => {
       runtimeStage.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
     );
     expect(runtimeStage).toContain(
-      "COPY --chown=node:node --from=build /app/deployables/public-web/build ./deployables/public-web/build",
+      "COPY --chown=node:node --from=build /app/deployables/admin-web/build ./deployables/admin-web/build",
     );
+    // The Corten public app serves the public hosts, so the image neither builds nor carries public-web.
+    expect(dockerfile).not.toContain("app-public-web");
+    expect(dockerfile).not.toContain("deployables/public-web/build");
     expect(dockerfile).toContain("-name __tests__");
     expect(dockerfile).toContain('-name "*.test.*"');
   });
@@ -4531,9 +4536,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile).toContain("chown node:node /app");
     expect(dockerfile).toContain("USER node");
     expect(dockerfile).not.toContain("pnpm run sync:workspace-metadata");
-    expect(dockerfile.indexOf("USER node")).toBeLessThan(
-      dockerfile.indexOf('CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]'),
-    );
+    // Every Helm component and compose service sets its own command; the default is the API's.
+    const defaultCommand = 'CMD ["pnpm", "--filter", "@chase-sets/app-platform-api", "run", "start:production"]';
+    expect(dockerfile).toContain(defaultCommand);
+    expect(dockerfile.indexOf("USER node")).toBeLessThan(dockerfile.indexOf(defaultCommand));
     expect(dockerfile).not.toContain("chmod 777");
   });
 

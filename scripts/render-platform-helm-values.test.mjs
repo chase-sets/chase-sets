@@ -318,24 +318,24 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("reserves the D5-R measured peaks with equal memory limits for all six preview workloads", () => {
+  // public-web left the preview with its retirement; the Corten public app serves the public site.
+  it("reserves the D5-R measured peaks with equal memory limits for all five preview workloads", () => {
     const values = buildPlatformHelmPreviewValues();
     const rendered = readFileSync(path.join(repoRoot, chartPreviewValuesRelativePath), "utf8");
     expect(values.global).toEqual({ previewStackIsolation: true });
     expect(parseYaml(rendered)).toEqual(values);
     expect(rendered).toContain("43338035023");
     const measuredBytes = {
-      "public-web": 1063137280,
       "admin-web": 871866368,
       "platform-api": 1248432128,
       "platform-worker": 840187904,
       "platform-bootstrap": 793718784,
       previewPostgres: 407904256,
     };
-    const expectedMi = [1216, 960, 1408, 960, 896, 512];
+    const expectedMi = [960, 1408, 960, 896, 512];
     for (const [index, [name, bytes]] of Object.entries(measuredBytes).entries()) {
       const resources = (values.components[name] ?? values[name]).resources;
-      const floor = ["public-web", "admin-web"].includes(name) ? 256 : 512;
+      const floor = name === "admin-web" ? 256 : 512;
       const memoryMi = Math.max(floor, Math.ceil((1.15 * bytes) / (1024 * 1024 * 64)) * 64);
       expect(memoryMi).toBe(expectedMi[index]);
       expect(resources).toEqual({
@@ -345,11 +345,12 @@ describe("render platform Helm values", () => {
       expect(memoryMi % 64).toBe(0);
       expect(memoryMi).toBeGreaterThanOrEqual(floor);
     }
-    expect(Object.keys(values.components)).toEqual(Object.keys(measuredBytes).slice(0, 5));
+    expect(Object.keys(values.components)).toEqual(Object.keys(measuredBytes).slice(0, 4));
     const runtimeRequest = Object.entries(values.components)
       .filter(([name]) => name !== "platform-bootstrap")
       .reduce((sum, [, component]) => sum + mebibytes(component.resources.requests.memory), 512);
-    expect(runtimeRequest).toBe(5056);
+    // Was 5056 with public-web's 1216Mi.
+    expect(runtimeRequest).toBe(3840);
     expect(512 + mebibytes(values.components["platform-bootstrap"].resources.requests.memory)).toBe(1408);
   });
 
@@ -464,12 +465,13 @@ describe("render platform Helm values", () => {
     }
   });
 
-  it("scaffolds the five current DOKS runtime components", () => {
+  it("scaffolds the four current DOKS runtime components", () => {
     const values = buildPlatformHelmValues({ repoRoot });
-    const expectedNames = ["admin-web", "platform-api", "platform-bootstrap", "platform-worker", "public-web"];
+    // The Corten apps are environment components; public-web is retired.
+    const expectedNames = ["admin-web", "platform-api", "platform-bootstrap", "platform-worker"];
 
     expect(Object.keys(values.components).sort()).toEqual(expectedNames);
-    expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(3);
+    expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(2);
     expect(Object.values(values.components).filter((component) => component.kind === "worker")).toHaveLength(1);
     expect(Object.values(values.components).filter((component) => component.kind === "job")).toHaveLength(1);
     expect(values.doksIngress).toMatchObject({
@@ -524,10 +526,12 @@ describe("render platform Helm values", () => {
   it("pins commands, ports, and source count expressions in the DOKS runtime values", () => {
     const values = buildPlatformHelmValues({ repoRoot });
 
-    expect(values.components["public-web"].command).toBe("pnpm --filter @chase-sets/app-public-web run start");
+    expect(values.components["admin-web"].command).toBe("pnpm --filter @chase-sets/app-admin-web run start");
+    expect(values.components["platform-api"].command).toBe(
+      "pnpm --filter @chase-sets/app-platform-api run start:production",
+    );
     expect(values.components["platform-api"].port).toBe(8080);
     expect(values.components["platform-worker"].port).toBe(8080);
-    expect(values.components["public-web"].source.instanceCountExpression).toBe("local.public_web_instances");
     expect(values.components["platform-api"].source.instanceCountExpression).toBe("local.api_instances");
     expect(values.components["platform-worker"].source.instanceCountExpression).toBe("local.worker_instances");
     expect(values.components["platform-bootstrap"].source.instanceCountExpression).toBe("1");
@@ -542,9 +546,6 @@ describe("render platform Helm values", () => {
     expect(platformHelmFullname()).toBe("chase-sets-platform-chase-sets-platform");
     expect(platformHelmComponentName("platform-api")).toBe("chase-sets-platform-chase-sets-platform-platform-api");
     expect(componentEnvValue(values.components["admin-web"], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
-      "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
-    );
-    expect(componentEnvValue(values.components["public-web"], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
       "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
     );
   });
@@ -836,7 +837,7 @@ spec:
       failureThreshold: 6,
     };
 
-    for (const name of ["admin-web", "public-web"]) {
+    for (const name of ["admin-web"]) {
       const component = values.components[name];
       expect(component.livenessPath, `${name} should get the tolerant /health/live livenessPath`).toBe("/health/live");
       expect(component.livenessProbe, `${name} should get the tolerant livenessProbe timings`).toEqual(
@@ -848,10 +849,8 @@ spec:
     }
 
     // Readiness stays strict and unchanged: traffic gating and rollout
-    // behavior are not touched by the liveness fix (public-web's DigitalOcean
-    // health_check http_path is "/" today, predating this change; admin-web
-    // uses its own `health/ready` route).
-    expect(values.components["public-web"].healthPath).toBe("/");
+    // behavior are not touched by the liveness fix (admin-web uses its own
+    // `health/ready` route).
     expect(values.components["admin-web"].healthPath).toBe("/health/ready");
   });
 
@@ -1145,7 +1144,8 @@ spec:
       "pr-123-admin.preview.chasesets.com",
     ]);
     expect(Object.fromEntries(previewIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
-      "pr-123.preview.chasesets.com": { path: "/", service: "public-web" },
+      // No public web app runs in a preview: the public host is an API origin, like the marketplace host.
+      "pr-123.preview.chasesets.com": { path: "/", service: "platform-api" },
       "pr-123-marketplace.preview.chasesets.com": { path: "/", service: "platform-api" },
       "pr-123-admin.preview.chasesets.com": { path: "/", service: "admin-web" },
     });
@@ -1280,7 +1280,7 @@ spec:
     // Scoped to platform-api: the worker's readiness only gates its rollout,
     // and other components keep the Kubernetes default readiness timing.
     const values = buildPlatformHelmValues({ repoRoot });
-    for (const name of ["platform-worker", "admin-web", "public-web", "platform-bootstrap"]) {
+    for (const name of ["platform-worker", "admin-web", "platform-bootstrap"]) {
       expect(
         values.components[name].readinessProbe,
         `${name} should not get a readinessProbe override`,
@@ -1302,7 +1302,7 @@ spec:
   it("scaffolds Rollouts for public traffic owners and keeps them disabled by default", () => {
     const values = buildPlatformHelmValues({ repoRoot });
 
-    expect(values.components["public-web"].rollout).toMatchObject({
+    expect(values.components["platform-api"].rollout).toMatchObject({
       enabled: false,
       canary: {
         canaryServiceSuffix: "canary",
@@ -1316,7 +1316,6 @@ spec:
       },
       analysis: { enabled: false, path: "/health/ready", count: 5, failureLimit: 2 },
     });
-    expect(values.components["platform-api"].rollout).toEqual(values.components["public-web"].rollout);
 
     expect(values.components["admin-web"].rollout).toBeUndefined();
     expect(values.components["platform-worker"].rollout).toBeUndefined();
@@ -1333,7 +1332,6 @@ spec:
       "platform-api": 133,
       "platform-bootstrap": 59,
       "platform-worker": 133,
-      "public-web": 13,
     });
     const retiredNames = Object.values(values.components).flatMap((component) =>
       component.env.filter(
@@ -1382,7 +1380,7 @@ spec:
     expect(chartText).toContain("kind: Certificate");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
-    expect(rolloutStates).toEqual([false, false]);
+    expect(rolloutStates).toEqual([false]);
     expect(chartText).toContain("helm.sh/hook");
     expect(chartText).toContain("activeDeadlineSeconds");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
@@ -1414,7 +1412,6 @@ spec:
 
     expect(values.global.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(privateComponents).toEqual([
-      { name: "public-web", kind: "service" },
       { name: "admin-web", kind: "service" },
       { name: "platform-api", kind: "service" },
       { name: "platform-worker", kind: "worker" },
@@ -1520,19 +1517,12 @@ spec:
     // land on.
     // The Corten admin, marketplace and public apps are the only other running components, each with its own
     // Burstable 100m / 128Mi request. They always serve admin.chasesets.com, marketplace.chasesets.com and the apex
-    // and www, so admin-web and public-web are rendered disabled.
+    // and www, so admin-web is rendered disabled; the base values carry no public-web.
     expect(Object.keys(production.components).sort()).toEqual(
-      [
-        ...Object.keys(expectedRequests),
-        "admin-corten",
-        "admin-web",
-        "marketplace-corten",
-        "public-corten",
-        "public-web",
-      ].sort(),
+      [...Object.keys(expectedRequests), "admin-corten", "admin-web", "marketplace-corten", "public-corten"].sort(),
     );
     expect(production.components["admin-web"]).toEqual({ enabled: false });
-    expect(production.components["public-web"]).toEqual({ enabled: false });
+    expect(production.components).not.toHaveProperty("public-web");
     for (const pilot of ["admin-corten", "marketplace-corten", "public-corten"]) {
       expect(production.components[pilot].resources).toEqual({
         requests: { cpu: "100m", memory: "128Mi" },
@@ -1649,7 +1639,7 @@ spec:
     );
 
     const [generated] = readChartFiles(["values.production.yaml"]);
-    // marketplace-web, admin-web and public-web are disabled in production, so they carry no spread.
+    // admin-web is disabled in production, and marketplace-web and public-web are gone, so they carry no spread.
     expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(2);
     expect(generated).toContain(
       [

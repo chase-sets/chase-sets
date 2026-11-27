@@ -87,10 +87,12 @@ export function createMarketplaceDevProcessDefinition(sandbox, sandboxEnvironmen
   };
 }
 
+// The public host's base definition. It names no workspace: the public site is the Corten pilot's, and only
+// the Corten public browser target runs it, through the pilot binary that applyDevTargetEnvOverrides puts in
+// its place.
 export function createPublicWebDevProcessDefinition(sandbox, sandboxEnvironment) {
   return {
     name: "public-web",
-    workspace: "@chase-sets/app-public-web",
     env: {
       ...sandboxEnvironment,
       PLATFORM_API_URL: sandbox.urls.platformApi,

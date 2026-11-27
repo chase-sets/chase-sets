@@ -27,7 +27,6 @@ const previewPostgresPort = 5432;
 const previewPostgresSecretName = "chase-sets-preview-postgres";
 // D5-R max(N, H, L), https://github.com/chase-sets/chase-sets/issues/9963 (sizing table).
 const previewMeasuredMemoryBytes = {
-  "public-web": 1063137280,
   "admin-web": 871866368,
   "platform-api": 1248432128,
   "platform-worker": 840187904,
@@ -36,7 +35,7 @@ const previewMeasuredMemoryBytes = {
 };
 
 function previewResources(name) {
-  const floorMi = ["public-web", "admin-web"].includes(name) ? 256 : 512;
+  const floorMi = name === "admin-web" ? 256 : 512;
   const memoryMi = Math.max(floorMi, Math.ceil((1.15 * previewMeasuredMemoryBytes[name]) / (1024 * 1024 * 64)) * 64);
   const memory = `${memoryMi}Mi`;
   return { requests: { cpu: name === "platform-bootstrap" ? "250m" : "100m", memory }, limits: { memory } };
@@ -70,7 +69,7 @@ export const platformApiIngressPrefixes = [
   "/api",
 ];
 
-const componentOrder = ["public-web", "admin-web", "platform-api", "platform-worker", "platform-bootstrap"];
+const componentOrder = ["admin-web", "platform-api", "platform-worker", "platform-bootstrap"];
 
 const deploymentKindByTerraformKind = {
   service: "service",
@@ -173,7 +172,7 @@ export const doksStagingWorkerAutoscaling = {
   ],
 };
 
-const rolloutEligibleComponents = new Set(["public-web", "platform-api"]);
+const rolloutEligibleComponents = new Set(["platform-api"]);
 
 function rolloutValues(enabled, nginxEnabled, analysisPath) {
   return {
@@ -290,7 +289,7 @@ const doksHealthProbeByComponent = {
 // platform-worker (deployables/platform-worker/src/main.ts).
 //
 // The React Router web deployables (admin-web,
-// marketplace, public-web) are also probed on the DB-free-in-name-only
+// marketplace) are also probed on the DB-free-in-name-only
 // `health/ready` route with Kubernetes' tight defaults; a live preview
 // run (chase-sets-pr-4736) showed the kubelet killing admin-web on the same
 // pattern. Each also registers a `health/live` route
@@ -311,7 +310,7 @@ const tolerantLivenessProbe = {
   failureThreshold: 6,
 };
 const componentsWithStartupProbe = new Set(["platform-api", "platform-worker"]);
-const componentsWithTolerantLiveness = new Set(["platform-api", "platform-worker", "admin-web", "public-web"]);
+const componentsWithTolerantLiveness = new Set(["platform-api", "platform-worker", "admin-web"]);
 
 // platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
 // the control pool). Kubernetes' default 1s probe timeout is too tight for a
@@ -385,6 +384,15 @@ export function buildPlatformHelmValues(options = {}) {
   };
 }
 
+// The components only one environment deploys (the Corten admin, marketplace and public apps), as
+// runtime-values.json declares them. Their secret keys belong in that environment's runtime Secret.
+export function platformEnvironmentComponents(environment, options = {}) {
+  const runtimeValues = readPlatformRuntimeValues(path.resolve(options.repoRoot ?? repoRoot));
+  if (environment === "staging") return runtimeValues.stagingComponents ?? {};
+  if (environment === "production") return runtimeValues.productionComponents ?? {};
+  return {};
+}
+
 export function isDatabaseSecretKey(value) {
   return (
     value === "DATABASE_URL" ||
@@ -445,9 +453,7 @@ export function buildPlatformHelmStagingValues(options = {}) {
     doksIngress: buildDoksIngressValues({ env: options.env }),
     components: {
       ...readPlatformRuntimeValues(path.resolve(options.repoRoot ?? repoRoot)).stagingComponents,
-      // public-corten serves www.staging and admin-corten serves admin.staging, so neither public-web nor
-      // admin-web is deployed.
-      "public-web": { enabled: false },
+      // admin-corten serves admin.staging, so admin-web is not deployed.
       "admin-web": { enabled: false },
       "platform-api": {
         ...doksStagingApiOverrides,
@@ -522,9 +528,7 @@ export function buildPlatformHelmProductionValues(options = {}) {
           },
         ]),
       ),
-      // public-corten serves chasesets.com and www.chasesets.com and admin-corten serves admin.chasesets.com, so
-      // neither public-web nor admin-web is deployed.
-      "public-web": { enabled: false },
+      // admin-corten serves admin.chasesets.com, so admin-web is not deployed.
       "admin-web": { enabled: false },
     },
   };
@@ -749,11 +753,14 @@ function buildProductionDoksIngressHosts(options = {}) {
 // No marketplace app runs in a preview: the Corten marketplace is covered by its PR browser tests and staging's
 // smoke. `pr-<n>-marketplace` stays as the preview's API origin, routed wholly to platform-api, because the
 // provider webhooks, the Stripe and Auth base URLs and cleanup all name it.
+// No public app runs in a preview either: the Corten public app is covered by its PR browser tests and staging's
+// smoke. `pr-<n>` stays as the preview's public origin (CHASE_SETS_PUBLIC_ORIGIN, its certificate and cleanup name
+// it), routed wholly to platform-api.
 function buildPreviewDoksIngressHosts(previewIdentifier) {
   return [
     {
       host: `${previewIdentifier}.${previewEnvironmentZone}`,
-      paths: doksIngressPaths("public-web"),
+      paths: doksIngressPaths("platform-api"),
     },
     {
       host: `${previewIdentifier}-marketplace.${previewEnvironmentZone}`,
