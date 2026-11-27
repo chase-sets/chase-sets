@@ -12,7 +12,10 @@ import {
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as inventoryModule } from "@chase-sets/inventory";
-import { createInventoryItemGradedCardAuthority } from "@chase-sets/inventory/server";
+import {
+  createInventoryCurrentItemAuthority,
+  createInventoryItemGradedCardAuthority,
+} from "@chase-sets/inventory/server";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceApiEnv, CommercialTermsResolver } from "../../../api";
@@ -27,6 +30,7 @@ const adminUrl = process.env.TEST_DATABASE_URL;
 if (!adminUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 const describeDb = adminUrl ? describe : describe.skip;
 type InventoryGradedCardPort = NonNullable<MarketplaceServiceOptions["inventoryItemGradedCardAuthority"]>;
+type InventoryCurrentItemPort = NonNullable<MarketplaceServiceOptions["inventoryCurrentItemAuthority"]>;
 const syntheticAddress: AddressSnapshot = {
   name: "Synthetic Seller",
   line1: "1 Test Way",
@@ -103,8 +107,45 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
   const rawInventoryItem: InventoryGradedCardPort = {
     resolve: async () => ({ gradedCard: null, selectedOptions: snapshot().selectedOptions }),
   };
-  const owner = (inventoryItemGradedCardAuthority = rawInventoryItem) =>
-    createMarketplaceServices(pools.marketplace, { commercialTermsResolver: terms, inventoryItemGradedCardAuthority });
+  /**
+   * Inventory's current record of the item, echoing a snapshot so that snapshot matches it; the cases that read
+   * Inventory's database pass its authority.
+   */
+  const recording = (
+    value: Readonly<{
+      catalogItemId: string;
+      productId: string;
+      storageLocationId: string;
+      storageLocationName: string;
+      shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
+      totalQuantity: number;
+      acquisitionCostAmount: string | null;
+      acquisitionCostCurrencyCode: string | null;
+    }> = snapshot(),
+  ): InventoryCurrentItemPort => ({
+    resolve: async () => ({
+      catalogItemId: value.catalogItemId,
+      productId: value.productId,
+      storageLocation: {
+        storageLocationId: value.storageLocationId,
+        name: value.storageLocationName,
+        shipFromCode: value.shipFromCode,
+        shipFromAddress: value.shipFromAddress,
+        status: "active",
+      },
+      totalQuantity: value.totalQuantity,
+      availableQuantity: value.totalQuantity,
+      acquisitionCostAmount: value.acquisitionCostAmount,
+      acquisitionCostCurrencyCode: value.acquisitionCostCurrencyCode,
+    }),
+  });
+  const owner = (inventoryItemGradedCardAuthority = rawInventoryItem, inventoryCurrentItemAuthority = recording()) =>
+    createMarketplaceServices(pools.marketplace, {
+      commercialTermsResolver: terms,
+      inventoryItemGradedCardAuthority,
+      inventoryCurrentItemAuthority,
+    });
   const snapshot = () => ({
     ...directPortInput(),
     shipFromAddress: syntheticAddress,
@@ -192,18 +233,20 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
   });
 
   it("keeps explicit nulls and legacy amount-only direct/batch/import inputs as unknown denomination", async () => {
+    const nullSnapshot = {
+      ...snapshot(),
+      inventoryItemId: "inv_null",
+      listingIdOverride: "lst_null" as never,
+      acquisitionCostAmount: null,
+      acquisitionCostCurrencyCode: null,
+      shipFromAddress: { ...syntheticAddress, verification: null },
+    };
+    // A direct snapshot create writes Inventory's record, so Inventory records the nulls here.
+    const nullResult = await owner(
+      rawInventoryItem,
+      recording(nullSnapshot),
+    ).listings.createListingFromInventorySnapshot(listingTestCommand("listing.create", nullSnapshot), draftContext);
     const services = owner();
-    const nullResult = await services.listings.createListingFromInventorySnapshot(
-      listingTestCommand("listing.create", {
-        ...snapshot(),
-        inventoryItemId: "inv_null",
-        listingIdOverride: "lst_null" as never,
-        acquisitionCostAmount: null,
-        acquisitionCostCurrencyCode: null,
-        shipFromAddress: { ...syntheticAddress, verification: null },
-      }),
-      draftContext,
-    );
     expect(nullResult.state.shipFromAddress?.verification).toBeNull();
     const legacy = { ...directPortInput(), acquisitionCostAmount: "5.00" };
     await services.listings.createBatchDraftListingFromInventorySnapshot(legacy, draftContext);
@@ -250,24 +293,27 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
   });
 
   it("rejects invalid shared creator cost/address before the first mirror write", async () => {
-    const services = owner();
-    for (const create of [
-      services.listings.createListingFromInventorySnapshot,
-      services.listings.createBatchDraftListingFromInventorySnapshot,
-    ]) {
-      for (const change of [
-        { acquisitionCostAmount: "-1.00" },
-        { acquisitionCostCurrencyCode: "usd" },
-        {
-          shipFromAddress: {
-            ...syntheticAddress,
-            verification: { ...syntheticAddress.verification!, checkedAt: "2026-10-28" },
-          },
+    for (const change of [
+      { acquisitionCostAmount: "-1.00" },
+      { acquisitionCostCurrencyCode: "usd" },
+      {
+        shipFromAddress: {
+          ...syntheticAddress,
+          verification: { ...syntheticAddress.verification!, checkedAt: "2026-10-28" },
         },
+      },
+    ]) {
+      const invalid = { ...snapshot(), ...change } as ReturnType<typeof snapshot>;
+      for (const create of [
+        // A direct snapshot create takes cost and address from Inventory's record, never the request.
+        () =>
+          owner(rawInventoryItem, recording(invalid)).listings.createListingFromInventorySnapshot(
+            { ...snapshot(), idempotencyKey: "snapshot_validation_attempt_0001" },
+            draftContext,
+          ),
+        () => owner().listings.createBatchDraftListingFromInventorySnapshot(invalid, draftContext),
       ]) {
-        await expect(
-          create({ ...snapshot(), ...change, idempotencyKey: "snapshot_validation_attempt_0001" }, draftContext),
-        ).rejects.toThrow();
+        await expect(create()).rejects.toThrow();
         expect(await counts()).toEqual({ items: 0, locations: 0, events: 0 });
       }
     }
@@ -581,6 +627,57 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
         selectedOptions: recordedSelection,
       });
       expect(await inventoryEventCount()).toBe(1);
+    });
+
+    /** Marketplace also reading the item's current record from the Inventory database, as the platform API wires it. */
+    const currentInventoryBacked = () =>
+      owner(
+        { resolve: createInventoryItemGradedCardAuthority(pools.inventory).resolveInventoryItemGradedCard },
+        { resolve: createInventoryCurrentItemAuthority(pools.inventory).resolveInventoryCurrentItem },
+      );
+    async function recordStorageLocation(name: string) {
+      const data = snapshot();
+      await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+        streamId: `inventory.storage-location-${data.storageLocationId}`,
+        expectedVersion: "no_stream",
+        context: draftContext,
+        events: [
+          {
+            eventType: "inventory.storage-location.created",
+            payload: {
+              storageLocationId: data.storageLocationId,
+              accountId: "acc_c4",
+              name,
+              description: null,
+              shipFromCode: data.shipFromCode,
+              shipFromAddress: syntheticAddress,
+            },
+          },
+        ],
+      });
+    }
+
+    it("refuses a snapshot whose total Inventory no longer records, then writes the location name Inventory records", async () => {
+      await recordInventoryItem("acc_c4", null);
+      await recordStorageLocation("Back room");
+      expect(routeSnapshot().storageLocationName).not.toBe("Back room");
+
+      const stale = await post(
+        { ...routeSnapshot(), totalQuantity: snapshot().totalQuantity + 1 },
+        currentInventoryBacked(),
+      );
+      expect(stale.response.status).toBe(400);
+      await expect(stale.response.json()).resolves.toMatchObject({
+        error: { code: "listing_inventory_snapshot_invalid" },
+      });
+      expect(await counts()).toEqual({ items: 0, locations: 0, events: 0 });
+
+      const { response } = await post(routeSnapshot(), currentInventoryBacked());
+      expect(response.status).toBe(201);
+      expect((await pools.marketplace.query("SELECT name FROM marketplace_supply_locations")).rows).toEqual([
+        { name: "Back room" },
+      ]);
+      expect(await inventoryEventCount()).toBe(2);
     });
 
     it.each([

@@ -316,7 +316,9 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     shipFromCode: String(source.shipFromCode ?? ""),
     shipFromAddress,
     totalQuantity,
-    availableQuantity: parseSnapshotQuantity(source.availableQuantity ?? totalQuantity, "availableQuantity"),
+    ...(source.availableQuantity === undefined || source.availableQuantity === null
+      ? {}
+      : { availableQuantity: parseSnapshotQuantity(source.availableQuantity, "availableQuantity") }),
     ...parseAcquisitionCostSnapshot(source.acquisitionCostAmount, source.acquisitionCostCurrencyCode),
   };
 }

@@ -1,4 +1,6 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -35,10 +37,37 @@ export type InventoryItemGradedCardAuthority = Readonly<{
   }> | null>;
 }>;
 
+/**
+ * Inventory's answer for what an item its account owns records now: the item facts a Listing created from an
+ * Inventory snapshot must match and writes into the account's supply rows.
+ */
+export type InventoryCurrentItemAuthority = Readonly<{
+  resolve(
+    input: Readonly<{ accountId: string; inventoryItemId: string }>,
+    context: EventStoreContext,
+  ): Promise<Readonly<{
+    catalogItemId: string;
+    productId: string;
+    storageLocation: Readonly<{
+      storageLocationId: string;
+      name: string;
+      shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
+      status: "active" | "retired";
+    }>;
+    totalQuantity: number;
+    availableQuantity: number;
+    acquisitionCostAmount: string | null;
+    acquisitionCostCurrencyCode: string | null;
+  }> | null>;
+}>;
+
 export type MarketplaceRuntimeDeps = Readonly<{
   listingTargetAuthority?: ListingTargetAuthority;
   /** Absent keeps Listing creation from an Inventory snapshot closed. */
   inventoryItemGradedCardAuthority?: InventoryItemGradedCardAuthority;
+  /** Absent keeps Listing creation from an Inventory snapshot through `POST /listings` closed. */
+  inventoryCurrentItemAuthority?: InventoryCurrentItemAuthority;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;

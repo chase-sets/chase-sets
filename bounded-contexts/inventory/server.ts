@@ -5,6 +5,7 @@ export {
 } from "./support/runtime-support/mutation-attempt";
 export { createStorageLocationAuthority } from "./features/storage-locations/api/authority";
 export { createInventoryItemGradedCardAuthority } from "./features/inventory-items/api/graded-card-authority";
+export { createInventoryCurrentItemAuthority } from "./features/inventory-items/api/current-item-authority";
 export { createInventoryStockAuthorityForPool } from "./support/runtime-support/services";
 export { InventoryStockChangePending } from "./features/inventory-items/api/stock-reservations";
 export type { InventoryStockAuthority, InventoryStockTarget } from "./features/inventory-items/api/stock-authority";

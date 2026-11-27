@@ -1051,6 +1051,24 @@ const validInventorySnapshot = {
   totalQuantity: 2,
   acquisitionCostAmount: "4.50",
 };
+// Inventory records exactly what validInventorySnapshot shows, with no hold on the item.
+const inventoryRecordsValidSnapshot = {
+  resolve: async () => ({
+    catalogItemId: validInventorySnapshot.catalogItemId,
+    productId: validInventorySnapshot.productId,
+    storageLocation: {
+      storageLocationId: validInventorySnapshot.storageLocationId,
+      name: validInventorySnapshot.storageLocationName,
+      shipFromCode: validInventorySnapshot.shipFromCode,
+      shipFromAddress: validShipFromAddress,
+      status: "active" as const,
+    },
+    totalQuantity: validInventorySnapshot.totalQuantity,
+    availableQuantity: validInventorySnapshot.totalQuantity,
+    acquisitionCostAmount: validInventorySnapshot.acquisitionCostAmount,
+    acquisitionCostCurrencyCode: null,
+  }),
+};
 
 describe("marketplace listing routes", () => {
   it("loads a seller-owned available inventory item by exact listing-inventory id", async () => {
@@ -1824,7 +1842,7 @@ describe("marketplace listing routes", () => {
     expect(services.createListing).not.toHaveBeenCalled();
   });
 
-  it("takes snapshot quantities sent as digits, and an available quantity that defaults to the total", async () => {
+  it("takes snapshot quantities sent as digits, and leaves an omitted available quantity for Inventory to answer", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor, services });
     expect(validInventorySnapshot).not.toHaveProperty("availableQuantity");
@@ -1850,10 +1868,13 @@ describe("marketplace listing routes", () => {
         productId: "cat_1::form:graded",
         storageLocationId: "loc_1",
         totalQuantity: 3,
-        availableQuantity: 3,
       }),
       expect.any(Object),
     );
+    // Filling it in with the total would refuse the create whenever a hold covers part of the item; the cap is
+    // checked against the quantity Inventory says no hold covers instead.
+    const [sent] = vi.mocked(services.createListingFromInventorySnapshot).mock.calls[0]!;
+    expect(sent).not.toHaveProperty("availableQuantity");
   });
 
   it("accepts a five-key snapshot gradedCard, creates from the details Inventory holds, and answers a retry with the first result", async () => {
@@ -1935,6 +1956,7 @@ describe("marketplace listing routes", () => {
         }),
       } as never,
       inventoryItemGradedCardAuthority: { resolve },
+      inventoryCurrentItemAuthority: inventoryRecordsValidSnapshot,
     });
     const app = buildApp({ actor: sellerActor, services });
     const gradedCard = {
@@ -1968,7 +1990,8 @@ describe("marketplace listing routes", () => {
     expect(retry.status).toBe(201);
     expect(await retry.json()).toEqual(created);
     expect(allEvents).toHaveLength(committed);
-    expect(itemWrites).toEqual([null, null]);
+    // A retry replays the first result, so it neither asks Inventory nor writes the supply mirror again.
+    expect(itemWrites).toEqual([null]);
 
     // The attempt never covered the snapshot's details, so a retry that sends others is the same attempt.
     const changed = await send("graded_snapshot_attempt_00000001", {
@@ -1979,13 +2002,13 @@ describe("marketplace listing routes", () => {
     expect(changed.status).toBe(201);
     expect(await changed.json()).toEqual(created);
     expect(allEvents).toHaveLength(committed);
-    expect(itemWrites).toEqual([null, null, null]);
+    expect(itemWrites).toEqual([null]);
 
     const { grade: _grade, ...malformed } = gradedCard;
     const refused = await send("graded_snapshot_attempt_00000002", malformed);
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: { code: "listing_inventory_snapshot_invalid" } });
-    expect(resolve).toHaveBeenCalledTimes(3);
+    expect(resolve).toHaveBeenCalledTimes(1);
     expect(allEvents).toHaveLength(committed);
   });
 
@@ -2031,6 +2054,7 @@ describe("marketplace listing routes", () => {
       checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
       commercialTermsResolver: createMarketplaceCommercialTermsResolver(db as never),
       inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard, selectedOptions }) },
+      inventoryCurrentItemAuthority: inventoryRecordsValidSnapshot,
     });
     const app = buildApp({ actor: sellerActor, services });
     const response = await app.request("/account/listings", {
