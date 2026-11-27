@@ -11508,7 +11508,8 @@ const SELLER_LISTINGS: &str = "/api/marketplace/account/listings/";
 
 /// A seller's listing as the API reads it: `lst_draft` is a draft with two photos and its front
 /// view missing, `lst_active` is active and ready. `lst_graded` is a draft graded PSA 10, ready
-/// but without its certification number; `lst_graded_active` is published with its number.
+/// but without its certification number; `lst_graded_saved` is a graded draft with its number
+/// saved; `lst_graded_active` is published with its number.
 fn seller_listing(id: &str) -> Value {
     let draft = id == "lst_draft";
     let photo = |id: &str, order: i64, slot: Value| json!({ "photoId": id, "altText": null, "slotId": slot, "viewKind": slot, "status": "active", "sortOrder": order });
@@ -11527,7 +11528,7 @@ fn seller_listing(id: &str) -> Value {
         "status": if draft { "draft" } else { "active" },
         "evidence": evidence,
     });
-    if id == "lst_graded" {
+    if id == "lst_graded" || id == "lst_graded_saved" {
         listing["status"] = json!("draft");
     }
     if id.starts_with("lst_graded") {
@@ -12325,6 +12326,38 @@ async fn a_refused_certification_number_says_why_at_its_field_and_keeps_what_was
     assert!(html.contains(r#"name="certificationNumber" value="001" required aria-invalid="true""#), "{html}");
     assert!(!text(&html).contains("Update Listing PSA"), "{html}");
     assert_eq!(listing_writes(&pilot, "lst_graded").len(), 1);
+}
+
+/// A graded draft with its number saved (`lst_graded_saved`) shows it in the field, so a seller
+/// who mistyped it can change it before the first publish, as the command allows.
+#[tokio::test]
+async fn a_graded_draft_with_a_saved_number_shows_it_in_the_field_and_saves_a_change() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/listings/lst_graded_saved", Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="certificationNumber" value="87654321" required"#), "{html}");
+    let page = text(&html);
+    assert!(page.contains("Save certification number"), "{page}");
+    // The number is in the field only, not also in the grading lines, and the draft no longer needs it.
+    assert_eq!(page.matches("87654321").count(), 0, "{page}");
+    assert!(!page.contains("Add a certification number before publishing this Listing."), "{page}");
+
+    let attempt = new_attempt();
+    let form = format!("intent=set-certification-number&certificationNumber=12345678&attempt={attempt}");
+    let (status, headers, html) = pilot.send(post("/account/listings/lst_graded_saved", "lister", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/listings/lst_graded_saved?"));
+    let call = listing_writes(&pilot, "lst_graded_saved").pop().unwrap();
+    assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_graded_saved/certification-number"));
+    assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap(), json!({ "certificationNumber": "12345678" }));
+    assert_eq!(call.headers["idempotency-key"].to_str().unwrap(), attempt);
+
+    // A refused change keeps the seller's entry, not the saved number, and says why at the field.
+    let form = format!("intent=set-certification-number&certificationNumber=001&attempt={}", new_attempt());
+    let (status, _, html) = pilot.send(post("/account/listings/lst_graded_saved", "lister", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("PSA certification numbers must use 8 to 9 digits."), "{html}");
+    assert!(html.contains(r#"name="certificationNumber" value="001" required aria-invalid="true""#), "{html}");
 }
 
 #[tokio::test]
