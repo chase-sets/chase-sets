@@ -339,7 +339,6 @@ export const contextManifest = {
         {
           routeId: "home",
           routePath: "",
-          fileExport: "./routes/marketplace/home",
           routeType: "index",
           sourceContext: "public-presence",
           placement: "root",
@@ -347,7 +346,6 @@ export const contextManifest = {
         {
           routeId: "welcome",
           routePath: "welcome",
-          fileExport: "./routes/marketplace/welcome",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -355,7 +353,6 @@ export const contextManifest = {
         {
           routeId: "help",
           routePath: "help",
-          fileExport: "./routes/marketplace/help",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -363,7 +360,6 @@ export const contextManifest = {
         {
           routeId: "help-category",
           routePath: "help/:category",
-          fileExport: "./routes/marketplace/help-category",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -371,7 +367,6 @@ export const contextManifest = {
         {
           routeId: "help-article",
           routePath: "help/:category/:slug",
-          fileExport: "./routes/marketplace/help-article",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -380,7 +375,6 @@ export const contextManifest = {
         {
           routeId: "faq",
           routePath: "faq",
-          fileExport: "./routes/marketplace/faq",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -388,7 +382,6 @@ export const contextManifest = {
         {
           routeId: "contact",
           routePath: "contact",
-          fileExport: "./routes/marketplace/contact",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -397,7 +390,6 @@ export const contextManifest = {
         {
           routeId: "refunds-and-returns",
           routePath: "refunds-and-returns",
-          fileExport: "./routes/marketplace/refunds-and-returns",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -405,7 +397,6 @@ export const contextManifest = {
         {
           routeId: "order-protection",
           routePath: "order-protection",
-          fileExport: "./routes/marketplace/order-protection",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -414,7 +405,6 @@ export const contextManifest = {
         {
           routeId: "compare-tcgplayer",
           routePath: "compare/tcgplayer",
-          fileExport: "./routes/marketplace/compare-tcgplayer",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -422,7 +412,6 @@ export const contextManifest = {
         {
           routeId: "compare-ebay",
           routePath: "compare/ebay",
-          fileExport: "./routes/marketplace/compare-ebay",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",
@@ -430,7 +419,6 @@ export const contextManifest = {
         {
           routeId: "press",
           routePath: "press",
-          fileExport: "./routes/marketplace/press",
           routeType: "route",
           sourceContext: "public-presence",
           placement: "root",

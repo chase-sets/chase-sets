@@ -915,7 +915,6 @@
         {
           "routeId": "market-price-history",
           "routePath": "market/:slug",
-          "fileExport": "./routes/marketplace/market-price-history",
           "routeType": "route",
           "sourceContext": "pricing"
         }
