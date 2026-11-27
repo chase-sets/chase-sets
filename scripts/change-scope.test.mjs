@@ -174,7 +174,7 @@ const cortenPublicBrowserPaths = [
   /^deployables\/corten-pilot\/(?:public|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/public-web\/e2e\/[^/]+\.spec\.ts$/,
+  /^deployables\/corten-pilot\/e2e\/public\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
 

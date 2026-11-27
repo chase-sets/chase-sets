@@ -627,7 +627,7 @@ describe("run e2e suite", () => {
   });
 
   it("owns public-web specs as deployed-target coverage instead of a PR browser suite", () => {
-    const publicWebSpec = "deployables/public-web/e2e/privacy-policy.spec.ts";
+    const publicWebSpec = "deployables/corten-pilot/e2e/public/privacy-policy.spec.ts";
 
     expect(isE2eSpecFile(publicWebSpec)).toBe(true);
     expect(e2eSuiteIdsForChangedFile(publicWebSpec)).toEqual([]);
@@ -642,18 +642,22 @@ describe("run e2e suite", () => {
 
   it("keeps the privacy policy candidate on the public-web host", () => {
     // Negative control for the reroute: no marketplace spec may claim the
-    // /privacy route the marketplace host does not serve.
-    expect(existsSync("deployables/public-web/e2e/privacy-policy.spec.ts")).toBe(true);
+    // /privacy route the marketplace host does not serve. The marketplace specs are the top-level ones
+    // marketplace-chromium runs; the kept public specs sit beneath them in public/.
+    expect(existsSync("deployables/corten-pilot/e2e/public/privacy-policy.spec.ts")).toBe(true);
 
     const marketplaceSpecs = walkFiles("deployables/corten-pilot/e2e").filter((filePath) =>
-      filePath.endsWith(".spec.ts"),
+      /^deployables\/corten-pilot\/e2e\/[^/]+\.spec\.ts$/.test(filePath),
     );
+    expect(marketplaceSpecs.length).toBeGreaterThan(0);
     const marketplaceSpecsVisitingPrivacy = marketplaceSpecs.filter((filePath) =>
       /["'`]\/privacy(?:[?#/"'`]|$)/.test(readFileSync(filePath, "utf8")),
     );
 
     expect(marketplaceSpecsVisitingPrivacy).toEqual([]);
-    expect(readFileSync("deployables/public-web/e2e/privacy-policy.spec.ts", "utf8")).toContain("public-web-chromium");
+    expect(readFileSync("deployables/corten-pilot/e2e/public/privacy-policy.spec.ts", "utf8")).toContain(
+      "public-web-chromium",
+    );
   });
 
   it("routes shared auth changes to marketplace and admin auth coverage", () => {

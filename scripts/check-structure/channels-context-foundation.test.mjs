@@ -1038,6 +1038,7 @@ describe("deployable-browser-test-support-import-fence", () => {
     "deployables/corten-pilot/e2e/admin/access-api-keys.spec.ts",
     "deployables/admin-web/e2e/arbitrary/nested/neutral.multi.spec.ts",
     "deployables/corten-pilot/e2e/critical-flows.spec.ts",
+    "deployables/corten-pilot/e2e/public/privacy-policy.spec.ts",
   ];
   const ineligible = [
     // marketplace-web's browser specs left with that deployable.
