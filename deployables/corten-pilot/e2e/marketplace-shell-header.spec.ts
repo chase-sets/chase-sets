@@ -932,7 +932,9 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     const table = [
       { path: "/search?q=charizard", expected: "expanded" as const, expectedStatus: undefined },
       { path: itemRoutePath, expected: "collapsed" as const, expectedStatus: undefined },
-      { path: "/categories/pokemon", expected: "collapsed" as const, expectedStatus: undefined },
+      // The seeded Pokemon TCG category by its key, which moves to its slug's path. An unknown
+      // category draws an empty page too short to drive the collapse.
+      { path: "/categories/pokemon-tcg", expected: "collapsed" as const, expectedStatus: undefined },
     ];
     const observed: Array<{ path: string; landedPathname: string; phase: string | null; focusPhase: string | null }> =
       [];

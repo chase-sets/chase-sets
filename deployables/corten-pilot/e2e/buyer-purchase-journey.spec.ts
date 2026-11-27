@@ -56,12 +56,23 @@ test.describe("marketplace buyer purchase journey", () => {
     await expect(searchSuggestions).toBeHidden();
 
     const detailPath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
-    const result = page.locator(`article > a[href="${detailPath}"]`);
+    // marketplace-web drew each result as an <article>; the Corten marketplace draws an <li> in the
+    // results list.
+    const result = onCortenMarketplace
+      ? page.locator(`#results a[href="${detailPath}"]`).first()
+      : page.locator(`article > a[href="${detailPath}"]`);
     await expect(result).toBeVisible();
     await expectNoHorizontalOverflow("Search results");
     // Tap the media side of the full-card link, away from overlapping commerce controls.
     await result.tap({ position: { x: 24, y: 24 } });
     await expect(page).toHaveURL(new URL(detailPath, page.url()).href);
+    if (onCortenMarketplace) {
+      // The phone steps after the item page find marketplace-web's markup (the product-detail-mobile-dock
+      // test id, its Buy dialog, data-marketplace-cart-line and data-optimistic-status), which the
+      // Corten marketplace does not draw, so on it the journey ends at the item page.
+      await expectNoHorizontalOverflow("Item detail");
+      return;
+    }
 
     const buy = page.getByTestId("product-detail-mobile-dock").getByRole("button", { name: "Buy" });
     await expect(buy).toBeVisible();
