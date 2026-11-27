@@ -1044,7 +1044,7 @@ const validInventorySnapshot = {
   catalogItemId: "cat_1",
   productId: "cat_1::form:graded",
   selectedOptions: [{ dimensionId: "form", optionId: "graded" }],
-  storageLocationId: "sloc_1",
+  storageLocationId: "loc_1",
   storageLocationName: "Seller shelf",
   shipFromCode: "CHI-1",
   shipFromAddress: validShipFromAddress,
@@ -1067,7 +1067,7 @@ describe("marketplace listing routes", () => {
       product_summary: "Form: Raw",
       product_measure_snapshot: null,
       graded_card: null,
-      storage_location_id: "sloc_1",
+      storage_location_id: "loc_1",
       storage_location_name: "Listing stock",
       ship_from_code: "CHI-1",
       ship_from_address: validShipFromAddress,
@@ -1107,7 +1107,7 @@ describe("marketplace listing routes", () => {
       product_summary: "Form: Raw",
       product_measure_snapshot: null,
       graded_card: null,
-      storage_location_id: "sloc_1",
+      storage_location_id: "loc_1",
       storage_location_name: "Listing stock",
       ship_from_code: "CHI-1",
       ship_from_address: validShipFromAddress,
@@ -1781,6 +1781,79 @@ describe("marketplace listing routes", () => {
     expect(response.status).toBe(400);
     expect(services.createListingFromInventorySnapshot).not.toHaveBeenCalled();
     expect(services.createListing).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a missing Inventory item id", { inventoryItemId: undefined }],
+    ["an Inventory item id of another kind", { inventoryItemId: "cat_1" }],
+    ["a non-text Inventory item id", { inventoryItemId: 42 }],
+    ["a missing Catalog Item id", { catalogItemId: "" }],
+    ["a Catalog Item id of another kind", { catalogItemId: "inv_1" }],
+    ["a missing Product id", { productId: null }],
+    ["a Product id of another Catalog Item", { productId: "cat_2::form:graded" }],
+    ["a Product id without its selection separator", { productId: "cat_1" }],
+    ["a missing storage location id", { storageLocationId: undefined }],
+    ["a storage location id of another kind", { storageLocationId: "inv_1" }],
+    ["a negative total quantity", { totalQuantity: -1 }],
+    ["a fractional total quantity", { totalQuantity: 1.5 }],
+    ["a non-numeric total quantity", { totalQuantity: "two" }],
+    ["a boolean total quantity", { totalQuantity: true }],
+    ["a negative available quantity", { availableQuantity: -1 }],
+    ["a fractional available quantity", { availableQuantity: "0.5" }],
+    ["an empty available quantity", { availableQuantity: "" }],
+  ])("refuses an inventory snapshot with %s before creating a listing", async (_case, change) => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          inventorySnapshot: { ...validInventorySnapshot, ...change },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "listing_inventory_snapshot_invalid" } });
+    expect(services.createListingFromInventorySnapshot).not.toHaveBeenCalled();
+    expect(services.createListing).not.toHaveBeenCalled();
+  });
+
+  it("takes snapshot quantities sent as digits, and an available quantity that defaults to the total", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+    expect(validInventorySnapshot).not.toHaveProperty("availableQuantity");
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          inventorySnapshot: { ...validInventorySnapshot, totalQuantity: "3" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createListingFromInventorySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inventoryItemId: "inv_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:graded",
+        storageLocationId: "loc_1",
+        totalQuantity: 3,
+        availableQuantity: 3,
+      }),
+      expect.any(Object),
+    );
   });
 
   it("accepts a five-key snapshot gradedCard, creates from the details Inventory holds, and answers a retry with the first result", async () => {
