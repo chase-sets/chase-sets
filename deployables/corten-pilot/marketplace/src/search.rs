@@ -15,7 +15,8 @@
 //! Load more is a GET form (`LoadMore`). With JavaScript it is a patch: the API's next page after
 //! the cursor, added after the rows the page has (`view::Append`), however many pages that takes.
 //! Without it, the form loads the address with a page more (`more=24`), up to the 192 the API reads
-//! at once.
+//! at once. A patch also puts the address of the rows it leaves (`kept_address`) in place of the
+//! history entry's, so Back from an item and a reload draw them again, up to the same 192.
 //!
 //! A result's Add to List posts to the item's own page (`/items/{slug}`) with `prepare` (`saving`), which
 //! answers the dialog this page has empty, or the item page to choose the options the filters do
@@ -917,6 +918,14 @@ pub(crate) async fn with_sheet(
     render(req, session.and_then(Session::viewer), &screen, failed, status)
 }
 
+/// The address that draws `rows` results here: the whole pages beyond the first that hold them,
+/// up to the most one address shows. A Load more patch puts it in the history entry's place, since a
+/// `data-patch` GET leaves the address it was sent from (corten-run/corten#1406).
+pub(crate) fn kept_address(place: Place<'_>, terms: &Terms, rows: usize) -> String {
+    let beyond = rows.saturating_sub(PAGE_SIZE).div_ceil(PAGE_SIZE) * PAGE_SIZE;
+    place.href(&Terms { more: beyond.min(MOST_SHOWN - PAGE_SIZE), ..terms.clone() })
+}
+
 /// The page after `cursor`: its rows added after the ones the page has (`terms.more` of them),
 /// and Load more for the page after it. When the API restarts the cursor (the results changed),
 /// its first page replaces the rows instead. A failed read leaves the rows and offers Load more
@@ -937,20 +946,25 @@ async fn more(
     };
     let shown = terms.more;
     match caller.search(&terms.api_query_from(category, PAGE_SIZE, Some(cursor))).await {
-        Ok(page) if page.cursor_restarted => script.patch(html! {
-            <views::ResultRows t={t} i={i} items={&page.items} terms={terms} first={0} keys={page.keys()} from={&from} />
-            <views::LoadMore
-                t={t}
-                place={place}
-                terms={terms}
-                shown={page.items.len()}
-                cursor={page.next_cursor.as_deref()}
-                failed={false}
-            />
-        }),
+        Ok(page) if page.cursor_restarted => {
+            let kept = kept_address(place, terms, page.items.len());
+            script.patch(html! {
+                <views::ResultRows t={t} i={i} items={&page.items} terms={terms} first={0} keys={page.keys()} from={&from} />
+                <views::LoadMore
+                    t={t}
+                    place={place}
+                    terms={terms}
+                    shown={page.items.len()}
+                    cursor={page.next_cursor.as_deref()}
+                    failed={false}
+                    kept={Some(kept.as_str())}
+                />
+            })
+        }
         Ok(page) => {
             let keys = page.keys();
             let (items, next) = (&page.items, page.next_cursor.as_deref());
+            let kept = kept_address(place, terms, shown + items.len());
             script.patch(html! {
                 {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} i={i} item={item} terms={terms} index={shown + n} keys={keys} from={&from} /> } })}
                 <views::LoadMore
@@ -960,13 +974,22 @@ async fn more(
                     shown={shown + items.len()}
                     cursor={next}
                     failed={false}
+                    kept={Some(kept.as_str())}
                 />
             })
         }
         Err(error) => {
             tracing::warn!("the next page's read failed: {error}");
             script.patch(html! {
-                <views::LoadMore t={t} place={place} terms={terms} shown={shown} cursor={Some(cursor)} failed={true} />
+                <views::LoadMore
+                    t={t}
+                    place={place}
+                    terms={terms}
+                    shown={shown}
+                    cursor={Some(cursor)}
+                    failed={true}
+                    kept={None}
+                />
             })
         }
     }

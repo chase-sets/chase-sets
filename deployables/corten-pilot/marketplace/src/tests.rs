@@ -7010,7 +7010,7 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     // JavaScript it is the address with a page more, at the first result it adds.
     let form = r#"<form id="load-more" class="#;
     assert!(
-        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s)'>"#),
+        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s,"#),
         "{html}"
     );
     for field in [
@@ -7066,12 +7066,13 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 6, "{html}");
     assert!(html.contains(r#"<li id="result-25""#) && html.contains(r#"<li id="result-30""#), "{html}");
     assert!(html.contains(r#"href="/items/card-25?dimension.dim_grade=chc_10""#), "{html}");
-    // Load more again, hidden: there is no page after it.
-    assert!(
-        html.contains(r#"<form id="load-more" class="#)
-            && html.contains(r#"action="/categories/singles-x1#result-31" data-patch hidden>"#),
-        "{html}"
-    );
+    // Load more again, hidden: there is no page after it. It puts the address of the 30 rows in
+    // place of the history entry's, so Back from an item draws them again (search.near's address).
+    let form = load_more_tag(&html);
+    assert!(form.contains(r#"action="/categories/singles-x1#result-31" data-patch hidden"#), "{form}");
+    assert!(form.contains("connect:search.near("), "{form}");
+    assert!(form.contains("/categories/singles-x1?q=pika") && form.contains("more=24"), "{form}");
+    assert!(!form.contains("cursor"), "the address is the page's, not the API's: {form}");
 
     // A cursor the API no longer takes: its first page replaces the rows.
     let (status, _, html) = pilot.send(get_patch("/search?q=pika&more=24&cursor=gone")).await;
@@ -7080,6 +7081,10 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert!(html.contains(r#"<ol id="results" class="#), "{html}");
     assert!(html.contains(r#"<li id="result-1""#) && html.contains(r#"<li id="result-24""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="more" value="24">"#), "{html}");
+    // The rows are the first page again, so the address it keeps has no more.
+    let form = load_more_tag(&html);
+    assert!(form.contains("connect:search.near(") && form.contains("/search?q=pika"), "{form}");
+    assert!(!form.contains("more="), "{form}");
 
     // A failed read leaves the rows and offers Load more again, saying so.
     let (status, _, html) = pilot.send(get_patch("/search?q=pika&more=24&cursor=broken")).await;
@@ -7102,6 +7107,32 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     let form = &html[html.find(r#"<form id="load-more""#).expect("Load more")..];
     let form = &form[..form.find('>').unwrap()];
     assert!(!form.contains(" hidden") && form.contains("connect:search.near("), "{form}");
+    assert!(!form.contains("?q="), "the page's own address already draws its rows: {form}");
+}
+
+/// The opening tag of a Load more form `html` draws.
+fn load_more_tag(html: &str) -> &str {
+    let form = &html[html.find(r#"<form id="load-more""#).expect("Load more")..];
+    &form[..form.find('>').unwrap()]
+}
+
+#[test]
+fn the_address_a_load_more_patch_keeps_draws_its_rows_up_to_the_most_one_address_shows() {
+    use crate::search::{Place, Terms, kept_address};
+    let terms = Terms { q: "pika".into(), more: 24, ..Terms::default() };
+    for (rows, address) in [
+        (6, "/search?q=pika"),
+        (24, "/search?q=pika"),
+        (25, "/search?q=pika&more=24"),
+        (30, "/search?q=pika&more=24"),
+        (48, "/search?q=pika&more=24"),
+        (49, "/search?q=pika&more=48"),
+        (192, "/search?q=pika&more=168"),
+        (500, "/search?q=pika&more=168"),
+    ] {
+        assert_eq!(kept_address(Place::Search, &terms, rows), address, "{rows} rows");
+    }
+    assert_eq!(kept_address(Place::Category("singles-x1"), &terms, 30), "/categories/singles-x1?q=pika&more=24");
 }
 
 #[test]

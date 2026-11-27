@@ -164,7 +164,7 @@ test.describe("marketplace search scroll restoration", () => {
   test("restores loaded Result Set context after an item-detail roundtrip @marketplace-browse", async ({ page }) => {
     test.skip(
       onCortenMarketplace,
-      "seeds marketplace-web's session-storage result snapshot; the Corten marketplace does not yet restore the rows Load more added after Back",
+      "seeds marketplace-web's session-storage result snapshot and routes /api/marketplace/items; the Corten marketplace keeps Load more's rows in the address (more=) and reads the API on the server",
     );
     await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
     const basePage = await page.evaluate(async (query) => {

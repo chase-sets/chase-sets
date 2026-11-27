@@ -315,4 +315,4 @@ A file's heading links the issue with its title; the rest says where the pilot c
 it does. Its links are relative to the file, and the repository's docs path check fails on one
 that does not resolve.
 
-No Corten issue the pilot works around is open. Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
+The open Corten issues the pilot works around are the `corten-<n>.md` files in [workarounds/open/](workarounds/open/). Every earlier Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
