@@ -528,9 +528,11 @@ describe("public policy corpus compiler", () => {
     // entries today.
     // Re-derived for the Wallet history citation's move to the Corten marketplace's money page, after
     // marketplace-web's money route was deleted.
+    // Re-derived for the contracting-entity citation's move to the Corten public app's home page structured data,
+    // after public-web's home route was deleted.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:a183c9fffc4c074072c902912211bdfc2f3aa55531412cc16f6d56c53fcad56c");
+    ).toBe("sha256:81e84fc4c000eccb272d4a4aac74c4a96d9430fe076c0a9e29c2ec35e7974911");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

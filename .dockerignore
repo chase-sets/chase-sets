@@ -21,7 +21,6 @@ deployables/corten-pilot
 !deployables/corten-pilot/marketplace/src/views/payment_entry.js
 !deployables/corten-pilot/marketplace/src/views/payment_setup.js
 !deployables/corten-pilot/marketplace/src/views/stripe.js
-!deployables/corten-pilot/public/src/home.rs
 .env
 .env.*
 !.env.example

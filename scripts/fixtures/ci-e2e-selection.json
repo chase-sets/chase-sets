@@ -512,8 +512,8 @@
       "pattern": "/^bounded-contexts\\/public-presence\\/routes\\/marketplace\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
-      "trackedCandidates": 19,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "marketplaceContextRouteSuiteOwnership:settlement",
@@ -856,7 +856,7 @@
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx",
       "trackedCandidates": 2,
-      "synthetic": false
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:12",
@@ -1151,16 +1151,16 @@
       "pattern": "/^bounded-contexts\\/public-presence\\/(?:routes\\/marketplace|features\\/policies\\/ui\\/routes)\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
-      "trackedCandidates": 26,
-      "synthetic": false
+      "trackedCandidates": 7,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:49",
       "pattern": "/^bounded-contexts\\/public-presence\\/routes\\/developers\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/developers/article.tsx",
-      "trackedCandidates": 4,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:50",

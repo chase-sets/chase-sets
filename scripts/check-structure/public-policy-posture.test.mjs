@@ -6,7 +6,7 @@ import {
   validatePublicPolicyPosture,
 } from "./public-policy-posture.mjs";
 
-const termsRoutePath = "bounded-contexts/public-presence/routes/marketplace/terms.tsx";
+const termsRoutePath = "bounded-contexts/public-presence/features/policies/ui/routes/terms.tsx";
 const termsPagePath = "bounded-contexts/public-presence/features/policies/ui/terms-of-service-page.tsx";
 const canonicalPagePath = "bounded-contexts/public-presence/features/policies/ui/policy-artifact-page.tsx";
 const catalogPath = "bounded-contexts/public-presence/features/policies/ui/localization/locales/en.ts";
@@ -48,16 +48,8 @@ describe("public policy publication posture guard", () => {
       ]),
     );
     expect(
-      result.guardedFiles.filter((file) => file.startsWith("bounded-contexts/public-presence/routes/marketplace/")),
-    ).toEqual(
-      expect.arrayContaining([
-        "bounded-contexts/public-presence/routes/marketplace/terms.tsx",
-        "bounded-contexts/public-presence/routes/marketplace/seller-agreement.tsx",
-        "bounded-contexts/public-presence/routes/marketplace/payments-terms.tsx",
-        "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
-        "bounded-contexts/public-presence/routes/marketplace/authenticity-terms.tsx",
-      ]),
-    );
+      result.guardedFiles.every((file) => file.startsWith("bounded-contexts/public-presence/features/policies/ui/")),
+    ).toBe(true);
   });
 
   it("rejects the historical hard-coded pending key when simulated in the real Terms page", async () => {

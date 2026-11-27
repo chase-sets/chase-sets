@@ -96,15 +96,6 @@
       "runAttempt": 1,
       "jobId": 89364607063,
       "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/app-public-web",
-      "script": "test",
-      "observedDurationMs": 14535
-    },
-    {
-      "runId": 30054895589,
-      "runAttempt": 1,
-      "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
       "workspace": "@chase-sets/auth-context",
       "script": "test",
       "observedDurationMs": 3050
@@ -585,15 +576,6 @@
       "workspace": "@chase-sets/app-admin-web",
       "script": "test",
       "observedDurationMs": 32463
-    },
-    {
-      "runId": 30060154233,
-      "runAttempt": 1,
-      "jobId": 89380059115,
-      "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/app-public-web",
-      "script": "test",
-      "observedDurationMs": 16034
     },
     {
       "runId": 30060154233,

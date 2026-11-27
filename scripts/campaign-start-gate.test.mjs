@@ -8,9 +8,9 @@ import {
   LANDING_CONVERSION_SURFACE_FILES,
   PRIVACY_CAMPAIGN_DISCLOSURE_SUBJECT_ID,
   PRIVACY_POLICY_SOURCE_PATH,
-  PRIVACY_ROUTE_PATH,
+  PUBLIC_APP_ROUTES_PATH,
   REQUIRED_PRIVACY_CAMPAIGN_DISCLOSURE_TOKENS,
-  TERMS_ROUTE_PATH,
+  REQUIRED_PUBLIC_POLICY_ROUTES,
   buildCampaignStartGateChecklist,
   parseCampaignStartGateArgs,
   readPolicyArtifactSubjectDraftText,
@@ -279,13 +279,14 @@ describe("campaign start gate checklist", () => {
       }
     });
 
-    function writeFixture(privacySource) {
+    function writeFixture(privacySource, routes = REQUIRED_PUBLIC_POLICY_ROUTES) {
       fixtureRoot = mkdtempSync(path.join(tmpdir(), "campaign-start-gate-privacy-"));
-      for (const relativePath of [PRIVACY_ROUTE_PATH, TERMS_ROUTE_PATH]) {
-        const full = path.join(fixtureRoot, relativePath);
-        mkdirSync(path.dirname(full), { recursive: true });
-        writeFileSync(full, "export default function Route() {\n  return null;\n}\n");
-      }
+      const routesPath = path.join(fixtureRoot, PUBLIC_APP_ROUTES_PATH);
+      mkdirSync(path.dirname(routesPath), { recursive: true });
+      writeFileSync(
+        routesPath,
+        routes.map((routePath) => `#[route("${routePath}", get = crate::policy::page)]`).join("\n"),
+      );
       if (privacySource !== null) {
         const full = path.join(fixtureRoot, PRIVACY_POLICY_SOURCE_PATH);
         mkdirSync(path.dirname(full), { recursive: true });
@@ -325,6 +326,12 @@ describe("campaign start gate checklist", () => {
         missingDisclosureTokens: [],
         disclosesCampaignAttribution: true,
       });
+    });
+
+    it("fails naming the policy route the public app no longer declares", () => {
+      const row = writeFixture(privacyArtifactSource(completeDisclosure), ["/privacy"]);
+      expect(row.status).toBe("fail");
+      expect(row.evidence.missingRoutes).toEqual(["/terms"]);
     });
 
     it("fails naming the exact token when the canonical subject drops one disclosure", () => {

@@ -277,8 +277,6 @@ export function compareCallerSets(derived, committed) {
 export const committedCallers = [
   "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs",
   "bounded-contexts/public-presence/features/waitlist/ui/social-meta.ts",
-  "bounded-contexts/public-presence/routes/marketplace/home.test.tsx",
-  "bounded-contexts/public-presence/routes/marketplace/press.test.tsx",
   "deployables/admin-web/app/pwa/service-worker-source.ts",
   "deployables/admin-web/app/routes/favicon.ts",
   "deployables/admin-web/app/routes/manifest.ts",
@@ -300,7 +298,6 @@ export const committedCallers = [
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41043769783.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41551303861-paired.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41551303861.json",
-  "deployables/public-web/app/routes/favicon.ts",
   "docs/campaigns/brand-distribution-kit.md",
   "packages/design-system/COMPONENT_INDEX.md",
   "packages/design-system/src/__tests__/design-system-components.test.tsx",

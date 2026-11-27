@@ -814,9 +814,12 @@ describe("channels-foundation-deployable-registration", () => {
   it("registers Channels in API, worker, marketplace, and admin-web support hosts while excluding public-web", () => {
     const { violations, registries } = validateContextRegistries();
     expect(violations).toEqual([]);
-    // marketplace-web is a metadata-only host with no registry module, so its row reports the contexts whose
-    // manifests still contribute to it.
-    expect(registries.filter(({ metadataOnly }) => metadataOnly).map(({ path }) => path)).toEqual([registryPaths[3]]);
+    // marketplace-web and public-web are metadata-only hosts with no registry module, so their rows report the
+    // contexts whose manifests still contribute to them.
+    expect(registries.filter(({ metadataOnly }) => metadataOnly).map(({ path }) => path)).toEqual([
+      registryPaths[3],
+      registryPaths[4],
+    ]);
     expect(
       registries.map((registry) => [registry.path, (registry.actual ?? registry.expected).includes("channels")]),
     ).toEqual([

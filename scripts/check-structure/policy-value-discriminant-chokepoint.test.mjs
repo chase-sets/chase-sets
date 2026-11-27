@@ -14,7 +14,7 @@ const resolveArticlePolicyValuesPath =
 const articleModelPath = "bounded-contexts/public-presence/features/help/domain/article-model.ts";
 const policyValueStatePath = "bounded-contexts/public-presence/features/help/domain/policy-value-state.ts";
 const articleCatalogPath = "bounded-contexts/public-presence/features/help/domain/article-catalog.ts";
-const salesFeesRoutePath = "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx";
+const salesFeesRoutePath = "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.tsx";
 const developerPagesPath = "bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx";
 
 const feeDigestProbeSource = `
