@@ -75,7 +75,7 @@ const projects = [
     ? [
         {
           name: "public-web-chromium",
-          testMatch: "deployables/public-web/e2e/**/*.spec.ts",
+          testMatch: "deployables/corten-pilot/e2e/public/**/*.spec.ts",
           use: { ...devices["Desktop Chrome"], baseURL: publicWebBaseUrl },
         },
       ]

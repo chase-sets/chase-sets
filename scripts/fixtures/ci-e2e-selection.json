@@ -756,9 +756,9 @@
     },
     {
       "family": "e2eNoSuiteExclusions:1",
-      "pattern": "/^deployables\\/public-web\\/e2e\\/.*\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/public\\/.*\\.spec\\.ts$/",
       "suites": null,
-      "path": "deployables/public-web/e2e/landing-disclosure.spec.ts",
+      "path": "deployables/corten-pilot/e2e/public/landing-disclosure.spec.ts",
       "trackedCandidates": 3,
       "synthetic": false
     },
@@ -2157,7 +2157,7 @@
       "cortenMarketplaceBrowser": true
     },
     {
-      "changedFiles": ["deployables/public-web/e2e/landing-disclosure.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/public/landing-disclosure.spec.ts"],
       "suiteIds": [],
       "batches": [],
       "cortenMarketplaceBrowser": false
