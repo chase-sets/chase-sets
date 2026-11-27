@@ -142,7 +142,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
             assertion:
               "Current standard schedule values belong to Commercial Terms policy, seed and public route, not historical campaign schedule prose.",
             evidenceRef:
-              "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts:24-29; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:109-110; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:168-186; bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:20-22; bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:67-97",
+              "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts:24-29; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:109-110; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:168-186; bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:23-25; bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:70-100",
           },
         ],
       },
