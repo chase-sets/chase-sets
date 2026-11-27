@@ -2657,7 +2657,6 @@ describe("public product Listings route", () => {
   /** Every key a public Listing item may carry. Written out here so the production list cannot vouch for itself. */
   const publicListingKeys = [
     "listing_id",
-    "account_id",
     "catalog_catalog_item_id",
     "product_id",
     "item_title",
@@ -2665,7 +2664,6 @@ describe("public product Listings route", () => {
     "selected_options",
     "product_summary",
     "graded_card",
-    "ship_from_code",
     "price_amount",
     "price_currency_code",
     "listing_stream_version",
@@ -2681,7 +2679,6 @@ describe("public product Listings route", () => {
 
   const publicRow = {
     listing_id: "lst_public",
-    account_id: "acc_seller",
     catalog_catalog_item_id: "cat_public",
     product_id: "prod_1",
     item_title: "Air Balloon",
@@ -2689,7 +2686,6 @@ describe("public product Listings route", () => {
     selected_options: [{ dimensionId: "form", optionId: "raw" }],
     product_summary: "Form: Raw",
     graded_card: null,
-    ship_from_code: "home",
     price_amount: "21.50",
     price_currency_code: "USD",
     listing_stream_version: 4,
@@ -2705,6 +2701,8 @@ describe("public product Listings route", () => {
 
   /** What only the seller may read. A service that returned these on a row must not get them past the route. */
   const fieldsOutsidePublicRow = {
+    account_id: "acc_private_seller",
+    ship_from_code: "Grandma's garage",
     inventory_item_id: "item_private",
     storage_location_name: "Back room bin 7",
     ship_from_address: {
@@ -2778,6 +2776,8 @@ describe("public product Listings route", () => {
       "hash_private",
       "private-key.webp",
       "blocked_private",
+      "acc_private_seller",
+      "garage",
     ]) {
       expect(text).not.toContain(privateValue);
     }
