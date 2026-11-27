@@ -50,14 +50,21 @@ const locationCreated = (recorded: Readonly<Record<string, unknown>> = {}) => ({
   },
 });
 
-/** The authority over an in-memory store whose pool finds no hold streams. */
-function fixture() {
+/** The authority over an in-memory store whose pool finds the given hold streams (by default none). */
+function fixture(holdStreams: readonly Readonly<{ streamId: string; version: number }>[] = []) {
   const memory = createInMemoryEventStore();
   const append = (streamId: string, events: Parameters<typeof memory.eventStore.appendToStream>[0]["events"]) =>
     memory.eventStore.appendToStream({ streamId, expectedVersion: "any", context, events });
   stores.current = memory.eventStore;
   const query = vi.fn(async (sql: string) => {
-    if (sql.includes("stream_category = 'inventory.hold'")) return { rows: [], rowCount: 0 };
+    if (sql.includes("stream_category = 'inventory.hold'")) {
+      const rows = holdStreams.map(({ streamId, version }) => ({
+        stream_id: streamId,
+        total: String(holdStreams.length),
+        current_version: String(version),
+      }));
+      return { rows, rowCount: rows.length };
+    }
     throw new Error(`Unexpected query: ${sql}`);
   });
   const authority = createInventoryCurrentItemAuthority({ query, connect: query } as never);
@@ -133,6 +140,40 @@ describe("Inventory Current Item Authority", () => {
       availableQuantity: 1,
       storageLocation: { status: "retired" },
     });
+  });
+
+  it("answers as available only the quantity no active hold covers", async () => {
+    const placed = (holdId: string, quantity: number) => ({
+      eventType: "inventory.hold.placed",
+      payload: {
+        holdId,
+        accountId: "owner",
+        itemId: "item",
+        quantity,
+        reason: "Set aside",
+        notes: null,
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+    });
+    const { append, resolve } = fixture([
+      { streamId: "inventory.hold-hld_active", version: 1 },
+      { streamId: "inventory.hold-hld_released", version: 2 },
+    ]);
+    await append("inventory.item-item", [itemCreated()]);
+    await append("inventory.storage-location-loc_1", [locationCreated()]);
+    await append("inventory.hold-hld_active", [placed("hld_active", 2)]);
+    await append("inventory.hold-hld_released", [
+      placed("hld_released", 1),
+      {
+        eventType: "inventory.hold.released",
+        payload: { holdId: "hld_released", releasedAt: "2026-11-27T00:00:00.000Z", releaseReason: "manual" },
+      },
+    ]);
+
+    // Three units, two under the active hold; the released hold covers none.
+    await expect(resolve()).resolves.toMatchObject({ totalQuantity: 3, availableQuantity: 1 });
   });
 
   it.each([
