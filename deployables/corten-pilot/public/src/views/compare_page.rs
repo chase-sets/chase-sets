@@ -1,5 +1,4 @@
-//! The compare pages' views, after `compare-page.tsx` and `fee-comparison-calculator.tsx`, and
-//! Contact's (`PublicInfoPage`).
+//! The compare pages' views, with the fee calculator's, and Contact's.
 //!
 //! Everything reads and works without a script: the table is a table, the FAQ is `<details>`, and
 //! the calculator is a GET form with Calculate. The shell's script (`home.js`) sends the form as

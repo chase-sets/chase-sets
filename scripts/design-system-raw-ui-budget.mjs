@@ -73,12 +73,6 @@ const rawUiHostElementTags = new Set([
 
 export const defaultRawUiAllowList = [
   {
-    path: "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
-    tagName: "main",
-    markers: ["id", "main-content"],
-    reason: "The public waitlist owns one raw main landmark id for skip-link targeting.",
-  },
-  {
     path: "deployables/",
     tagName: "main",
     markers: [],

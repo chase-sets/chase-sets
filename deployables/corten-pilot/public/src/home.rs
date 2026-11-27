@@ -1,5 +1,4 @@
-//! public-web's home page, the waitlist's landing (`/`, Public Presence's `routes/marketplace/home.tsx`
-//! and `features/waitlist/ui/public-pages.tsx`): the hero with the early-access form, the five
+//! The home page, the waitlist's landing (`/`): the hero with the early-access form, the five
 //! games, open offers, the fee comparison, the founders offer, the full form and the FAQ, in the
 //! public-presence shell (promo bar, nav, footer, sticky calls to action).
 //!

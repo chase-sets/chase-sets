@@ -170,9 +170,26 @@ const retiredConsumerZeroConsumerExports = [
   reason: "only consumer was marketplace-web's item page, removed with that deployable; queued for deletion",
 }));
 
+const retiredPublicWebZeroConsumerExports = [
+  "HoneypotInput",
+  "MarketingImageHero",
+  "MobileStickyBar",
+  "MobileStickyInset",
+  "SkipLink",
+  "SplitPane",
+  "Stagger",
+  "StickyBar",
+  "ToneIcon",
+].map((symbol) => ({
+  symbol,
+  reason:
+    "only consumer was the public-presence feature UI public-web rendered, removed after that deployable; queued for deletion",
+}));
+
 const defaultAllowedZeroConsumerExports = [
   ...canonicalReserveZeroConsumerExports,
   ...retiredConsumerZeroConsumerExports,
+  ...retiredPublicWebZeroConsumerExports,
   {
     symbol: "Eyebrow",
     reason:

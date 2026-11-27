@@ -12,10 +12,10 @@ claimCategories: ["fees"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
-    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"]
+    tests: ["bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts", "bounded-contexts/public-presence/features/help/domain/resolve-article-policy-values.test.ts"]
   - claim: Published payout-fee figures resolve from the current Settlement payout-fee policy document.
     issues: ["#7819"]
-    tests: ["bounded-contexts/public-presence/tests/help-route.test.tsx", "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts"]
+    tests: ["bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts", "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts"]
   - claim: Confirming a listing locks the resolved fee terms for its units, and later schedule revisions never change locked units.
     issues: ["#4067"]
     tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"]
@@ -27,7 +27,7 @@ promiseTable:
     tests: ["bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.test.ts"]
   - claim: Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.
     issues: ["#3955"]
-    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx", "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
+    tests: ["bounded-contexts/public-presence/features/waitlist/domain/wave-policy.test.ts"]
 ---
 ## One standard sales fee
 

@@ -276,7 +276,6 @@ export function compareCallerSets(derived, committed) {
 // committed-callers:begin
 export const committedCallers = [
   "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs",
-  "bounded-contexts/public-presence/features/waitlist/ui/social-meta.ts",
   "deployables/admin-web/app/pwa/service-worker-source.ts",
   "deployables/admin-web/app/routes/favicon.ts",
   "deployables/admin-web/app/routes/manifest.ts",

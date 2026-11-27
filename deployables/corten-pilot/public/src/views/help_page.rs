@@ -1,4 +1,4 @@
-//! The help center's views, after `help-pages.tsx`: the hub, a category's page, an article and
+//! The help center's views: the hub, a category's page, an article and
 //! the article cards. No script: the contents are links, and the article's sticky contents column
 //! is CSS.
 use corten::prelude::*;

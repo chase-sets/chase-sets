@@ -197,6 +197,28 @@ describe("campaign start gate checklist", () => {
     });
 
     it.each([
+      "deployables/corten-pilot/public/src/views/home_page.rs",
+      "deployables/corten-pilot/public/src/views/welcome_page.rs",
+    ])("fails the landing-conversion row when only the Corten surface %s is missing", (missing) => {
+      fixtureRoot = mkdtempSync(path.join(tmpdir(), "campaign-start-gate-"));
+      for (const file of LANDING_CONVERSION_SURFACE_FILES.filter((candidate) => candidate !== missing)) {
+        mkdirSync(path.dirname(path.join(fixtureRoot, file)), { recursive: true });
+        writeFileSync(path.join(fixtureRoot, file), "");
+      }
+
+      const checklist = buildCampaignStartGateChecklist({
+        repoRoot: fixtureRoot,
+        reference: "CAMPAIGN-START-GATE-FIXTURE-2026-07-13",
+        owner: "Operations",
+        checkedAt,
+      });
+
+      const landingRow = checklist.checklist.find((row) => row.key === "landing-conversion-slices-landed");
+      expect(landingRow.status).toBe("fail");
+      expect(landingRow.evidence.missingFiles).toEqual([missing]);
+    });
+
+    it.each([
       { extra: "", status: "pass" },
       { extra: ', publicLaunchDate: "September 1, 2026"', status: "fail" },
       { extra: ', betaWavesWindow: "late July 2026"', status: "fail" },

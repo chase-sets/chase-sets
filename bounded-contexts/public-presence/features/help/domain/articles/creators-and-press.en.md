@@ -12,10 +12,10 @@ claimCategories: ["fees", "protection"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
-    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"]
+    tests: ["bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts", "bounded-contexts/public-presence/features/help/domain/resolve-article-policy-values.test.ts"]
   - claim: Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.
     issues: ["#8371"]
-    tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
+    tests: ["bounded-contexts/public-presence/features/waitlist/domain/wave-policy.test.ts", "bounded-contexts/auth/support/api-support/register-routes.test.ts"]
   - claim: Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.
     issues: ["#4098"]
     tests: ["bounded-contexts/ordering/features/orders/domain/policies.test.ts", "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts"]

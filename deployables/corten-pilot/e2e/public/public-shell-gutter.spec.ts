@@ -5,9 +5,9 @@ import { expect, test, type Locator } from "@playwright/test";
 // `main` must share the same left and right edges at phone and desktop widths,
 // so page content never sits narrower than the furniture above it.
 //
-// This spec runs on the public-web Playwright project against PUBLIC_WEB_URL
-// (deployed target only) and is advisory; hosted CI gates the rendered-class
-// contract in public-pages.test.tsx. The promo-message response is stubbed in
+// This spec runs on the public-web-chromium Playwright project against
+// PUBLIC_WEB_URL; on PR CI the required Corten Public Browser Tests job runs it
+// against the Corten public app. The promo-message response is stubbed in
 // the browser so the populated promo-bar state is always exercised; every
 // target must be present and visible, never conditionally skipped.
 

@@ -36,7 +36,7 @@ Every creator gets one personal tracked link, built from the shipped `?ref=` and
 https://chasesets.com/?ref=<creator-signup-id>&utm_source=creator&utm_medium=<platform>&utm_campaign=<creator-slug>
 ```
 
-- `<creator-signup-id>` — the creator's own Waitlist Signup id, captured **after** they sign up as a seller (sell/both intent) themselves; pull it from the admin Waitlist review (`bounded-contexts/public-presence/features/waitlist/ui/admin-pages.tsx:165-167`). This is the same `?ref=` mechanic the welcome page's own share link uses (`bounded-contexts/public-presence/features/waitlist/ui/success-page.tsx:250-253`).
+- `<creator-signup-id>` — the creator's own Waitlist Signup id, captured **after** they sign up as a seller (sell/both intent) themselves; pull it from the admin Waitlist review (`bounded-contexts/public-presence/features/waitlist/ui/admin-pages.tsx:165-167`). This is the same `?ref=` mechanic the welcome page's own share link uses (`deployables/corten-pilot/public/src/welcome.rs:133`).
 - `utm_source=creator` — fixed value; aggregates every creator-channel signup into one funnel row.
 - `utm_medium` — the creator's platform, e.g. `youtube`, `tiktok`, `x`, or `podcast`.
 - `utm_campaign` — a short slug identifying the creator, not their public handle verbatim (e.g. `creator-mtg-03`, not an @handle or URL).

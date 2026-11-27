@@ -1,4 +1,4 @@
-/* The welcome page (success-page.tsx) on the design system's tokens. A phone first: one column;
+/* The welcome page on the design system's tokens. A phone first: one column;
    from 48rem (md) the wave form's size and store link side by side; from 64rem (lg) the referral
    card and the share card side by side. Controls are 44px tall. */
 .page {

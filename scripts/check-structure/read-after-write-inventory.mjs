@@ -120,7 +120,6 @@ const frozenMutationConsistencyBaselineSurfaces = new Set([
   "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:Ha72c19094e96#1",
   "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#1",
   "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#2",
-  "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
   "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
   "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
   "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",

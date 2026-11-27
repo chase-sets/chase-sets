@@ -1,4 +1,4 @@
-//! The home page's views, after `public-pages.tsx`: the public-presence shell's parts (promo bar,
+//! The home page's views: the public-presence shell's parts (promo bar,
 //! nav, footer; [`crate::views::HomeLayout`] puts them around `<main>`) and the page: the hero
 //! with its form, the game roster, open offers, the fee comparison, the founders offer, the full
 //! form and the FAQ, with the sticky calls to action.

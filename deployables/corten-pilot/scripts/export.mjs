@@ -815,10 +815,9 @@ async function help() {
 }
 
 /**
- * The policy corpus as policy-artifact-page.tsx draws it. Two of its rules are in that UI module,
- * which imports pictures Node cannot load, so they are repeated here: a document is published
- * only when it is ready and carries a valid effective date (resolvePolicyArtifactPublicationPosture),
- * and a section's text links its mentions of the sibling pages (linkPolicyReferences).
+ * The policy corpus as the policy pages draw it. Two of its rules are applied here: a document is
+ * published only when it is ready and carries a valid effective date, and a section's text links
+ * its mentions of the sibling pages.
  */
 async function policies() {
   const domain = (file) =>

@@ -4,7 +4,7 @@ Public Presence landing-page analytics are provider-neutral.
 
 The UI emits browser `CustomEvent` events named `chase-sets:waitlist-analytics` and also pushes the same bounded detail object into `window.dataLayer` when a deployable provides one. This keeps the bounded context testable without adding a vendor SDK, cookie, or third-party script.
 
-The `public-web` deployable owns only the browser bridge. It listens for `chase-sets:waitlist-analytics` and posts an allowlisted subset of bounded properties to `/api/public-presence/analytics/waitlist`. The Public Presence API owns validation and vocabulary, then records through a `platform-api` host port into OpenTelemetry metrics and sanitized logs. Grafana visualizes those metrics from the existing Prometheus/Loki pipeline.
+The Corten public app owns only the browser bridge (`deployables/corten-pilot/public/src/views/home.js`). It listens for `chase-sets:waitlist-analytics` and posts an allowlisted subset of bounded properties to `/api/public-presence/analytics/waitlist`. The Public Presence API owns validation and vocabulary, then records through a `platform-api` host port into OpenTelemetry metrics and sanitized logs. Grafana visualizes those metrics from the existing Prometheus/Loki pipeline.
 
 Current event names:
 
@@ -33,13 +33,13 @@ Event details include:
 
 The current public landing experiment variants are `seller_first_v1` (the unchanged seller-first default) and `seller_first_v2` (the buyer-intent hero). The assignment is deterministic and first-party: an explicit `?intent=buy` or buyer-oriented UTM signal selects v2, while sell, both, invalid, or absent signals remain on v1. The selected key is included in the landing, section, disclosure, form, and signup events so campaign funnel metrics can split by variant. Treat variants as durable public experiment keys, not remediation, audit, branch, or implementation labels.
 
-Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. The public-web bridge may forward only bounded source fields for funnel analysis: `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`. UTM values may contain normal campaign text such as spaces, percent signs, plus signs, periods, or hyphens, but must still reject emails, URLs, and long arbitrary strings. Referrer, `utm_content`, and `utm_term` remain durable waitlist source fields rather than operational analytics labels.
+Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. The browser bridge may forward only bounded source fields for funnel analysis: `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`. UTM values may contain normal campaign text such as spaces, percent signs, plus signs, periods, or hyphens, but must still reject emails, URLs, and long arbitrary strings. Referrer, `utm_content`, and `utm_term` remain durable waitlist source fields rather than operational analytics labels.
 
 Primary funnel metrics:
 
 - Landing page view to hero form start.
 - Hero intent tab selection to form submission.
-- Fee-comparison compare-page link click (`cta_clicked` with `section=fee_comparison`, `target=compare_tcgplayer`).
+- Fee-comparison compare page link click (`cta_clicked` with `section=fee_comparison`, `target=compare_tcgplayer`).
 - Mobile sticky CTA click to form submission.
 - Desktop sticky CTA click to form submission.
 - Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).

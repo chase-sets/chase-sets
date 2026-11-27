@@ -1,5 +1,5 @@
-//! The compare pages (Public Presence's `compare-page.tsx`), `/compare/tcgplayer` and
-//! `/compare/ebay`, with the fee calculator (`fee-comparison-calculator.tsx`), and Contact.
+//! The compare pages, `/compare/tcgplayer` and `/compare/ebay`, with the fee calculator, and
+//! Contact.
 //!
 //! The Chase Sets side is truth-gated as public-web's is: the seller-fee cell and the calculator
 //! show numbers only from the live published schedule (`marketplace-sales-fee.standard.*` in

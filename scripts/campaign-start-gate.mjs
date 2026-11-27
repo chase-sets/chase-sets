@@ -51,12 +51,13 @@ export const REQUIRED_PRIVACY_CAMPAIGN_DISCLOSURE_TOKENS = [
 ];
 
 export const LANDING_CONVERSION_SURFACE_FILES = [
-  "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+  "deployables/corten-pilot/public/src/home.rs",
+  "deployables/corten-pilot/public/src/views/home_page.rs",
   "bounded-contexts/public-presence/routes/admin/waitlist.tsx",
   "bounded-contexts/public-presence/features/waitlist/ui/admin-pages.tsx",
   "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts",
-  "bounded-contexts/public-presence/features/waitlist/ui/success-page.tsx",
   "deployables/corten-pilot/public/src/welcome.rs",
+  "deployables/corten-pilot/public/src/views/welcome_page.rs",
 ];
 
 export const ANALYTICS_CAPTURE_FILES = [
