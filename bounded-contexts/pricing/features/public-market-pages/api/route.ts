@@ -35,11 +35,8 @@ export function createPublicMarketPageRoutes(services: PublicMarketPagesServices
 
     // The resolved display policy's publicPageCacheTtlSeconds -- a revision
     // changes this response's shared-cache lifetime without a deploy. The
-    // outer SSR route (routes/marketplace/market-price-history.tsx)
-    // still sets its own static Cache-Control: React Router's `headers()`
-    // export is synchronous and has no request-scoped async policy
-    // resolution today, so that document-level header stays a compiled-
-    // default literal pending a broader loader-header-forwarding convention.
+    // Corten public app's market page (deployables/corten-pilot/public/src/market.rs)
+    // copies this s-maxage onto its document, so the revision reaches the page too.
     c.header(
       "Cache-Control",
       `public, max-age=60, s-maxage=${display.publicPageCacheTtlSeconds}, stale-while-revalidate=3600`,
