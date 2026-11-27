@@ -192,7 +192,6 @@ export const contextManifest = {
         "api-client:bounded-contexts/public-presence/client.ts:POST H405b3cbdf275#1",
         "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
         "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx",
       ],
       visibleDestination: {
         routeId: "welcome",

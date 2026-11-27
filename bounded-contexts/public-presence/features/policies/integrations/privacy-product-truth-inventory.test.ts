@@ -53,6 +53,7 @@ function factFor(factFamily: string, subject: string) {
 function deriveWithMutatedSources(
   mutations: readonly Readonly<{ relativePath: string; mutate: (source: string) => string }>[],
   extraRecords: readonly Readonly<{ relativePath: string; source: string }>[] = [],
+  consumerDeployables?: readonly string[],
 ) {
   const mutated = sources.records.map((record) => {
     const mutation = mutations.find((entry) => entry.relativePath === record.relativePath);
@@ -72,19 +73,30 @@ function deriveWithMutatedSources(
     trackedPaths: [...sources.trackedPaths, ...extraRecords.map((record) => record.relativePath)].sort(),
     records: [...mutated, ...extraRecords],
     externalPackageClassifications: privacyExternalClientPackageClassifications,
+    ...(consumerDeployables === undefined ? {} : { consumerDeployables }),
   });
 }
 
-// No TypeScript route reaches a provider loader at this head: the Corten
-// marketplace serves the payment and payout pages, and its loaders are
-// pilot-evidenced in the binding registry. The provider controls therefore
-// attach a synthetic loader at an arbitrary tracked path to a real, still
-// routed public page, and prove the derivation on that surface.
-const publicRouteModule = "bounded-contexts/public-presence/routes/marketplace/contact.tsx";
+// No consumer host has a TypeScript route module at this head: the Corten
+// marketplace and public apps serve those pages, and their loaders are
+// pilot-evidenced in the binding registry. The provider controls therefore run
+// the same derivation with admin-web, the only host whose route records still
+// name modules, supplied as the consumer host, and attach a synthetic loader at
+// an arbitrary tracked path to one of its real routed pages.
+// admin-web was never a consumer host, so its routes reach server-only
+// provider packages the classification set does not cover. Each control
+// compares against that same-host baseline, so only the named variable moves.
+const controlConsumerDeployables = ["admin-web"];
+let controlBaseline: ReturnType<typeof derivePrivacyProductTruthInventory> | undefined;
+function controlBaselineIndeterminate() {
+  controlBaseline ??= deriveWithMutatedSources([], [], controlConsumerDeployables);
+  return controlBaseline.indeterminate;
+}
+const routedModule = "bounded-contexts/auth/routes/access-admin/sign-in.tsx";
 const arbitraryLoaderPath = "some/arbitrary/tracked/place/provider-widget.tsx";
 const arbitraryLoaderSubject = `@stripe/stripe-js@${arbitraryLoaderPath}`;
 const arbitraryLoaderImport = {
-  relativePath: publicRouteModule,
+  relativePath: routedModule,
   mutate: (source: string) =>
     `import { ArbitraryProviderWidget } from "../../../../some/arbitrary/tracked/place/provider-widget";\n${source}`,
 };
@@ -388,6 +400,7 @@ describe("privacy product-truth one-variable controls", () => {
       const withLoader = deriveWithMutatedSources(
         [arbitraryLoaderImport],
         [{ relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource }],
+        controlConsumerDeployables,
       );
       expect(
         withLoader.facts
@@ -406,6 +419,7 @@ describe("privacy product-truth one-variable controls", () => {
             ),
           },
         ],
+        controlConsumerDeployables,
       );
       expect(mutant.facts.filter((fact) => fact.factFamily === "provider-injected-client-storage")).toEqual([]);
 
@@ -427,12 +441,13 @@ describe("privacy product-truth one-variable controls", () => {
       const mutant = deriveWithMutatedSources(
         [arbitraryLoaderImport],
         [{ relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource }],
+        controlConsumerDeployables,
       );
 
-      expect(mutant.indeterminate).toEqual([]);
+      expect(mutant.indeterminate).toEqual(controlBaselineIndeterminate());
       const derived = mutant.facts.find((fact) => fact.subject === arbitraryLoaderSubject);
       expect(derived?.detail.loaderExports).toEqual(["loadStripe"]);
-      expect(derived?.detail.consumerRoutes).toEqual(["/contact"]);
+      expect(derived?.detail.consumerRoutes).toEqual(["/sign-in"]);
       expect(derived?.detail.cspScriptOrigins).toEqual(["https://js.stripe.com"]);
     },
     LONG_DERIVATION_MS,
@@ -444,13 +459,15 @@ describe("privacy product-truth one-variable controls", () => {
       const reachable = deriveWithMutatedSources(
         [arbitraryLoaderImport],
         [{ relativePath: arbitraryLoaderPath, source: arbitraryLoaderSource }],
+        controlConsumerDeployables,
       );
       const mutant = derivePrivacyProductTruthInventory({
         ...sources,
+        consumerDeployables: controlConsumerDeployables,
         trackedPaths: [...sources.trackedPaths, arbitraryLoaderPath].sort(),
         records: [
           ...sources.records.map((record) =>
-            record.relativePath === publicRouteModule && record.source !== undefined
+            record.relativePath === routedModule && record.source !== undefined
               ? { ...record, source: arbitraryLoaderImport.mutate(record.source) }
               : record,
           ),
@@ -460,10 +477,11 @@ describe("privacy product-truth one-variable controls", () => {
           Object.entries(privacyExternalClientPackageClassifications).filter(([name]) => name !== "@stripe/stripe-js"),
         ),
       });
-      expect(reachable.indeterminate).toEqual([]);
-      expect(mutant.indeterminate.map((entry) => entry.reason)).toEqual([
-        expect.stringContaining("external package '@stripe/stripe-js'"),
-      ]);
+      const baselineReasons = new Set(controlBaselineIndeterminate().map((entry) => entry.reason));
+      expect(reachable.indeterminate).toEqual(controlBaselineIndeterminate());
+      expect(
+        mutant.indeterminate.map((entry) => entry.reason).filter((reason) => !baselineReasons.has(reason)),
+      ).toEqual([expect.stringContaining("external package '@stripe/stripe-js'")]);
       // The unclassified package's surface disappears from the fact set rather
       // than defaulting to handled.
       expect(mutant.facts.filter((fact) => fact.factFamily === "provider-injected-client-storage")).toEqual([]);
