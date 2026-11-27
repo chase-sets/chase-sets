@@ -65,7 +65,6 @@ export type MarketplaceListingListRow = Readonly<{
  */
 export type MarketplaceItemListingRow = Readonly<{
   listing_id: string;
-  account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -73,7 +72,6 @@ export type MarketplaceItemListingRow = Readonly<{
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   graded_card: MarketplaceGradedCardDetails | null;
-  ship_from_code: string | null;
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
@@ -125,7 +123,6 @@ function copySelectedOption(option: Readonly<Record<string, unknown>>) {
 export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): MarketplaceItemListingRow {
   return {
     listing_id: row.listing_id,
-    account_id: row.account_id,
     catalog_catalog_item_id: row.catalog_catalog_item_id,
     product_id: row.product_id,
     item_title: row.item_title,
@@ -133,7 +130,6 @@ export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): Mar
     selected_options: publicEntries(row.selected_options, copySelectedOption),
     product_summary: row.product_summary,
     graded_card: copyGradedCard(row.graded_card),
-    ship_from_code: row.ship_from_code,
     price_amount: row.price_amount,
     price_currency_code: row.price_currency_code,
     listing_stream_version: row.listing_stream_version,
@@ -267,7 +263,6 @@ const activeSupplyHoldQuantityJoinSql = `
 /** What the public Listing query reads: the public row's stored columns, plus the evidence its gallery is built from. */
 type MarketplacePublicListingQueryRow = Readonly<{
   listing_id: string;
-  account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -275,7 +270,6 @@ type MarketplacePublicListingQueryRow = Readonly<{
   selected_options: unknown;
   product_summary: string | null;
   graded_card: unknown;
-  ship_from_code: string | null;
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
@@ -1141,7 +1135,6 @@ export async function listItemListings(
   const result = await db.query<MarketplacePublicListingQueryRow>(
     `SELECT
        listing.listing_id,
-       listing.account_id,
        listing.catalog_catalog_item_id,
        listing.product_id,
        listing.item_title,
@@ -1149,7 +1142,6 @@ export async function listItemListings(
        listing.selected_options,
        listing.product_summary,
        listing.graded_card,
-       listing.ship_from_code,
        listing.price_amount,
        listing.price_currency_code,
        listing.listing_stream_version,
@@ -1189,7 +1181,6 @@ export async function listItemListings(
   return result.rows.map((row) =>
     toMarketplaceItemListingRow({
       listing_id: row.listing_id,
-      account_id: row.account_id,
       catalog_catalog_item_id: row.catalog_catalog_item_id,
       product_id: row.product_id,
       item_title: row.item_title,
@@ -1202,7 +1193,6 @@ export async function listItemListings(
         typeof row.graded_card === "object" && row.graded_card !== null
           ? (row.graded_card as MarketplaceGradedCardDetails)
           : null,
-      ship_from_code: row.ship_from_code,
       price_amount: row.price_amount,
       price_currency_code: row.price_currency_code,
       listing_stream_version: row.listing_stream_version,

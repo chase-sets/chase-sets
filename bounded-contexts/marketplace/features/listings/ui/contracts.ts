@@ -233,7 +233,6 @@ export interface MarketplaceMarketSummary {
 /** A Listing as any caller may read it: declared key by key, extending no seller type. */
 export interface MarketplaceItemListing {
   listing_id: string;
-  account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -241,7 +240,6 @@ export interface MarketplaceItemListing {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   graded_card: MarketplaceGradedCardDetails | null;
-  ship_from_code: string | null;
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
