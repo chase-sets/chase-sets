@@ -2741,6 +2741,12 @@ pub struct Listing {
     pub seller_average_rating: Option<String>,
     #[serde(default)]
     pub seller_review_count: u64,
+    /// The seller's account badges (`trusted-seller`, `founding-account`, ...); the item page shows the
+    /// first two.
+    #[serde(default)]
+    pub seller_badges: Vec<String>,
+    /// A founding account's number, when it has one.
+    pub seller_founder_number: Option<u32>,
     /// `active` or not; only an active listing is bought (`findSelectedListingForAction`).
     #[serde(default)]
     pub status: String,

@@ -1,5 +1,9 @@
 {
   "route.checkout.closed": "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
+  "badges.trusted.seller": "Trusted seller",
+  "badges.trusted.seller.explainer": "Operations has approved this seller for standard high-dollar listing and payout-release policies.",
+  "badges.founder": "Founder",
+  "badges.founder.explainer": "One of the first accounts to list or make an offer on chase-sets, as part of the marketplace's founding cohort.",
   "similar.title": "More like this",
   "similar.view_item": "View item",
   "page.1.matching.listing": "1 matching listing",

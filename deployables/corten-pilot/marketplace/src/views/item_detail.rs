@@ -1331,6 +1331,7 @@ fn Rail<'a>(
                     {l.seller_display_name.as_deref().unwrap_or(t.page_seller())} " \u{b7} "
                     {t.page_listing_available_count(available(l))}
                 </p>
+                <SellerBadges t={t} listing={l} />
             } else if let Some(o) = offer {
                 <p class={Price}>{&offer_price(t, o)}</p>
                 <p class={Muted}>
@@ -2206,6 +2207,34 @@ fn Hidden<'a>(pairs: &'a [(String, String)]) -> impl Render {
     html! {
         for (name, value) in pairs {
             <input type="hidden" name={name} value={value}>
+        }
+    }
+}
+
+/// The chosen listing's seller's trusted seller and founder badges, in the public profile's words
+/// (marketplace's `PurchaseSection` drew `TrustedSellerBadge` and `FounderBadge`). Other account badges,
+/// such as manual payout review, are not the buyer's to see.
+#[component(css = ItemDetail)]
+fn SellerBadges<'a>(t: ItemMsg, listing: &'a Listing) -> impl Render {
+    let trusted = listing.seller_badges.iter().any(|b| b == "trusted-seller");
+    let founder = listing.seller_badges.iter().any(|b| b == "founding-account").then(|| match listing.seller_founder_number {
+        Some(n) if n > 0 => format!("{} #{n:03}", t.badges_founder()),
+        _ => t.badges_founder().to_owned(),
+    });
+    let badge = |tone| Badge { tone, emphasis: BadgeEmphasis::Soft };
+    html! {
+        if trusted || founder.is_some() {
+            <p data-seller-badges>
+                if trusted {
+                    <span class={badge(BadgeTone::Info)} title={t.badges_trusted_seller_explainer()}>
+                        {t.badges_trusted_seller()}
+                    </span>
+                    " "
+                }
+                if let Some(founder) = &founder {
+                    <span class={badge(BadgeTone::Primary)} title={t.badges_founder_explainer()}>{founder}</span>
+                }
+            </p>
         }
     }
 }
