@@ -14,6 +14,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime } from "./runtime";
+import { parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
 import {
   evaluateListingEvidencePolicy,
   LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
@@ -1269,39 +1270,41 @@ describe("marketplace listing runtime", () => {
     ).rejects.toThrow("Listing quantity caps cannot exceed created available inventory.");
   });
 
-  it("rejects snapshot listing caps above Inventory-reported available quantity", async () => {
+  it("checks a snapshot listing's cap against the quantity Inventory says no hold covers", async () => {
     const { eventStore } = createInMemoryEventStore();
+    const query = vi.fn(async () => ({ rows: [] }));
+    const held = {
+      accountId: "acc_seller",
+      inventoryItemId: "inv_held",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      storageLocationName: "Held shelf",
+      shipFromCode: "CHI",
+      shipFromAddress,
+      totalQuantity: 3,
+      acquisitionCostAmount: null,
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 2,
+    };
     const services = createMarketplaceListingRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      db: { query } as never,
       commercialTermsResolver: {
         resolveListingTerms: vi.fn(),
       } as never,
+      inventoryItemGradedCardAuthority: rawInventoryItem,
+      // The request leaves the available quantity out, which would default to its total of 3.
+      inventoryCurrentItemAuthority: inventoryRecording(held, { availableQuantity: 1 }),
     });
 
     await expect(
-      services.createListingFromInventorySnapshot(
-        listingTestCommand("listing.create", {
-          accountId: "acc_seller",
-          inventoryItemId: "inv_held",
-          catalogItemId: "cat_1",
-          productId: "cat_1::",
-          selectedOptions: [],
-          storageLocationId: "loc_1",
-          storageLocationName: "Held shelf",
-          shipFromCode: "CHI",
-          shipFromAddress,
-          totalQuantity: 3,
-          availableQuantity: 1,
-          acquisitionCostAmount: null,
-          priceAmount: "5.00",
-          priceCurrencyCode: "USD",
-          quantityCap: 2,
-        }),
-        context,
-      ),
+      services.createListingFromInventorySnapshot(listingTestCommand("listing.create", held), context),
     ).rejects.toThrow("Listing quantity caps cannot exceed available listing stock.");
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("uses the compiled Listing Evidence Policy when no policy runtime is wired", async () => {
@@ -3269,6 +3272,49 @@ describe("inventory capacity recovery revision races", () => {
 /** Inventory's answer for a raw item the account owns, for fixtures whose subject is not Graded Item Details. */
 const rawInventoryItem = { resolve: async () => ({ gradedCard: null, selectedOptions: [] }) };
 
+type InventoryCurrentItemAnswer = Awaited<
+  ReturnType<
+    NonNullable<Parameters<typeof createMarketplaceListingRuntime>[0]["inventoryCurrentItemAuthority"]>["resolve"]
+  >
+>;
+
+/** Inventory's current record for the item a snapshot fixture describes, so that snapshot matches it. */
+function inventoryRecording(
+  snapshot: Readonly<{
+    catalogItemId: string;
+    productId: string;
+    storageLocationId: string;
+    storageLocationName: string;
+    shipFromCode: string;
+    shipFromAddress: typeof shipFromAddress;
+    totalQuantity: number;
+    availableQuantity?: number;
+    acquisitionCostAmount: string | null;
+  }>,
+  changes: Partial<NonNullable<InventoryCurrentItemAnswer>> = {},
+) {
+  return {
+    resolve: vi.fn(
+      async (): Promise<InventoryCurrentItemAnswer> => ({
+        catalogItemId: snapshot.catalogItemId,
+        productId: snapshot.productId,
+        storageLocation: {
+          storageLocationId: snapshot.storageLocationId,
+          name: snapshot.storageLocationName,
+          shipFromCode: snapshot.shipFromCode,
+          shipFromAddress: snapshot.shipFromAddress,
+          status: "active",
+        },
+        totalQuantity: snapshot.totalQuantity,
+        availableQuantity: snapshot.availableQuantity ?? snapshot.totalQuantity,
+        acquisitionCostAmount: snapshot.acquisitionCostAmount,
+        acquisitionCostCurrencyCode: null,
+        ...changes,
+      }),
+    ),
+  };
+}
+
 describe("native Listing creation requires a resolved shipping measure", () => {
   function createFixture(memory = createInMemoryEventStore()) {
     let measure: typeof productMeasureSnapshot | null = null;
@@ -3321,6 +3367,7 @@ describe("native Listing creation requires a resolved shipping measure", () => {
       db: db as never,
       commercialTermsResolver: { resolveListingTerms } as never,
       inventoryItemGradedCardAuthority: rawInventoryItem,
+      inventoryCurrentItemAuthority: inventoryRecording(inventorySnapshot),
       listingPhotoStorage: { getObject: vi.fn(), putObject },
     });
     return {
@@ -3527,6 +3574,7 @@ describe("an inventory snapshot changes only supply mirror rows its account owns
       db: db as never,
       commercialTermsResolver: { resolveListingTerms } as never,
       inventoryItemGradedCardAuthority: rawInventoryItem,
+      inventoryCurrentItemAuthority: inventoryRecording(snapshot),
     });
     return { ...memory, services, resolveListingTerms, statements };
   }
@@ -3649,7 +3697,11 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
   }> | null;
 
   /** `inventory` is what the host port answers; the fake mirror row reads back what the item write stored. */
-  function createFixture(inventory: "absent" | (() => Promise<InventoryAnswer>)) {
+  function createFixture(
+    inventory: "absent" | (() => Promise<InventoryAnswer>),
+    current: Partial<NonNullable<InventoryCurrentItemAnswer>> = {},
+    currentPort: "present" | "absent" = "present",
+  ) {
     const memory = createInMemoryEventStore();
     const order: string[] = [];
     const itemWrites: unknown[] = [];
@@ -3720,15 +3772,32 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
       if (inventory === "absent") throw new Error("The absent port cannot be asked.");
       return inventory();
     });
+    const currentAuthority = inventoryRecording(snapshot, current);
     const services = createMarketplaceListingRuntime({
       eventStore: memory.eventStore,
       checkpointStore: createCheckpointStore(),
       db: { query } as never,
       commercialTermsResolver: { resolveListingTerms } as never,
       listingEvidencePolicyEvaluator: { evaluate },
-      ...(inventory === "absent" ? {} : { inventoryItemGradedCardAuthority: { resolve } }),
+      ...(inventory === "absent"
+        ? {}
+        : {
+            inventoryItemGradedCardAuthority: { resolve },
+            ...(currentPort === "absent" ? {} : { inventoryCurrentItemAuthority: currentAuthority }),
+          }),
     });
-    return { ...memory, services, resolveListingTerms, evaluate, query, resolve, order, itemWrites, selectionWrites };
+    return {
+      ...memory,
+      services,
+      resolveListingTerms,
+      evaluate,
+      query,
+      resolve,
+      currentAuthority,
+      order,
+      itemWrites,
+      selectionWrites,
+    };
   }
 
   const snapshot = {
@@ -3880,6 +3949,119 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     expect(f.allEvents).toHaveLength(0);
   });
 
+  const otherAddress = { ...shipFromAddress, line1: "9 Other St" };
+  it.each([
+    { label: "another Catalog Item", current: { catalogItemId: "cat_2" } },
+    { label: "another Product", current: { productId: "cat_1::finish:foil" } },
+    {
+      label: "another storage location",
+      current: {
+        storageLocation: {
+          storageLocationId: "loc_2",
+          name: "North shelf",
+          shipFromCode: "CHI",
+          shipFromAddress,
+          status: "active" as const,
+        },
+      },
+    },
+    {
+      label: "a retired storage location",
+      current: {
+        storageLocation: {
+          storageLocationId: "loc_1",
+          name: "North shelf",
+          shipFromCode: "CHI",
+          shipFromAddress,
+          status: "retired" as const,
+        },
+      },
+    },
+    { label: "another total quantity", current: { totalQuantity: 5, availableQuantity: 5 } },
+    { label: "another available quantity", current: { availableQuantity: 1 }, request: { availableQuantity: 2 } },
+  ])(
+    "refuses a snapshot when Inventory records $label, before any supply write or append",
+    async ({ current, request }) => {
+      const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }), current);
+
+      await expect(
+        f.services.createListingFromInventorySnapshot(
+          listingTestCommand("listing.create", { ...snapshot, ...request }),
+          context,
+        ),
+      ).rejects.toMatchObject({ name: "MarketplaceListingRequestError", code: "inventory-snapshot-invalid" });
+
+      expect(f.currentAuthority.resolve).toHaveBeenCalledWith(
+        { accountId: "acc_seller", inventoryItemId: "inv_1" },
+        context,
+      );
+      expect(f.query).not.toHaveBeenCalled();
+      expect(f.resolveListingTerms).not.toHaveBeenCalled();
+      expect(f.allEvents).toHaveLength(0);
+    },
+  );
+
+  it("writes the location name, ship-from details and acquisition cost Inventory records, not the request's", async () => {
+    const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }), {
+      storageLocation: {
+        storageLocationId: "loc_1",
+        name: "Back room",
+        shipFromCode: "NYC",
+        shipFromAddress: otherAddress,
+        status: "active",
+      },
+      acquisitionCostAmount: "4.50",
+      acquisitionCostCurrencyCode: "USD",
+    });
+
+    await f.services.createListingFromInventorySnapshot(
+      listingTestCommand("listing.create", { ...snapshot, acquisitionCostAmount: "99.00" }),
+      context,
+    );
+
+    const writes = (marker: string) =>
+      f.query.mock.calls.filter(([sql]) => sql.includes(marker)).map(([, values]) => values);
+    expect(writes(LOCATION_WRITE)).toEqual([
+      ["loc_1", "acc_seller", "Back room", "NYC", JSON.stringify(parseShipFromAddressSnapshot(otherAddress))],
+    ]);
+    expect(writes(ITEM_WRITE).map((values) => values?.slice(6))).toEqual([["loc_1", 2, "4.50", "USD"]]);
+  });
+
+  it("answers a same-key retry with the Listing it created after Inventory's record has changed", async () => {
+    const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }));
+    const command = listingTestCommand("listing.create", snapshot);
+    const created = await f.services.createListingFromInventorySnapshot(command, context);
+    const committed = f.allEvents.length;
+    const queried = f.query.mock.calls.length;
+    // An order now holds a unit and the location was retired; neither may turn the retry into a refusal.
+    const recorded = (await f.currentAuthority.resolve())!;
+    f.currentAuthority.resolve.mockResolvedValue({
+      ...recorded,
+      availableQuantity: 1,
+      storageLocation: { ...recorded.storageLocation, status: "retired" },
+    });
+    f.currentAuthority.resolve.mockClear();
+
+    const retried = await f.services.createListingFromInventorySnapshot(command, context);
+
+    expect(retried).toMatchObject({ listingId: created.listingId, version: created.version });
+    expect(f.allEvents).toHaveLength(committed);
+    expect(f.currentAuthority.resolve).not.toHaveBeenCalled();
+    expect(f.query.mock.calls.slice(queried).filter(([sql]) => sql.includes("INSERT INTO"))).toEqual([]);
+  });
+
+  it("keeps the snapshot create closed when only Inventory's current item port is absent", async () => {
+    const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }), {}, "absent");
+
+    await expect(
+      f.services.createListingFromInventorySnapshot(listingTestCommand("listing.create", snapshot), context),
+    ).rejects.toThrow("Inventory item details are unavailable.");
+
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.resolveListingTerms).not.toHaveBeenCalled();
+    expect(f.allEvents).toHaveLength(0);
+  });
+
   it("asks the authority the Marketplace services were given", async () => {
     const { createMarketplaceServices } = await import("../../../support/runtime-support/services");
     const resolve = vi.fn(async (_input: Readonly<{ accountId: string; inventoryItemId: string }>) => null);
@@ -3901,7 +4083,10 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     expect({ name, message, code }).toEqual(notFound);
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(resolve).toHaveBeenCalledWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
-    expect(query).not.toHaveBeenCalled();
+    // Only the attempt's receipt lookups read the database, before and after the refusal; nothing is written.
+    const statements = (query.mock.calls as unknown as [string][]).map(([sql]) => sql.replace(/\s+/g, " ").trim());
+    expect(statements.length).toBeGreaterThan(0);
+    for (const sql of statements) expect(sql).toMatch(/^SELECT .* FROM event_store_events WHERE stream_id = \$1/);
     expect(connect).not.toHaveBeenCalled();
   });
 

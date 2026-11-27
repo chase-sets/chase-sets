@@ -153,6 +153,24 @@ describe("Inventory Listing stock compatibility", () => {
         inventoryItemGradedCardAuthority: {
           resolve: async () => ({ gradedCard: null, selectedOptions: snapshot.selectedOptions }),
         },
+        // The direct create writes Inventory's own record, which holds the same values the draft path is sent.
+        inventoryCurrentItemAuthority: {
+          resolve: async () => ({
+            catalogItemId: snapshot.catalogItemId,
+            productId: snapshot.productId,
+            storageLocation: {
+              storageLocationId: snapshot.storageLocationId,
+              name: snapshot.storageLocationName,
+              shipFromCode: snapshot.shipFromCode,
+              shipFromAddress,
+              status: "active" as const,
+            },
+            totalQuantity: snapshot.totalQuantity,
+            availableQuantity: snapshot.totalQuantity,
+            acquisitionCostAmount: "12.34",
+            acquisitionCostCurrencyCode: "CAD",
+          }),
+        },
       });
       await expect(
         runtime[method](

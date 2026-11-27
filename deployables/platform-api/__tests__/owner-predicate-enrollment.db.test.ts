@@ -205,6 +205,24 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
         commercialTermsResolver: terms,
         // Fixture Listings are created for a raw item; most cases never create it in Inventory.
         inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard: null, selectedOptions: [] }) },
+        // Inventory's current record of that item, as `createFixtureListing` sends it.
+        inventoryCurrentItemAuthority: {
+          resolve: async () => ({
+            catalogItemId,
+            productId,
+            storageLocation: {
+              storageLocationId: locationId,
+              name: "Synthetic",
+              shipFromCode: "60601",
+              shipFromAddress,
+              status: "active" as const,
+            },
+            totalQuantity: 2,
+            availableQuantity: 2,
+            acquisitionCostAmount: null,
+            acquisitionCostCurrencyCode: null,
+          }),
+        },
       });
     const actor = {
       accountId,

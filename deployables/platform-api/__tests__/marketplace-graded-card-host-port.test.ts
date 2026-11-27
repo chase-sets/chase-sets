@@ -99,6 +99,9 @@ describe("marketplace-graded-card-inventory-host-port", () => {
       const authority = (options as MarketplaceOptions).inventoryItemGradedCardAuthority;
       expect(authority).toBe(captured.ports?.inventoryItemGradedCardAuthority);
       if (!authority) throw new Error("Marketplace was not given the Inventory graded card authority.");
+      const currentItem = (options as MarketplaceOptions).inventoryCurrentItemAuthority;
+      expect(currentItem).toBeDefined();
+      expect(currentItem).toBe(captured.ports?.inventoryCurrentItemAuthority);
       expect(inventoryQuery).not.toHaveBeenCalled();
 
       await expect(
@@ -132,8 +135,10 @@ describe("marketplace-graded-card-inventory-host-port", () => {
       expect(runtime.mountedContexts.map((entry) => entry.contextName)).not.toContain("inventory");
       expect(captured.ports).toBeDefined();
       expect(captured.ports).not.toHaveProperty("inventoryItemGradedCardAuthority");
+      expect(captured.ports).not.toHaveProperty("inventoryCurrentItemAuthority");
       for (const [, options] of createServices.mock.calls) {
         expect((options as MarketplaceOptions).inventoryItemGradedCardAuthority).toBeUndefined();
+        expect((options as MarketplaceOptions).inventoryCurrentItemAuthority).toBeUndefined();
       }
     } finally {
       await closePlatformApiPools(pools);
@@ -143,8 +148,8 @@ describe("marketplace-graded-card-inventory-host-port", () => {
   it("declares the authority as a Marketplace host port so the registry forwards it", () => {
     const entry = apiContextRegistry.find((candidate) => candidate.contextName === "marketplace");
     expect(entry).toBeDefined();
-    expect((entry?.manifest.hostPorts ?? []).map((port) => port.portName)).toContain(
-      "inventoryItemGradedCardAuthority",
-    );
+    const declared = (entry?.manifest.hostPorts ?? []).map((port) => port.portName);
+    expect(declared).toContain("inventoryItemGradedCardAuthority");
+    expect(declared).toContain("inventoryCurrentItemAuthority");
   });
 });

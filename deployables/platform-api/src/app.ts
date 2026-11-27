@@ -75,6 +75,7 @@ import {
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
   createInventoryItemGradedCardAuthority,
+  createInventoryCurrentItemAuthority,
   type RecordExternalChannelSale,
   type InventoryServices,
 } from "@chase-sets/inventory/server";
@@ -864,6 +865,9 @@ export function createPlatformApiHost(
         ? {
             inventoryItemGradedCardAuthority: {
               resolve: createInventoryItemGradedCardAuthority(inventoryPool).resolveInventoryItemGradedCard,
+            },
+            inventoryCurrentItemAuthority: {
+              resolve: createInventoryCurrentItemAuthority(inventoryPool).resolveInventoryCurrentItem,
             },
           }
         : {}),

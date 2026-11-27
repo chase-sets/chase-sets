@@ -12,7 +12,7 @@ import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import type { InventoryItemGradedCardAuthority, ListingPhotoStorage } from "./index";
+import type { InventoryCurrentItemAuthority, InventoryItemGradedCardAuthority, ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
 import type { ListingTargetAuthority } from "../../features/listings/api/target-contracts";
@@ -46,6 +46,8 @@ export type MarketplaceServiceOptions = Readonly<{
   listingTargetAuthority?: ListingTargetAuthority;
   /** Absent keeps Listing creation from an Inventory snapshot closed. */
   inventoryItemGradedCardAuthority?: InventoryItemGradedCardAuthority;
+  /** Absent keeps Listing creation from an Inventory snapshot through `POST /listings` closed. */
+  inventoryCurrentItemAuthority?: InventoryCurrentItemAuthority;
   managedOfferPricing?: ManagedOfferPricing;
   offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
   commercialTermsResolver?: CommercialTermsResolver;
@@ -123,6 +125,9 @@ export function createMarketplaceServices(
     ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
     ...(options.inventoryItemGradedCardAuthority
       ? { inventoryItemGradedCardAuthority: options.inventoryItemGradedCardAuthority }
+      : {}),
+    ...(options.inventoryCurrentItemAuthority
+      ? { inventoryCurrentItemAuthority: options.inventoryCurrentItemAuthority }
       : {}),
     eventStore,
     checkpointStore,
