@@ -198,7 +198,6 @@ export function catalogUcpProduct({
           slug: source.slug,
           listing_id: listing.listing_id,
           listing_slug: listing.listing_slug,
-          inventory_item_id: listing.inventory_item_id,
           product_id: listing.product_id,
         },
       },

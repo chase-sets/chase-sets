@@ -141,6 +141,54 @@ describe("discovery realtime market patches", () => {
     });
   });
 
+  it("sends a public Listing's fields and none of its stored-only fields on every realtime upsert", () => {
+    const listing = {
+      listing_id: "listing_1",
+      catalog_catalog_item_id: "item_1",
+      account_id: "acc_seller",
+      status: "active",
+      seller_listing_availability_status: "available",
+      seller_account_status: "active",
+      product_measure_snapshot: { unit: "item", quantity: 1 },
+      supply_total_quantity: 3,
+      active_held_quantity: 1,
+      inventory_item_id: "itm_1",
+      storage_location_name: "Back room, box 4",
+      quantity_cap: 3,
+      ship_from_code: "HOME",
+      visible_quantity: 2,
+    };
+
+    const patch = createDiscoveryListingPatch(["item:item_1"], listing, null);
+    const upserts = patch.changes.filter((change) => change.op === "upsert");
+
+    expect(upserts.map((change) => change.entity)).toEqual([
+      "discovery.marketListing",
+      "discovery.publicListingDetail",
+    ]);
+    for (const change of upserts) {
+      expect(change).toMatchObject({
+        value: {
+          listing_id: "listing_1",
+          account_id: "acc_seller",
+          ship_from_code: "HOME",
+          visible_quantity: 2,
+        },
+      });
+      for (const field of [
+        "inventory_item_id",
+        "storage_location_name",
+        "quantity_cap",
+        "supply_total_quantity",
+        "active_held_quantity",
+        "product_measure_snapshot",
+        "seller_account_status",
+      ])
+        expect((change as { value: object }).value).not.toHaveProperty(field);
+      expect((change as { value: object }).value).not.toHaveProperty("seller_badges");
+    }
+  });
+
   it("patches search rows already present", () => {
     const search = {
       items: [{ catalog_item_id: "item_1", market_summary: null }],

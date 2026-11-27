@@ -770,6 +770,13 @@ describe("UCP 2026-08-25 Product resource", () => {
         for (const [index, variant] of product.variants.entries()) {
           expect(variant.url).toBe(`https://marketplace.example/listings/${listings[index]!.listing_slug}`);
           expect(new URL(variant.url!).origin).toBe("https://marketplace.example");
+          expect(Object.keys(variant.extensions.chase_sets).sort()).toEqual([
+            "catalog_item_id",
+            "listing_id",
+            "listing_slug",
+            "product_id",
+            "slug",
+          ]);
           if (mode === "lookup") expect(variant.inputs).toEqual(inputs);
           else expect(variant).not.toHaveProperty("inputs");
         }

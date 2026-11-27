@@ -310,7 +310,6 @@ export interface DiscoveryMarketListing {
   listing_slug: string;
   product_slug: string;
   account_id: string;
-  inventory_item_id: string;
   catalog_catalog_item_id: string;
   catalog_item_slug?: string | null;
   product_id: string;
@@ -319,13 +318,11 @@ export interface DiscoveryMarketListing {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   graded_card?: DiscoveryGradedCardDetails | null;
-  storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number;
   shipping_allowance_percentage_bps: number;
-  quantity_cap: number;
   max_units_per_order?: number | null;
   max_units_per_day?: number | null;
   max_units_per_customer_account?: number | null;
