@@ -1667,18 +1667,24 @@ export const helpArticles = [
       {
         claim: "Marketplace checkout is not open during prelaunch.",
         issues: ["#4352"],
-        tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
+        tests: [
+          "bounded-contexts/auth/support/api-support/register-routes.test.ts",
+          "scripts/digitalocean-platform-config.test.mjs",
+        ],
       },
       {
         claim: "Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.",
         issues: ["#8371"],
-        tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
+        tests: [
+          "bounded-contexts/public-presence/features/waitlist/domain/wave-policy.test.ts",
+          "bounded-contexts/auth/support/api-support/register-routes.test.ts",
+        ],
       },
       {
         claim: "Published fees, checkout, and shipping promises reflect tested marketplace behavior.",
         issues: ["#4352"],
         tests: [
-          "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx",
+          "bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts",
           "bounded-contexts/payments/features/payments/api/runtime.test.ts",
           "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
         ],
@@ -6141,12 +6147,18 @@ export const helpArticles = [
       {
         claim: "Published fee figures resolve from the current ratified policy documents.",
         issues: ["#4353"],
-        tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"],
+        tests: [
+          "bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts",
+          "bounded-contexts/public-presence/features/help/domain/resolve-article-policy-values.test.ts",
+        ],
       },
       {
         claim: "Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.",
         issues: ["#8371"],
-        tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
+        tests: [
+          "bounded-contexts/public-presence/features/waitlist/domain/wave-policy.test.ts",
+          "bounded-contexts/auth/support/api-support/register-routes.test.ts",
+        ],
       },
       {
         claim: "Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.",
@@ -6622,13 +6634,16 @@ export const helpArticles = [
       {
         claim: "Published fee figures resolve from the current ratified policy documents.",
         issues: ["#4353"],
-        tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"],
+        tests: [
+          "bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts",
+          "bounded-contexts/public-presence/features/help/domain/resolve-article-policy-values.test.ts",
+        ],
       },
       {
         claim: "Published payout-fee figures resolve from the current Settlement payout-fee policy document.",
         issues: ["#7819"],
         tests: [
-          "bounded-contexts/public-presence/tests/help-route.test.tsx",
+          "bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts",
           "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
         ],
       },
@@ -6661,10 +6676,7 @@ export const helpArticles = [
         claim:
           "Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.",
         issues: ["#3955"],
-        tests: [
-          "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx",
-          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx",
-        ],
+        tests: ["bounded-contexts/public-presence/features/waitlist/domain/wave-policy.test.ts"],
       },
     ],
     href: "/sales-fees",

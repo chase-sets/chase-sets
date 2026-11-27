@@ -71,12 +71,15 @@ describe("developer manifest", () => {
     expect(text).toContain("2025-06-18, 2025-11-25, 2026-07-28");
   });
 
-  it("keeps the policy discovery literals in the source-owned record instead of recreating them in the portal consumer", () => {
-    const portalSource = readFileSync(resolve(import.meta.dirname, "../ui/developer-pages.tsx"), "utf8");
-    expect(portalSource).toContain('import { agentConnectorTermsDeveloperLink } from "../domain/developer-manifest";');
-    expect(portalSource).toContain("href={agentConnectorTermsDeveloperLink.href}");
-    expect(portalSource).toContain("t(agentConnectorTermsDeveloperLink.portalLabelKey)");
+  it("keeps the policy discovery href in the policy registry instead of recreating it in the Corten portal", () => {
+    const repoRoot = resolve(import.meta.dirname, "../../../../..");
+    const exportSource = readFileSync(resolve(repoRoot, "deployables/corten-pilot/scripts/export.mjs"), "utf8");
+    const portalSource = readFileSync(
+      resolve(repoRoot, "deployables/corten-pilot/public/src/views/help_page.rs"),
+      "utf8",
+    );
+    expect(exportSource).toContain('agent_terms: publicPolicyHrefsByKey["agent-connector-terms"],');
+    expect(portalSource).toContain("href={crate::developers::agent_terms()}");
     expect(portalSource).not.toContain('href="/agent-terms"');
-    expect(portalSource).not.toContain('t("publicPresence.developers.agentTerms")');
   });
 });

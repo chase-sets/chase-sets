@@ -9,7 +9,7 @@ import {
   publicPolicyPublicationRecords,
 } from "@chase-sets/public-docs";
 import { describe, expect, it } from "vitest";
-import { publicPresenceHasTranslation } from "../../waitlist/ui/public-presence-translator";
+import { publicPresenceEnglishTranslations } from "@chase-sets/localization/locales/en/public-presence";
 import { compileHelpArticleCorpus, compileHelpArticleSource } from "../integrations/compile-help-articles.mjs";
 import {
   listHelpArticlesByCategory,
@@ -395,8 +395,8 @@ describe("#5693 compliance policy articles", () => {
       expect(publicHelpArticlePaths.filter((path) => path === article.href)).toHaveLength(1);
       expect(listHelpArticlesByCategory(category).map((candidate) => candidate.slug)).toContain(slug);
       expect(listHelpCategoriesByAudience(audience)).toContain(category);
-      expect(publicPresenceHasTranslation(`publicPresence.help.audience.${audience}.title`)).toBe(true);
-      expect(publicPresenceHasTranslation(`publicPresence.help.category.${category}.title`)).toBe(true);
+      expect(Object.hasOwn(publicPresenceEnglishTranslations, `publicPresence.help.audience.${audience}.title`)).toBe(true);
+      expect(Object.hasOwn(publicPresenceEnglishTranslations, `publicPresence.help.category.${category}.title`)).toBe(true);
     },
   );
 

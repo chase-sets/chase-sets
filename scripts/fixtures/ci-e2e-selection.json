@@ -416,8 +416,8 @@
       "pattern": "/^bounded-contexts\\/public-presence\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["corten-marketplace-browser", "admin_growth"],
       "path": "bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx",
-      "trackedCandidates": 58,
-      "synthetic": false
+      "trackedCandidates": 34,
+      "synthetic": true
     },
     {
       "family": "contextSuiteOwnership:settlement",
@@ -1167,8 +1167,8 @@
       "pattern": "/^bounded-contexts\\/public-presence\\/features\\/waitlist\\/ui\\/public-pages\\./",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
+      "trackedCandidates": 0,
+      "synthetic": true
     },
     {
       "family": "boundedContextRouteSuiteOwnership:51",

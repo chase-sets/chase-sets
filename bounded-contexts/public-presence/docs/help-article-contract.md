@@ -35,9 +35,9 @@ citedPolicies: []
 relatedFlows: []
 claimCategories: []
 promiseTable:
-  - claim: The public route renders the compiled article.
-    issues: ["#4352"]
-    tests: ["bounded-contexts/public-presence/features/help/ui/help-pages.test.tsx"]
+  - claim: Published fee figures resolve from the current ratified policy documents.
+    issues: ["#4353"]
+    tests: ["bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts"]
 ---
 ```
 

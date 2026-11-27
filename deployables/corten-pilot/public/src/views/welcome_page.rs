@@ -1,4 +1,4 @@
-//! The welcome page's views, after `success-page.tsx`: the header, the wave-placement form for a
+//! The welcome page's views: the header, the wave-placement form for a
 //! seller, what happens next, and Move up the list (the place in line, the referral link with
 //! Copy, the progress to the goal, and the share links).
 //!

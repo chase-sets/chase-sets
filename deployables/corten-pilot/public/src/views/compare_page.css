@@ -1,5 +1,5 @@
-/* The compare pages (compare-page.tsx) and Contact (PublicInfoPage) on the design system's
-   tokens. A phone first: one column, and a table wider than the screen scrolls in its own box;
+/* The compare pages and Contact on the design system's tokens. A phone first: one column, and a
+   table wider than the screen scrolls in its own box;
    from 48rem (md) the two cards and the calculator's two fields side by side. Links, buttons and
    fields are at least 44px tall. */
 .page {

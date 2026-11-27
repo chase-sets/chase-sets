@@ -11,13 +11,13 @@ claimCategories: ["protection", "fees", "payouts", "shipping"]
 promiseTable:
   - claim: Marketplace checkout is not open during prelaunch.
     issues: ["#4352"]
-    tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
+    tests: ["bounded-contexts/auth/support/api-support/register-routes.test.ts", "scripts/digitalocean-platform-config.test.mjs"]
   - claim: Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.
     issues: ["#8371"]
-    tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
+    tests: ["bounded-contexts/public-presence/features/waitlist/domain/wave-policy.test.ts", "bounded-contexts/auth/support/api-support/register-routes.test.ts"]
   - claim: Published fees, checkout, and shipping promises reflect tested marketplace behavior.
     issues: ["#4352"]
-    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx", "bounded-contexts/payments/features/payments/api/runtime.test.ts", "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts"]
+    tests: ["bounded-contexts/public-presence/features/help/api/public-policy-values.test.ts", "bounded-contexts/payments/features/payments/api/runtime.test.ts", "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts"]
   - claim: Seller funds release after recorded delivery plus the published clearance window.
     issues: ["#4287"]
     tests: ["bounded-contexts/settlement/features/wallets/read-model/queries.db.test.ts"]

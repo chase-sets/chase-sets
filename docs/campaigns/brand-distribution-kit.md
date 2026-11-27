@@ -14,7 +14,7 @@ Committed 1200x630 PNGs in `bounded-contexts/public-presence/features/waitlist/u
 | Per game (five) | `chase-sets-og-<game-slug>.png` | `/?game=<slug>` campaign variants (the roster links from #4082) |
 | Founders offer | `chase-sets-og-founders.png` | `/founders` |
 
-They are deterministic SVG renders of the design-system brand mark and dark palette — regenerate after copy or palette changes with `pnpm --filter @chase-sets/public-presence run generate:og-images` and commit the outputs. Meta wiring lives in `bounded-contexts/public-presence/features/waitlist/ui/social-meta.ts`; every wired page publishes `og:image` plus `twitter:card=summary_large_image`, so X and Discord render large-image previews.
+They are deterministic SVG renders of the design-system brand mark and dark palette — regenerate after copy or palette changes with `pnpm --filter @chase-sets/public-presence run generate:og-images` and commit the outputs. Meta wiring lives in the Corten public app's page heads (`deployables/corten-pilot/public/src/home.rs`, `help.rs` and `policy.rs`); every wired page publishes `og:image` plus `twitter:card=summary_large_image`, so X and Discord render large-image previews.
 
 Per-game share links for the weekly series: `https://chasesets.com/?game=pokemon` (also `magic-the-gathering`, `yu-gi-oh`, `disney-lorcana`, `one-piece-card-game`). Append the campaign's UTM parameters; the `game` parameter drives both the preselected signup form and the game-specific preview card.
 

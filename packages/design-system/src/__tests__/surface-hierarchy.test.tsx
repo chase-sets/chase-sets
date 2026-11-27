@@ -738,7 +738,6 @@ describe("Surface elevation guard", () => {
   });
 
   it.each([
-    ["public-presence shell #8270", "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
     ["payments root #8272", "bounded-contexts/payments/features/payments/ui/account-payment/account-payment-page.tsx"],
     ["design-system emitter #8273", "packages/design-system/src/components/checkout/status.tsx"],
   ])("restores exactly the owned historical omission: %s", (name, file) => {

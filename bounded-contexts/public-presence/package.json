@@ -23,8 +23,7 @@
     ".": "./index.ts",
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
-    "./server": "./server.ts",
-    "./web": "./web.ts"
+    "./server": "./server.ts"
   },
   "types": "./index.ts",
   "dependencies": {

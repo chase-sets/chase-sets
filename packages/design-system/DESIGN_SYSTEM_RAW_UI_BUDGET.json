@@ -12,12 +12,6 @@
   },
   "allowList": [
     {
-      "path": "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
-      "tagName": "main",
-      "markers": ["id", "main-content"],
-      "reason": "The public waitlist owns one raw main landmark id for skip-link targeting."
-    },
-    {
       "path": "deployables/",
       "tagName": "main",
       "markers": [],
@@ -25,9 +19,9 @@
     }
   ],
   "summary": {
-    "governedFileCount": 329,
+    "governedFileCount": 323,
     "budgetedFileCount": 1,
-    "allowListEntryCount": 2,
+    "allowListEntryCount": 1,
     "totalRawClassNameCount": 0,
     "totalRawElementCount": 1
   },

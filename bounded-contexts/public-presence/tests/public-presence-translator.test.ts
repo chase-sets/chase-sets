@@ -4,19 +4,11 @@ import { developerArticles } from "../features/developer-portal/domain/developer
 import { publicHelpArticles } from "../features/help/domain/article-catalog";
 import { assertPublicCopyGuard } from "../features/help/domain/public-copy-guard.mjs";
 import { policiesEnglishTranslations } from "../features/policies/ui/localization/locales/en";
-import { has as hasPolicyTranslation, t as policyT } from "../features/policies/ui/localization/translator";
-import { publicPresenceHasTranslation, publicPresenceT } from "../features/waitlist/ui/public-presence-translator";
+const presenceCopy: Readonly<Record<string, string>> = publicPresenceEnglishTranslations;
+const policyCopy: Readonly<Record<string, string>> = policiesEnglishTranslations;
+const has = (catalog: Readonly<Record<string, string>>, key: string) => Object.hasOwn(catalog, key);
 
-describe("public presence translator", () => {
-  it("resolves public presence copy without the global localization runtime", () => {
-    expect(publicPresenceHasTranslation("publicPresence.brand")).toBe(true);
-    expect(publicPresenceT("publicPresence.brand")).toBe("Chase Sets");
-  });
-
-  it("keeps missing keys explicit", () => {
-    expect(publicPresenceHasTranslation("adminWeb.app.title")).toBe(false);
-    expect(publicPresenceT("adminWeb.app.title")).toBe("[missing:en:adminWeb.app.title]");
-  });
+describe("public presence copy", () => {
 
   it("keeps launch-critical public policy copy out of placeholder language", () => {
     const launchPolicyKeys = [
@@ -38,10 +30,10 @@ describe("public presence translator", () => {
       "publicPresence.routes.terms.meta.description",
     ];
 
-    expect(launchPolicyKeys.every((key) => publicPresenceHasTranslation(key))).toBe(true);
-    expect(policyMetaKeys.every((key) => hasPolicyTranslation(key))).toBe(true);
+    expect(launchPolicyKeys.every((key) => has(presenceCopy, key))).toBe(true);
+    expect(policyMetaKeys.every((key) => has(policyCopy, key))).toBe(true);
 
-    const copy = `${[...launchPolicyKeys.map((key) => publicPresenceT(key)), ...policyMetaKeys.map((key) => policyT(key))].join(" ")} ${JSON.stringify(publicHelpArticles)}`;
+    const copy = `${[...launchPolicyKeys.map((key) => presenceCopy[key]), ...policyMetaKeys.map((key) => policyCopy[key])].join(" ")} ${JSON.stringify(publicHelpArticles)}`;
 
     expect(() => assertPublicCopyGuard({ corpus: "consumer", copy, guard: "launch-language" })).not.toThrow();
     expect(copy).not.toMatch(/\b(future|intended|planned|expected)\b/i);

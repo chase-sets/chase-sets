@@ -22,7 +22,7 @@ export const contextManifest = {
   streamPrefix: "public-presence.",
   apiBasePath: "/api/public-presence",
   slices: ["waitlist", "promo-bar", "help", "developer-portal", "policies"],
-  allowedSupportDirectories: ["request-support", "runtime-support", "shell-support", "ui-support"],
+  allowedSupportDirectories: ["request-support", "runtime-support"],
   publicExports: [".", "./context", "./routes/*", "./server", "./web"],
   allowedContextDependencies: [],
   seedRequirements: ["identity"],
@@ -191,7 +191,6 @@ export const contextManifest = {
       surfaces: [
         "api-client:bounded-contexts/public-presence/client.ts:POST H405b3cbdf275#1",
         "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
-        "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
       ],
       visibleDestination: {
         routeId: "welcome",
@@ -203,9 +202,9 @@ export const contextManifest = {
           "submitWaitlistSignup returns the committed signup id/version, the public API returns that receipt with status=joined, and the home route action redirects to /welcome?signup=<id> carrying that receipt in the URL instead of same-page actionData.",
         tests: [
           "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist returns the committed id/version receipt.",
-          "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action redirects to /welcome with the committed signup id on success and still returns the same-page error snapshot on failure.",
-          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action.",
-          "bounded-contexts/public-presence/tests/welcome-route.test.ts proves the welcome route renders the referral link and progress mechanic from the redirect-carried signup id.",
+          "deployables/corten-pilot/public/src/tests.rs joining_sends_the_signup_and_goes_to_the_welcome_page proves the Corten home form posts the signup and redirects to /welcome with the committed signup id.",
+          "deployables/corten-pilot/public/src/tests.rs a_refused_signup_draws_the_page_again_with_the_apis_message proves a refused signup redraws the same page with the API's message.",
+          "deployables/corten-pilot/public/src/tests.rs the_welcome_page_says_where_the_signup_stands_and_asks_a_seller_the_wave_questions proves the welcome page renders from the redirect-carried signup id.",
         ],
       },
     },
@@ -247,7 +246,7 @@ export const contextManifest = {
           "provideWaitlistCohortQuality returns the committed signup id/version and the public API returns that receipt with status=saved; the welcome-page UI flips its saved indicator from the response alone.",
         tests: [
           "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist/:signupId/cohort-quality forwards only the fields present on the request and returns the saved receipt, and rejects malformed signup ids.",
-          "bounded-contexts/public-presence/features/waitlist/ui/success-page.test.tsx proves each wave-placement field saves individually and surfaces the saved indicator from the response.",
+          "deployables/corten-pilot/public/src/tests.rs a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_without_one proves each wave-placement field saves individually from the welcome page.",
         ],
       },
     },
@@ -524,18 +523,6 @@ export const contextManifest = {
     "runtime-support": {
       classification: "support",
       purpose: "Provide public-presence event-store, schema, and projector composition for API and worker runtime.",
-      expectedConsumers: ["waitlist"],
-    },
-    "shell-support": {
-      classification: "support",
-      purpose:
-        "Provide deployable-facing Public Presence page shell exports for waitlist routes outside feature internals.",
-      expectedConsumers: ["waitlist"],
-    },
-    "ui-support": {
-      classification: "support",
-      purpose:
-        "Expose browser-safe Public Presence analytics allowlists and scoped translation helpers without moving waitlist behavior out of the slice.",
       expectedConsumers: ["waitlist"],
     },
     "promo-bar": {

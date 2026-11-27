@@ -33,7 +33,7 @@ pub struct Policy {
     pub title: String,
     pub description: String,
     /// When it takes effect, only once it is published: ready for publication and dated
-    /// (`resolvePolicyArtifactPublicationPosture`). Otherwise the page says counsel review is
+    /// (the export's `policies()` decides). Otherwise the page says counsel review is
     /// pending.
     pub effective_at: Option<String>,
     pub sections: Vec<Section>,

@@ -115,7 +115,7 @@ export default {
       },
       routes: {},
       paths: [
-        "bounded-contexts/public-presence/features/waitlist/ui/compare-page",
+        "deployables/corten-pilot/public/src/compare.rs",
         "bounded-contexts/commercial-terms/",
       ],
     },

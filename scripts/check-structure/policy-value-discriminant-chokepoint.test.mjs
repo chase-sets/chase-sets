@@ -1,21 +1,50 @@
 import { describe, expect, it } from "vitest";
 import { repoRoot } from "../lib/repo.mjs";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
+  CORTEN_POLICY_VALUE_RENDERER,
   canonicalPolicyValueDiscriminantAllowlist,
+  cortenPolicyValueRendererAllowlist,
+  cortenPolicyValueRendererMarkers,
+  findCortenPolicyValueRendererViolations,
   findPolicyValueDiscriminantViolations,
+  listCortenPolicyValueGuardCandidates,
   listPolicyValueDiscriminantGuardCandidates,
   readPolicyValueDiscriminantGuardSources,
   validatePolicyValueDiscriminantChokepoint,
 } from "./policy-value-discriminant-chokepoint.mjs";
 
-const helpPagesPath = "bounded-contexts/public-presence/features/help/ui/help-pages.tsx";
 const resolveArticlePolicyValuesPath =
   "bounded-contexts/public-presence/features/help/domain/resolve-article-policy-values.ts";
 const articleModelPath = "bounded-contexts/public-presence/features/help/domain/article-model.ts";
 const policyValueStatePath = "bounded-contexts/public-presence/features/help/domain/policy-value-state.ts";
 const articleCatalogPath = "bounded-contexts/public-presence/features/help/domain/article-catalog.ts";
-const salesFeesRoutePath = "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.tsx";
-const developerPagesPath = "bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx";
+const cortenHelpPath = "deployables/corten-pilot/public/src/help.rs";
+
+function cortenRecord(relativePath) {
+  return { relativePath, source: readFileSync(path.join(repoRoot, ...relativePath.split("/")), "utf8") };
+}
+
+const cortenBypassProbeSource = `
+use crate::help::{Article, Block, Inline};
+
+// A second renderer that flattens the blocks and draws an unresolved value
+// without either degraded-state marker.
+pub fn fee_digest(article: &Article) -> String {
+    let mut out = String::new();
+    for block in &article.blocks {
+        if let Block::Paragraph { content } = block {
+            for inline in content {
+                if let Inline::PolicyValue { key } = inline {
+                    out.push_str(key);
+                }
+            }
+        }
+    }
+    out
+}
+`;
 
 const feeDigestProbeSource = `
 import type { HelpArticle } from "../../features/help/domain/article-model";
@@ -93,16 +122,9 @@ describe("policy-value discriminant chokepoint guard", () => {
 
     expect(result.violations).toEqual([]);
     expect(result.guardedFiles).toEqual(
-      expect.arrayContaining([
-        helpPagesPath,
-        resolveArticlePolicyValuesPath,
-        articleModelPath,
-        policyValueStatePath,
-        articleCatalogPath,
-        salesFeesRoutePath,
-        developerPagesPath,
-      ]),
+      expect.arrayContaining([resolveArticlePolicyValuesPath, articleModelPath, policyValueStatePath, articleCatalogPath]),
     );
+    expect(result.cortenGuardedFiles).toEqual(expect.arrayContaining([CORTEN_POLICY_VALUE_RENDERER, cortenHelpPath]));
     // Proves an arbitrary tracked production path far outside public-presence
     // is in scope, not only the public-presence/help route roots.
     expect(result.guardedFiles.some((file) => file.startsWith("bounded-contexts/catalog/"))).toBe(true);
@@ -111,8 +133,65 @@ describe("policy-value discriminant chokepoint guard", () => {
 
   it("derives its candidate list from git ls-files, not a directory walk", () => {
     const candidates = listPolicyValueDiscriminantGuardCandidates(repoRoot);
-    expect(candidates).toContain(helpPagesPath);
-    expect(candidates).toContain(salesFeesRoutePath);
+    expect(candidates).toContain(resolveArticlePolicyValuesPath);
+    expect(candidates).toContain(articleCatalogPath);
+    const cortenCandidates = listCortenPolicyValueGuardCandidates(repoRoot);
+    expect(cortenCandidates).toContain(CORTEN_POLICY_VALUE_RENDERER);
+    expect(cortenCandidates).not.toContain("deployables/corten-pilot/public/src/tests.rs");
+  });
+
+  it("keeps the Corten canonical renderer and its model clean, emitting both degraded-state markers", () => {
+    const records = cortenPolicyValueRendererAllowlist.map((entry) => cortenRecord(entry.file));
+    const renderer = records.find((record) => record.relativePath === CORTEN_POLICY_VALUE_RENDERER);
+
+    expect(findCortenPolicyValueRendererViolations(records).violations).toEqual([]);
+    for (const marker of cortenPolicyValueRendererMarkers) {
+      expect(renderer.source).toContain(marker);
+    }
+  });
+
+  it("flags a Corten module outside the allowlist that reads article blocks and PolicyValue inlines", () => {
+    const probePath = "deployables/corten-pilot/public/src/fee_digest.rs";
+    const records = [
+      ...cortenPolicyValueRendererAllowlist.map((entry) => cortenRecord(entry.file)),
+      { relativePath: probePath, source: cortenBypassProbeSource },
+    ];
+    const result = findCortenPolicyValueRendererViolations(records);
+
+    expect(result.violations).toEqual([
+      expect.stringContaining(`${probePath}:11: matches Inline::PolicyValue`),
+      expect.stringContaining(`${probePath}:8: reads an article's .blocks`),
+    ]);
+  });
+
+  it("flags the Corten canonical renderer when it stops emitting either marker", () => {
+    for (const marker of cortenPolicyValueRendererMarkers) {
+      const records = cortenPolicyValueRendererAllowlist.map((entry) => cortenRecord(entry.file));
+      const renderer = records.find((record) => record.relativePath === CORTEN_POLICY_VALUE_RENDERER);
+      renderer.source = renderer.source.replaceAll(marker, "data-removed=");
+      const result = findCortenPolicyValueRendererViolations(records);
+
+      expect(result.violations).toEqual([expect.stringContaining(`no longer emits ${marker}`)]);
+    }
+  });
+
+  it("fails closed when an allowlisted Corten module is missing", () => {
+    const result = findCortenPolicyValueRendererViolations([cortenRecord(cortenHelpPath)]);
+
+    expect(result.violations).toEqual([
+      expect.stringContaining(`${CORTEN_POLICY_VALUE_RENDERER}: allowlisted Corten policy-value module is not tracked`),
+    ]);
+  });
+
+  it("ignores Corten test modules and method calls named blocks", () => {
+    const result = findCortenPolicyValueRendererViolations([
+      ...cortenPolicyValueRendererAllowlist.map((entry) => cortenRecord(entry.file)),
+      { relativePath: "deployables/corten-pilot/public/src/tests.rs", source: "for block in &article.blocks {}" },
+      { relativePath: "deployables/corten-pilot/marketplace/src/listing_recovery.rs", source: "assert!(conflict.blocks());" },
+    ]);
+
+    expect(result.violations).toEqual([]);
+    expect(result.guardedFiles).not.toContain("deployables/corten-pilot/public/src/tests.rs");
   });
 
   it("flags a sibling renderer that reads article.blocks directly, using none of the canonical tokens or copy", () => {
