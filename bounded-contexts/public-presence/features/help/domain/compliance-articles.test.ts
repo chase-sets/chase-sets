@@ -395,8 +395,12 @@ describe("#5693 compliance policy articles", () => {
       expect(publicHelpArticlePaths.filter((path) => path === article.href)).toHaveLength(1);
       expect(listHelpArticlesByCategory(category).map((candidate) => candidate.slug)).toContain(slug);
       expect(listHelpCategoriesByAudience(audience)).toContain(category);
-      expect(Object.hasOwn(publicPresenceEnglishTranslations, `publicPresence.help.audience.${audience}.title`)).toBe(true);
-      expect(Object.hasOwn(publicPresenceEnglishTranslations, `publicPresence.help.category.${category}.title`)).toBe(true);
+      expect(Object.hasOwn(publicPresenceEnglishTranslations, `publicPresence.help.audience.${audience}.title`)).toBe(
+        true,
+      );
+      expect(Object.hasOwn(publicPresenceEnglishTranslations, `publicPresence.help.category.${category}.title`)).toBe(
+        true,
+      );
     },
   );
 

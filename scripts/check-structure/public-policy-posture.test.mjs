@@ -48,7 +48,10 @@ describe("public policy publication posture guard", () => {
     const sources = await readCortenPolicyPostureSources({ repoRoot });
     const result = findCortenPolicyPostureViolations([
       ...sources,
-      { relativePath: probePath, source: "fn banner(t: PolicyMsg) -> &'static str {\n    t.terms_counsel_pending_title()\n}" },
+      {
+        relativePath: probePath,
+        source: "fn banner(t: PolicyMsg) -> &'static str {\n    t.terms_counsel_pending_title()\n}",
+      },
     ]);
 
     expect(result.violations).toEqual([
@@ -59,7 +62,10 @@ describe("public policy publication posture guard", () => {
   it("rejects the policy page selecting a pending accessor twice or never", () => {
     const page = pageRecord();
     const doubled = findCortenPolicyPostureViolations([
-      { ...page, source: `${page.source}\nfn stale(t: PolicyMsg) -> &'static str { t.policies_metadata_effective_pending() }\n` },
+      {
+        ...page,
+        source: `${page.source}\nfn stale(t: PolicyMsg) -> &'static str { t.policies_metadata_effective_pending() }\n`,
+      },
     ]);
     expect(doubled.violations).toEqual([
       expect.stringContaining("must select 'policies_metadata_effective_pending' exactly once; found 2"),
@@ -108,7 +114,10 @@ describe("public policy publication posture guard", () => {
     expect(selecting.violations[0]).toContain(catalogPath);
 
     const unowned = findPublicPolicyPostureViolations([
-      { relativePath: catalogPath, source: 'export const en = { "publicPresence.info.unowned.metadata.effectivePending": "x" } as const;' },
+      {
+        relativePath: catalogPath,
+        source: 'export const en = { "publicPresence.info.unowned.metadata.effectivePending": "x" } as const;',
+      },
     ]);
     expect(unowned.violations).not.toEqual([]);
   });

@@ -1306,12 +1306,13 @@ describe("shared E2E setup selection", () => {
       // Deleting public-web's route modules does the same to four more; the public-presence and Commercial
       // Terms policy and sales-fee pages keep their feature route modules.
       ["marketplaceContextRouteSuiteOwnership:public-presence", 0],
-      ["boundedContextRouteSuiteOwnership:11", 2],
+      ["boundedContextRouteSuiteOwnership:11", 0],
       ["boundedContextRouteSuiteOwnership:48", 0],
       ["boundedContextRouteSuiteOwnership:49", 0],
       // Deleting the feature UI only public-web rendered leaves two more: the public-presence feature
       // ownership family keeps its remaining api and ui files, and the home page's family keeps none. It also
-      // deletes the public-presence policy route modules, so the policy family above keeps none.
+      // deletes the public-presence policy and Commercial Terms sales-fee route modules, so the two families
+      // above keep none.
       ["contextSuiteOwnership:public-presence", 34],
       ["boundedContextRouteSuiteOwnership:50", 0],
     ]);

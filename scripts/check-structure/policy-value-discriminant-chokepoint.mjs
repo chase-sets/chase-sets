@@ -59,7 +59,7 @@ export const cortenPolicyValueRendererAllowlist = [
   {
     file: CORTEN_POLICY_VALUE_RENDERER,
     reason:
-      "The sole canonical renderer: draws each block and an unresolved PolicyValue as data-policy-value-state=\"unavailable\", and marks the article data-policy-values-state=\"degraded\".",
+      'The sole canonical renderer: draws each block and an unresolved PolicyValue as data-policy-value-state="unavailable", and marks the article data-policy-values-state="degraded".',
   },
   {
     file: "deployables/corten-pilot/public/src/help.rs",
@@ -69,10 +69,7 @@ export const cortenPolicyValueRendererAllowlist = [
 ];
 
 // Both degraded-state markers the canonical renderer must keep emitting.
-export const cortenPolicyValueRendererMarkers = [
-  'data-policy-value-state="unavailable"',
-  "data-policy-values-state=",
-];
+export const cortenPolicyValueRendererMarkers = ['data-policy-value-state="unavailable"', "data-policy-values-state="];
 
 const cortenPolicyValueRendererFiles = new Set(cortenPolicyValueRendererAllowlist.map((entry) => entry.file));
 const cortenBlockReadPatterns = [
@@ -327,7 +324,9 @@ export function readCortenPolicyValueGuardSources({ repoRoot, execGit } = {}) {
 }
 
 export function validatePolicyValueDiscriminantChokepoint({ repoRoot, execGit } = {}) {
-  const typescript = findPolicyValueDiscriminantViolations(readPolicyValueDiscriminantGuardSources({ repoRoot, execGit }));
+  const typescript = findPolicyValueDiscriminantViolations(
+    readPolicyValueDiscriminantGuardSources({ repoRoot, execGit }),
+  );
   const corten = findCortenPolicyValueRendererViolations(readCortenPolicyValueGuardSources({ repoRoot, execGit }));
   return {
     guardedFiles: typescript.guardedFiles,

@@ -855,7 +855,7 @@
       "pattern": "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/public|features\\/marketplace-sales-fee\\/ui\\/routes)\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx",
-      "trackedCandidates": 2,
+      "trackedCandidates": 0,
       "synthetic": true
     },
     {
@@ -1151,7 +1151,7 @@
       "pattern": "/^bounded-contexts\\/public-presence\\/(?:routes\\/marketplace|features\\/policies\\/ui\\/routes)\\//",
       "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
-      "trackedCandidates": 7,
+      "trackedCandidates": 0,
       "synthetic": true
     },
     {

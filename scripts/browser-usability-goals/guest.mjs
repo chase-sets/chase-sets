@@ -114,10 +114,7 @@ export default {
           "Recompute the kept amounts from the fee schedule the comparison page loads and the dated TCGplayer figures it cites; compare the participant's ranking of the two competitors.",
       },
       routes: {},
-      paths: [
-        "deployables/corten-pilot/public/src/compare.rs",
-        "bounded-contexts/commercial-terms/",
-      ],
+      paths: ["deployables/corten-pilot/public/src/compare.rs", "bounded-contexts/commercial-terms/"],
     },
     {
       id: "company-information",

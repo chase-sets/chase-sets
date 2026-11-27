@@ -122,7 +122,12 @@ describe("policy-value discriminant chokepoint guard", () => {
 
     expect(result.violations).toEqual([]);
     expect(result.guardedFiles).toEqual(
-      expect.arrayContaining([resolveArticlePolicyValuesPath, articleModelPath, policyValueStatePath, articleCatalogPath]),
+      expect.arrayContaining([
+        resolveArticlePolicyValuesPath,
+        articleModelPath,
+        policyValueStatePath,
+        articleCatalogPath,
+      ]),
     );
     expect(result.cortenGuardedFiles).toEqual(expect.arrayContaining([CORTEN_POLICY_VALUE_RENDERER, cortenHelpPath]));
     // Proves an arbitrary tracked production path far outside public-presence
@@ -187,7 +192,10 @@ describe("policy-value discriminant chokepoint guard", () => {
     const result = findCortenPolicyValueRendererViolations([
       ...cortenPolicyValueRendererAllowlist.map((entry) => cortenRecord(entry.file)),
       { relativePath: "deployables/corten-pilot/public/src/tests.rs", source: "for block in &article.blocks {}" },
-      { relativePath: "deployables/corten-pilot/marketplace/src/listing_recovery.rs", source: "assert!(conflict.blocks());" },
+      {
+        relativePath: "deployables/corten-pilot/marketplace/src/listing_recovery.rs",
+        source: "assert!(conflict.blocks());",
+      },
     ]);
 
     expect(result.violations).toEqual([]);

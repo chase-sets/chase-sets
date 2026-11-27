@@ -9,7 +9,6 @@ const policyCopy: Readonly<Record<string, string>> = policiesEnglishTranslations
 const has = (catalog: Readonly<Record<string, string>>, key: string) => Object.hasOwn(catalog, key);
 
 describe("public presence copy", () => {
-
   it("keeps launch-critical public policy copy out of placeholder language", () => {
     const launchPolicyKeys = [
       "publicPresence.faq.description",
