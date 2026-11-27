@@ -24,6 +24,7 @@ bounded-contexts/*/context.json
 deployables/corten-pilot/*/nav.json
 deployables/corten-pilot/marketplace/nav.bottom.json
 deployables/corten-pilot/marketplace/nav.account.json
+deployables/corten-pilot/marketplace/link-routes.json
 deployables/corten-pilot/admin/defaults.json
 deployables/corten-pilot/admin/scope-domains.json
 deployables/corten-pilot/admin/reported-content-actions.json

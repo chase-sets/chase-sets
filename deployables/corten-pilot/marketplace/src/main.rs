@@ -87,6 +87,8 @@ mod views;
 mod watching;
 
 #[cfg(test)]
+mod route_parity;
+#[cfg(test)]
 mod tests;
 
 #[tokio::main]

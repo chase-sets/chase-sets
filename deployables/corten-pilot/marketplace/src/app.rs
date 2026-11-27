@@ -1982,7 +1982,7 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App<(platform::telemetry::Traced, crate::notifications::RetiredSheet)> {
+pub(super) fn app_with_middleware<M: corten::middleware::Middleware>(config: Config, middleware: M) -> App<M> {
     let shared: Shared = Arc::new(config);
     // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
     // which are plain http locally (the default policy takes any https image), and Check out
@@ -1998,8 +1998,8 @@ pub fn app(config: Config) -> App<(platform::telemetry::Traced, crate::notificat
         .access_log(true)
         // A server span per request, named by its route (`platform::telemetry`).
         .layer(platform::telemetry::Spans)
-        // Then a link to the retired notification sheet goes to the notification center.
-        .middleware((platform::telemetry::Traced, crate::notifications::RetiredSheet))
+        // Probe route matches in tests at the same stage as the production middleware.
+        .middleware(middleware)
         .client_zone()
         // The cart's count in the shell, read beside each whole page (`crate::chrome`).
         .layout_read(crate::chrome::CartCount(shared.clone()))
@@ -2115,6 +2115,11 @@ pub fn app(config: Config) -> App<(platform::telemetry::Traced, crate::notificat
         .area(|area| url::sign_out::area(area, shared.clone()))
         .area(|area| url::offline::area(area, shared.clone()).components(views::OFFLINE))
         .error_page(views::error_page, shared)
+}
+
+pub fn app(config: Config) -> App<(platform::telemetry::Traced, crate::notifications::RetiredSheet)> {
+    // After naming the span, send links to the retired notification sheet to the notification center.
+    app_with_middleware(config, (platform::telemetry::Traced, crate::notifications::RetiredSheet))
 }
 
 /// Marketplace's sign-in, for a session the API says has ended (the callers' `identify` sends the rest

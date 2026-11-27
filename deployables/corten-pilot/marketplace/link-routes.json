@@ -1,0 +1,752 @@
+[
+  {
+    "routeId": "account",
+    "routePath": "account",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "accounts.view"
+      ]
+    }
+  },
+  {
+    "routeId": "account-agents",
+    "routePath": "account/agents",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-agents-consent",
+    "routePath": "account/agents/consent",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-agents-detail",
+    "routePath": "account/agents/:id",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-bulk-reprice",
+    "routePath": "account/bulk-reprice",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-cart",
+    "routePath": "account/cart",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-channel-connection-manual-sync-download",
+    "routePath": "account/channels/:connectionId/manual-sync/download",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.manage"
+      ]
+    }
+  },
+  {
+    "routeId": "account-consents",
+    "routePath": "account/consents",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk",
+    "routePath": "account/desk",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk-money",
+    "routePath": "account/desk/money",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk-offers",
+    "routePath": "account/desk/offers",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk-payout",
+    "routePath": "account/desk/payouts/:payoutId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk-pricing-health",
+    "routePath": "account/desk/pricing-health",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "pricing.view"
+      ]
+    }
+  },
+  {
+    "routeId": "account-desk-repricing",
+    "routePath": "account/desk/repricing",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk-repricing-policy",
+    "routePath": "account/desk/repricing/:policyId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-desk-settings",
+    "routePath": "account/desk/settings",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-inventory",
+    "routePath": "account/inventory",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-inventory-import",
+    "routePath": "account/inventory/imports/:batchId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-inventory-imports",
+    "routePath": "account/inventory/imports",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-inventory-item",
+    "routePath": "account/inventory/items/:itemId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-inventory-locations",
+    "routePath": "account/inventory/locations",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-inventory-restock-decisions",
+    "routePath": "account/inventory/restock-decisions",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-listing",
+    "routePath": "account/listings/:listingId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-listings",
+    "routePath": "account/listings",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-listings-new",
+    "routePath": "account/listings/new",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-notifications",
+    "routePath": "account/notifications",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-offer-match",
+    "routePath": "account/offers/matches/:offerId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-offer-matches",
+    "routePath": "account/offers/matches",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-offer-submitted",
+    "routePath": "account/offers/submitted/:offerId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-offers-submitted",
+    "routePath": "account/offers/submitted",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-payment",
+    "routePath": "account/payments/:paymentId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-payment-methods",
+    "routePath": "account/payment-methods",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-payment-new",
+    "routePath": "account/payments/new",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-payout",
+    "routePath": "account/payouts/:payoutId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-payout-setup",
+    "routePath": "account/payouts/setup",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-payouts",
+    "routePath": "account/payouts",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-product-alerts",
+    "routePath": "account/product-alerts",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-purchase",
+    "routePath": "account/purchases/:purchaseId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-purchase-review",
+    "routePath": "account/purchases/:purchaseId/review",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-purchases",
+    "routePath": "account/purchases",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-received-reviews",
+    "routePath": "account/reviews/received",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-repricing",
+    "routePath": "account/repricing",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-review",
+    "routePath": "account/reviews/:reviewId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-review-summary",
+    "routePath": "account/reviews",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sale",
+    "routePath": "account/sales/:orderId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sale-review",
+    "routePath": "account/sales/:orderId/review",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sale-shipment",
+    "routePath": "account/sales/shipments/:shipmentId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sale-shipment-packing",
+    "routePath": "account/sales/shipments/:shipmentId/packing",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sale-shipment-packing-slips",
+    "routePath": "account/sales/shipments/packing-slips",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sale-shipments",
+    "routePath": "account/sales/shipments",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sales",
+    "routePath": "account/sales",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-security",
+    "routePath": "account/security",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-select",
+    "routePath": "account/select",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sell-list",
+    "routePath": "account/sell-list",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sessions",
+    "routePath": "account/sessions",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-sessions-detail",
+    "routePath": "account/sessions/:id",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-settlement",
+    "routePath": "account/settlement",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-shipment",
+    "routePath": "account/shipments/:shipmentId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-shipments",
+    "routePath": "account/shipments",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-shipping-addresses",
+    "routePath": "account/shipping-addresses",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-support",
+    "routePath": "account/support",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-support-detail",
+    "routePath": "account/support/:id",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-team",
+    "routePath": "account/team",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-wallet-adjustment",
+    "routePath": "account/wallet/adjustments/:reference",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "account-written-reviews",
+    "routePath": "account/reviews/written",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    }
+  },
+  {
+    "routeId": "buy-checkout-confirmation",
+    "routePath": "checkout/buy/session/:sessionId/confirmation",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "buy-checkout-readiness",
+    "routePath": "checkout/buy/readiness",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "buy-checkout-session",
+    "routePath": "checkout/buy/session/:sessionId",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "category",
+    "routePath": "categories/:categorySlug",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "channels-connection-detail",
+    "routePath": "account/channels/:connectionId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.view"
+      ]
+    }
+  },
+  {
+    "routeId": "channels-connections",
+    "routePath": "account/channels",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.view"
+      ]
+    }
+  },
+  {
+    "routeId": "channels-ebay-callback",
+    "routePath": "channels/ebay/callback",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.manage"
+      ]
+    }
+  },
+  {
+    "routeId": "channels-ebay-connection",
+    "routePath": "account/channels/ebay",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.manage"
+      ]
+    }
+  },
+  {
+    "routeId": "channels-ebay-declined",
+    "routePath": "channels/ebay/declined",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.manage"
+      ]
+    }
+  },
+  {
+    "routeId": "channels-publication",
+    "routePath": "account/channels/publication",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.view"
+      ]
+    }
+  },
+  {
+    "routeId": "channels-publication-connection",
+    "routePath": "account/channels/publication/:connectionId",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": [
+        "channels.view"
+      ]
+    }
+  },
+  {
+    "routeId": "checkout-payment",
+    "routePath": "checkout/payments/:paymentId",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "guest-checkout-exit",
+    "routePath": "guest-checkout/exit",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "guest-payment-claim",
+    "routePath": "checkout/claim/:paymentId",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "invite",
+    "routePath": "invite/:invitationId",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "item-detail",
+    "routePath": "items/:id",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "item-detail-market-history",
+    "routePath": "items/:id/market-history",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "item-detail-rail-analytics",
+    "routePath": "analytics/item-detail-rail",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "public-account",
+    "routePath": "accounts/:accountSlug",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "public-listing",
+    "routePath": "listings/:listingSlug",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "register",
+    "routePath": "register",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "search",
+    "routePath": "search",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "sell-checkout-confirmation",
+    "routePath": "checkout/sell/session/:sessionId/confirmation",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "sell-checkout-session",
+    "routePath": "checkout/sell/session/:sessionId",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "seller-shipping-setup",
+    "routePath": "sell/shipping-setup",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "set",
+    "routePath": "sets/:setSlug",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "sign-in",
+    "routePath": "sign-in",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "sign-in-magic",
+    "routePath": "sign-in/magic",
+    "authorization": {
+      "kind": "public"
+    }
+  },
+  {
+    "routeId": "sign-out",
+    "routePath": "sign-out",
+    "authorization": {
+      "kind": "public"
+    }
+  }
+]

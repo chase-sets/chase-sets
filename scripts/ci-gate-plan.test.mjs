@@ -1495,7 +1495,7 @@ describe("shared CI gate plan", () => {
     });
   });
 
-  it("selects Corten Pilot Check from the pilot's admin, marketplace, platform and public code, its Cargo files, its export and its action", () => {
+  it("selects Corten Pilot Check from the pilot's code, its build and export files, its action and bounded context manifests", () => {
     const triggers = [
       "deployables/corten-pilot/marketplace/src/checkout.rs",
       "deployables/corten-pilot/marketplace/static/app.css",
@@ -1507,6 +1507,8 @@ describe("shared CI gate plan", () => {
       "deployables/corten-pilot/Cargo.lock",
       "deployables/corten-pilot/scripts/export.mjs",
       ".github/actions/corten-pilot-check/action.yml",
+      "bounded-contexts/discovery/context.json",
+      "bounded-contexts/new-context/context.json",
     ];
     const nearMisses = [
       "README.md",
@@ -1558,7 +1560,7 @@ describe("shared CI gate plan", () => {
     expect(action).toContain('        ! grep -q "were not type-checked" corten-check.log\n');
     expect(action).toContain('cargo install --locked --git "$git" --rev "$rev" corten-cli');
     expect(action).toContain("run: node --import=tsx deployables/corten-pilot/scripts/export.mjs --check");
-    // The advisory check skips a pull request that touches only the paths this gate selects.
+    // The advisory check skips pull requests that touch only these pilot-specific inputs.
     for (const ignored of [
       "deployables/corten-pilot/admin/**",
       "deployables/corten-pilot/marketplace/**",

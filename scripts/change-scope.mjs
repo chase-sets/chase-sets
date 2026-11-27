@@ -185,14 +185,15 @@ const cortenPublicBrowserPatterns = [
   /^deployables\/corten-pilot\/e2e\/public\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
-// The Corten pilot check (corten check) is required for the pilot's admin, marketplace, platform and public
-// code, its Cargo files, its export and the action that runs it: all three Corten apps serve production. Every
-// other change runs it advisory in corten-pilot.yml, whose pull_request paths-ignore names these same paths.
+const boundedContextManifest = /^bounded-contexts\/[^/]+\/context\.json$/;
+// The Corten pilot check is required for the apps, their build and export files, the action,
+// and the manifests that feed the marketplace link-route export. Other changes can still run it advisory.
 const cortenPilotCheckPatterns = [
   /^deployables\/corten-pilot\/(?:admin|marketplace|platform|public)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,
+  boundedContextManifest,
 ];
 // The source-context wake registry is a static aggregate over per-context
 // shard modules plus a shared entry builder. Every member of that file
@@ -200,7 +201,7 @@ const cortenPilotCheckPatterns = [
 // the platform-api contract coverage it feeds; a shard-only match would
 // silently stop running those tests on a rollout-state change.
 const contextMetadataRoutePatterns = [
-  /^bounded-contexts\/[^/]+\/context\.json$/,
+  boundedContextManifest,
   /^infrastructure\/platform-runtime\/source-context-wake-registry(?:-entry)?\.ts$/,
   /^infrastructure\/platform-runtime\/source-context-wake-registry\/[^/]+\.ts$/,
   /^docs\/architecture\/push-first-projection-migration\.md$/,
