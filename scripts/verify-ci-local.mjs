@@ -278,6 +278,34 @@ export function createLocalCommandPlan({ plan, baseSha, headSha, scope }) {
       ],
     ],
     [
+      "corten-public-browser",
+      [
+        command("node", ["--import", "tsx", "deployables/corten-pilot/scripts/export.mjs"]),
+        command("cargo", [
+          "build",
+          "--locked",
+          "--manifest-path",
+          "deployables/corten-pilot/Cargo.toml",
+          "-p",
+          "corten-pilot-public",
+        ]),
+        command(pnpm, ["exec", "playwright", "install", "--with-deps", "chromium"]),
+        command(
+          pnpm,
+          [
+            "exec",
+            "playwright",
+            "test",
+            "deployables/public-web/e2e/landing-disclosure.spec.ts",
+            "deployables/public-web/e2e/privacy-policy.spec.ts",
+            "deployables/public-web/e2e/public-shell-gutter.spec.ts",
+            "--project=public-web-chromium",
+          ],
+          { env: { CI: "true", CHASE_SETS_BROWSER_E2E_SYSTEM: "corten-public" } },
+        ),
+      ],
+    ],
+    [
       "corten-pilot-check",
       [
         command("node", ["--import", "tsx", "deployables/corten-pilot/scripts/export.mjs", "--check"]),

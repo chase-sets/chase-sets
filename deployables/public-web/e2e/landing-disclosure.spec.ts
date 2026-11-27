@@ -1,4 +1,42 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+// The Corten public app serves this page with native <details> disclosures, `data-section`
+// section identities and an ordered list of open-offers steps, where public-web renders
+// buttons with aria-expanded, `data-public-presence-section` and `data-open-offers-step`.
+// The assertions are the same on both; only the locators differ.
+const onCortenPublic = process.env.CHASE_SETS_BROWSER_E2E_SYSTEM === "corten-public";
+const sectionIdentity = onCortenPublic
+  ? { selector: "main section[data-section]", attribute: "data-section" }
+  : { selector: "[data-public-presence-section]", attribute: "data-public-presence-section" };
+const openOffersStepSelector = onCortenPublic ? "ol > li" : "[data-open-offers-step]";
+
+type Disclosure = { item: Locator; trigger: Locator };
+
+function landingDisclosure(page: Page, target: string): Disclosure {
+  const item = onCortenPublic
+    ? page.locator(`main details[data-target="${target}"]`)
+    : page.locator(`[data-landing-disclosure="${target}"]`);
+  return { item, trigger: item.locator(onCortenPublic ? "summary" : "button") };
+}
+
+function faqItems(page: Page) {
+  return onCortenPublic
+    ? page.locator('main section[data-section="faq"] details')
+    : page.locator('[data-public-presence-section="faq"] button[aria-expanded]');
+}
+
+function faqDisclosure(items: Locator, index: number): Disclosure {
+  const item = items.nth(index);
+  return { item, trigger: onCortenPublic ? item.locator("summary") : item };
+}
+
+async function expectExpanded({ item, trigger }: Disclosure, expanded: boolean) {
+  if (onCortenPublic) {
+    await expect(item).toHaveJSProperty("open", expanded);
+  } else {
+    await expect(trigger).toHaveAttribute("aria-expanded", String(expanded));
+  }
+}
 
 // After #8503 the landing page keeps one fine-print disclosure; the FAQ group
 // is also collapsed but emits no disclosure event (compare_faq prior art).
@@ -30,12 +68,12 @@ const landingLength = {
 // server-hidden step would pass it; the opacity and transform of every
 // ancestor tell a shown step from a hidden or mid-transition one.
 function openOffersStepChains(page: Page) {
-  return page.evaluate(() => {
+  return page.evaluate((stepSelector) => {
     const section = document.querySelector<HTMLElement>("#open-offers");
     if (!section) {
       return null;
     }
-    return [...section.querySelectorAll<HTMLElement>("[data-open-offers-step]")].map((step) => {
+    return [...section.querySelectorAll<HTMLElement>(stepSelector)].map((step, index) => {
       const text = [...step.querySelectorAll<HTMLElement>("*")]
         .filter((element) =>
           [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim()),
@@ -53,7 +91,7 @@ function openOffersStepChains(page: Page) {
       }
       const box = text?.getBoundingClientRect();
       return {
-        step: step.getAttribute("data-open-offers-step"),
+        step: step.getAttribute("data-open-offers-step") ?? String(index + 1),
         text: text?.textContent?.trim() ?? "",
         width: box?.width ?? 0,
         height: box?.height ?? 0,
@@ -61,7 +99,7 @@ function openOffersStepChains(page: Page) {
         chain,
       };
     });
-  });
+  }, openOffersStepSelector);
 }
 
 const openOffersPhone = { width: 390, height: 664 } as const;
@@ -93,38 +131,41 @@ for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
 
       // AC1 on the deployed target: the seven identities in order, nothing retired.
       expect(
-        await page.evaluate(() =>
-          [...document.querySelectorAll("[data-public-presence-section]")].map((section) =>
-            section.getAttribute("data-public-presence-section"),
-          ),
+        await page.evaluate(
+          ({ selector, attribute }) =>
+            [...document.querySelectorAll(selector)].map((section) => section.getAttribute(attribute)),
+          sectionIdentity,
         ),
       ).toEqual([...landingSectionOrder]);
 
-      const disclosures = disclosuresToOpen.map(([, target]) => page.locator(`[data-landing-disclosure="${target}"]`));
-      await expect(page.locator("[data-landing-disclosure]")).toHaveCount(disclosures.length);
+      const disclosures = disclosuresToOpen.map(([, target]) => landingDisclosure(page, target));
+      await expect(
+        page.locator(onCortenPublic ? "main details[data-target]" : "[data-landing-disclosure]"),
+      ).toHaveCount(disclosures.length);
       for (const disclosure of disclosures) {
-        await expect(disclosure).toHaveCount(1);
-        await expect(disclosure.locator("button")).toHaveAttribute("aria-expanded", "false");
+        await expect(disclosure.item).toHaveCount(1);
+        await expectExpanded(disclosure, false);
       }
-      const faqTriggers = page.locator('[data-public-presence-section="faq"] button[aria-expanded]');
-      await expect(faqTriggers).toHaveCount(faqQuestionCount);
+      const faq = faqItems(page);
+      await expect(faq).toHaveCount(faqQuestionCount);
       for (let index = 0; index < faqQuestionCount; index += 1) {
-        await expect(faqTriggers.nth(index)).toHaveAttribute("aria-expanded", "false");
+        await expectExpanded(faqDisclosure(faq, index), false);
       }
       await page.screenshot({ path: testInfo.outputPath("collapsed.png"), fullPage: true });
 
       for (const disclosure of disclosures) {
-        await disclosure.locator("button").click();
-        await expect(disclosure.locator("button")).toHaveAttribute("aria-expanded", "true");
-        const content = disclosure.locator("p").last();
+        await disclosure.trigger.click();
+        await expectExpanded(disclosure, true);
+        const content = disclosure.item.locator("p").last();
         await expect(content).toBeVisible();
         const rectangle = await content.boundingBox();
         expect(rectangle?.width).toBeGreaterThan(0);
         expect(rectangle?.height).toBeGreaterThan(0);
       }
       // Opening a FAQ item is not a tracked disclosure (AC4).
-      await faqTriggers.first().click();
-      await expect(faqTriggers.first()).toHaveAttribute("aria-expanded", "true");
+      const firstFaq = faqDisclosure(faq, 0);
+      await firstFaq.trigger.click();
+      await expectExpanded(firstFaq, true);
       const opened = await page.evaluate(() =>
         (window as { dataLayer?: Array<{ event?: string }> }).dataLayer?.filter(
           (entry) => entry.event === "disclosure_opened",
@@ -158,7 +199,7 @@ for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
       await page.goto(landingPath, { waitUntil: "load" });
       const section = page.locator("#open-offers");
       await expect(section).toHaveCount(1);
-      await expect(section).toHaveAttribute("data-public-presence-section", "open_offers");
+      await expect(section).toHaveAttribute(sectionIdentity.attribute, "open_offers");
       await section.scrollIntoViewIfNeeded();
       const steps = await openOffersStepChains(page);
       testInfo.annotations.push({ type: "open-offers-no-js", description: JSON.stringify(steps) });
@@ -207,7 +248,7 @@ for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
       await expect(section).toHaveCount(1);
       // Scroll the section in so an armed group would have played by now.
       await section.scrollIntoViewIfNeeded();
-      await expect(section.locator("[data-open-offers-step]")).toHaveCount(3);
+      await expect(section.locator(openOffersStepSelector)).toHaveCount(3);
       const steps = await openOffersStepChains(page);
       testInfo.annotations.push({ type: "open-offers-reduced-motion", description: JSON.stringify(steps) });
       await section.screenshot({ path: testInfo.outputPath("open-offers-reduced-motion.png") });
@@ -356,7 +397,12 @@ for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
 
       const panel = page.locator("#waitlist-form");
       await expect(page.locator('section[aria-label="Marketplace announcements"]')).toBeVisible();
-      await expect(panel.getByText(`${firstScreenDisplayCount}+`)).toBeVisible();
+      // The Corten public app draws the counter on the server from its own waitlist read, which
+      // the browser route above cannot stub; the pilot's tests.rs pins the drawn counter. The fit
+      // below is measured on whatever the system draws.
+      if (!onCortenPublic) {
+        await expect(panel.getByText(`${firstScreenDisplayCount}+`)).toBeVisible();
+      }
       await page.evaluate(async () => {
         await document.fonts.ready;
       });

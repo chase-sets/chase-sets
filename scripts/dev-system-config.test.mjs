@@ -24,7 +24,9 @@ import {
   createMarketplaceDevProcessDefinition,
   browserE2eCortenAdminTarget,
   browserE2eCortenMarketplaceTarget,
+  browserE2eCortenPublicTarget,
   cortenAdminBinaryPath,
+  cortenPublicBinaryPath,
   cortenMarketplaceBinaryPath,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
@@ -253,7 +255,7 @@ describe("dev system target env overrides", () => {
       browserE2eProductionTarget,
     );
     expect(() => resolveBrowserE2eSystemTarget({ CHASE_SETS_BROWSER_E2E_SYSTEM: "preview" })).toThrow(
-      /must be "development", "production", "corten-marketplace" or "corten-admin"/,
+      /must be "development", "production", "corten-marketplace", "corten-admin" or "corten-public"/,
     );
   });
 
@@ -332,6 +334,93 @@ describe("dev system target env overrides", () => {
       platform: "linux",
     });
     expect(marketplaceTargetAdmin).toBe(processes[1]);
+  });
+
+  it("serves public-web from the Corten pilot's public binary behind an ingress on the public port, with the API's internal capability", () => {
+    expect(resolveBrowserE2eSystemTarget({ CHASE_SETS_BROWSER_E2E_SYSTEM: "corten-public" })).toBe(
+      browserE2eCortenPublicTarget,
+    );
+    expect(isBrowserE2eTarget(browserE2eCortenPublicTarget)).toBe(true);
+    const processes = [
+      { name: "platform-api", env: { PORT: "6182" }, port: 6182 },
+      {
+        name: "public-web",
+        workspace: "@chase-sets/app-public-web",
+        env: {
+          PORT: "6174",
+          PLATFORM_API_URL: "http://localhost:6182",
+          CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+          CHASE_SETS_MARKETPLACE_ORIGIN: "http://localhost:6173",
+        },
+        port: 6174,
+      },
+    ];
+    const [api, site] = applyDevTargetEnvOverrides(browserE2eCortenPublicTarget, processes, {
+      ci: true,
+      environment: {},
+      platform: "linux",
+    });
+    expect(api.env.PLATFORM_INTERNAL_AUTH_SECRET).toBe(site.env.PLATFORM_INTERNAL_AUTH_SECRET);
+    expect(api.env.PLATFORM_INTERNAL_AUTH_SECRET).toMatch(/\S/);
+    expect(api.env.CHASE_SETS_TRUST_FORWARDED_HEADERS).toBe("true");
+    expect(site).toEqual({
+      name: "public-web",
+      command: cortenPublicBinaryPath({}, "linux"),
+      args: [],
+      env: expect.objectContaining({
+        CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+        CHASE_SETS_MARKETPLACE_ORIGIN: "http://localhost:6173",
+        CHASE_SETS_PUBLIC_ORIGIN: "http://localhost:6174",
+        PUBLIC_WEB_ORIGIN: "http://localhost:6174",
+        HOST: "127.0.0.1",
+        PORT: "6178",
+      }),
+      port: 6178,
+      publicPort: 6174,
+    });
+    expect(site).not.toHaveProperty("workspace");
+    expect(
+      createBrowserE2eProductionIngressDefinitions([api, site], {
+        apiUrl: "http://localhost:6182",
+        ingressScriptPath: "/repo/scripts/platform-compose-ingress.mjs",
+      }),
+    ).toEqual([
+      {
+        name: "public-web-ingress",
+        command: "node",
+        args: [
+          "/repo/scripts/platform-compose-ingress.mjs",
+          "--port",
+          "6174",
+          "--label",
+          "public-web",
+          "--web-target",
+          "http://127.0.0.1:6178",
+          "--api-target",
+          "http://localhost:6182",
+        ],
+        env: {},
+        port: 6174,
+      },
+    ]);
+    // Without the Corten public target, public-web keeps no ingress: no other target serves it behind one.
+    expect(
+      createBrowserE2eProductionIngressDefinitions([api, processes[1]], {
+        apiUrl: "http://localhost:6182",
+        ingressScriptPath: "/repo/scripts/platform-compose-ingress.mjs",
+      }),
+    ).toEqual([]);
+    expect(cortenPublicBinaryPath({}, "linux")).toMatch(
+      /deployables[\\/]corten-pilot[\\/]target[\\/]debug[\\/]corten-pilot-public$/,
+    );
+    expect(cortenPublicBinaryPath({ CORTEN_PUBLIC_BINARY: "/opt/public" }, "linux")).toBe("/opt/public");
+    // The Corten admin target keeps public-web as it is.
+    const [, adminTargetSite] = applyDevTargetEnvOverrides(browserE2eCortenAdminTarget, processes, {
+      ci: true,
+      environment: {},
+      platform: "linux",
+    });
+    expect(adminTargetSite).toBe(processes[1]);
   });
 
   it("serves the marketplace from the Corten pilot binary behind an ingress on the marketplace port, with the API's internal capability", () => {

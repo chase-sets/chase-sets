@@ -303,10 +303,20 @@ export const browserE2eCortenMarketplaceTarget = "browser-e2e-corten-marketplace
 // system starts (cargo build -p corten-pilot-admin in deployables/corten-pilot); this target does not
 // build it.
 export const browserE2eCortenAdminTarget = "browser-e2e-corten-admin";
+// The browser e2e sandbox with public-web served by the Corten pilot's public binary, against the same
+// platform API and seed. As in production, an ingress on the public port sends /api to the platform API
+// and everything else to the pilot, which listens on its own origin port. The binary is built before the
+// system starts (cargo build -p corten-pilot-public in deployables/corten-pilot); this target does not
+// build it.
+export const browserE2eCortenPublicTarget = "browser-e2e-corten-public";
 // A fixed value both the platform API and the pilot read: the pilot has no development default for
 // the internal capability, and the API's default is not visible to a Rust process.
 const browserE2eCortenInternalAuthSecret = "browser-e2e-corten-marketplace-internal-auth";
-const browserE2eCortenTargets = new Set([browserE2eCortenMarketplaceTarget, browserE2eCortenAdminTarget]);
+const browserE2eCortenTargets = new Set([
+  browserE2eCortenMarketplaceTarget,
+  browserE2eCortenAdminTarget,
+  browserE2eCortenPublicTarget,
+]);
 
 export function cortenMarketplaceBinaryPath(environment = process.env, platform = process.platform) {
   const configured = environment.CORTEN_MARKETPLACE_BINARY?.trim();
@@ -320,6 +330,14 @@ export function cortenAdminBinaryPath(environment = process.env, platform = proc
   const configured = environment.CORTEN_ADMIN_BINARY?.trim();
   if (configured) return configured;
   const name = platform === "win32" ? "corten-pilot-admin.exe" : "corten-pilot-admin";
+  const repositoryRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  return path.join(repositoryRoot, "deployables", "corten-pilot", "target", "debug", name);
+}
+
+export function cortenPublicBinaryPath(environment = process.env, platform = process.platform) {
+  const configured = environment.CORTEN_PUBLIC_BINARY?.trim();
+  if (configured) return configured;
+  const name = platform === "win32" ? "corten-pilot-public.exe" : "corten-pilot-public";
   const repositoryRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   return path.join(repositoryRoot, "deployables", "corten-pilot", "target", "debug", name);
 }
@@ -345,6 +363,9 @@ export const browserE2eProductionBuilds = Object.freeze([
 const browserE2eProductionWebOriginPortOffset = 4;
 // The web hosts a browser e2e target serves behind an ingress on their public port: admin and the marketplace.
 const browserE2eIngressWebNames = new Set(["admin-web", "marketplace"]);
+// The web hosts an ingress may front: those, and public-web, which only the Corten public target serves
+// behind one.
+const browserE2eIngressHostNames = new Set([...browserE2eIngressWebNames, "public-web"]);
 
 export const browserE2eDirectCiCommands = Object.freeze({
   "platform-worker": browserE2ePlatformWorkerCiCommand,
@@ -364,8 +385,11 @@ export function resolveBrowserE2eSystemTarget(environment = process.env) {
   if (mode === "corten-admin") {
     return browserE2eCortenAdminTarget;
   }
+  if (mode === "corten-public") {
+    return browserE2eCortenPublicTarget;
+  }
   throw new Error(
-    `CHASE_SETS_BROWSER_E2E_SYSTEM must be "development", "production", "corten-marketplace" or "corten-admin"; received "${mode}".`,
+    `CHASE_SETS_BROWSER_E2E_SYSTEM must be "development", "production", "corten-marketplace", "corten-admin" or "corten-public"; received "${mode}".`,
   );
 }
 
@@ -382,7 +406,7 @@ export function acquireDevSystemHeavySlot(mode, targetName, acquireSlot) {
 
 export function createBrowserE2eProductionIngressDefinitions(processDefinitions, { apiUrl, ingressScriptPath }) {
   return processDefinitions
-    .filter((definition) => browserE2eIngressWebNames.has(definition.name) && definition.publicPort !== undefined)
+    .filter((definition) => browserE2eIngressHostNames.has(definition.name) && definition.publicPort !== undefined)
     .map((definition) => ({
       name: `${definition.name}-ingress`,
       command: "node",
@@ -462,6 +486,31 @@ export function applyDevTargetEnvOverrides(
           // The admin's own public origin, as staging and production set it: the pilot links to,
           // signs in at and allows forms to post to the host that serves it.
           ADMIN_WEB_ORIGIN: `http://localhost:${definition.port}`,
+          HOST: "127.0.0.1",
+          PORT: String(originPort),
+        },
+        port: originPort,
+        publicPort: definition.port,
+      };
+    }
+
+    if (definition.name === "public-web" && targetName === browserE2eCortenPublicTarget) {
+      const internalApiOrigin = definition.env.CHASE_SETS_INTERNAL_API_ORIGIN ?? definition.env.PLATFORM_API_URL;
+      if (!internalApiOrigin) throw new Error("public-web requires PLATFORM_API_URL for the Corten public app.");
+      const originPort = definition.port + browserE2eProductionWebOriginPortOffset;
+      const publicOrigin = `http://localhost:${definition.port}`;
+      return {
+        name: definition.name,
+        command: cortenPublicBinaryPath(environment, platform),
+        args: [],
+        env: {
+          ...definition.env,
+          CHASE_SETS_INTERNAL_API_ORIGIN: internalApiOrigin,
+          PLATFORM_INTERNAL_AUTH_SECRET: browserE2eCortenInternalAuthSecret,
+          // The site's own public origin, as staging and production set it: its canonical links and
+          // sitemap name the host that serves it.
+          CHASE_SETS_PUBLIC_ORIGIN: publicOrigin,
+          PUBLIC_WEB_ORIGIN: publicOrigin,
           HOST: "127.0.0.1",
           PORT: String(originPort),
         },

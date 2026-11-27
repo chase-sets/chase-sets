@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 import { createBrowserE2eRunEvidenceEnvironment } from "./scripts/browser-e2e-evidence.mjs";
-import { browserE2eCortenMarketplaceTarget, resolveBrowserE2eSystemTarget } from "./scripts/dev-system-config.mjs";
+import {
+  browserE2eCortenMarketplaceTarget,
+  browserE2eCortenPublicTarget,
+  resolveBrowserE2eSystemTarget,
+} from "./scripts/dev-system-config.mjs";
 import { acquireHeavySlot } from "./scripts/lib/heavy-slot.mjs";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 
@@ -22,18 +26,24 @@ const deployedProfile = {
 const mobile = /(?:^|\s)@mobile(?:\s|$)/;
 const tablet = /(?:^|\s)@tablet(?:\s|$)/;
 const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
-// The browser-e2e dev-system targets boot platform-api, platform-worker and
-// either admin-web or the Corten marketplace — not public-web. So the public-web project exists
-// exactly when a caller names a running public-web host, and public-web specs
-// never fall through to another deployable's host.
-const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);
 const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
+// Only the Corten public target boots a public host. So the public-web project exists exactly when that
+// target runs or a caller names a running public host, and public specs never fall through to another
+// deployable's host.
+const includePublicWebProject =
+  browserE2eSystemTarget === browserE2eCortenPublicTarget || Boolean(process.env.PUBLIC_WEB_URL);
+// The public specs check that their baseURL is PUBLIC_WEB_URL, so the Corten public target names the host
+// it boots there too; Playwright's workers inherit it.
+if (browserE2eSystemTarget === browserE2eCortenPublicTarget) process.env.PUBLIC_WEB_URL = publicWebBaseUrl;
 // The web host the dev system boots last and Playwright waits for: the Corten marketplace target boots
-// the marketplace and no admin; every other target boots admin and no marketplace.
+// the marketplace and no admin, the Corten public target boots only the public app, and every other
+// target boots admin and no marketplace.
 const browserE2eSystemReadyUrl =
   browserE2eSystemTarget === browserE2eCortenMarketplaceTarget
     ? `${marketplaceBaseUrl}/health/ready`
-    : `${adminWebBaseUrl}/health/ready`;
+    : browserE2eSystemTarget === browserE2eCortenPublicTarget
+      ? `${publicWebBaseUrl}/health/ready`
+      : `${adminWebBaseUrl}/health/ready`;
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
 const marketplaceDesktop = {
   name: "marketplace-chromium",

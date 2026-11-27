@@ -169,6 +169,19 @@ function expectedCortenAdminBrowser(changedFiles) {
   return changedFiles.some((file) => cortenAdminBrowserPaths.some((pattern) => pattern.test(file)));
 }
 
+// Nor the Corten public browser flag.
+const cortenPublicBrowserPaths = [
+  /^deployables\/corten-pilot\/(?:public|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
+  /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^deployables\/public-web\/e2e\/[^/]+\.spec\.ts$/,
+  /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
+];
+
+function expectedCortenPublicBrowser(changedFiles) {
+  return changedFiles.some((file) => cortenPublicBrowserPaths.some((pattern) => pattern.test(file)));
+}
+
 // Nor the Corten pilot check flag.
 const cortenPilotCheckPaths = [
   /^deployables\/corten-pilot\/(?:admin|marketplace|platform|public)\/(?!.*\.md$)/,
@@ -2480,6 +2493,7 @@ function expectedPublicPresenceEnrollment(base, workspaces) {
     catalogUatSyntheticRequired: expectedCatalogUatSynthetic(base.changedFiles),
     cortenMarketplaceBrowserRequired: expectedCortenMarketplaceBrowser(base.changedFiles),
     cortenAdminBrowserRequired: expectedCortenAdminBrowser(base.changedFiles),
+    cortenPublicBrowserRequired: expectedCortenPublicBrowser(base.changedFiles),
     cortenPilotCheckRequired: expectedCortenPilotCheck(base.changedFiles),
   };
   if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
@@ -2765,6 +2779,7 @@ describe("change-scope", () => {
       catalogUatSyntheticRequired: false,
       cortenMarketplaceBrowserRequired: false,
       cortenAdminBrowserRequired: false,
+      cortenPublicBrowserRequired: false,
       cortenPilotCheckRequired: false,
       requiredProofPaths: [],
     });

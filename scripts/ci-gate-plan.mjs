@@ -60,6 +60,13 @@ export const CI_GATE_DEFINITIONS = Object.freeze([
     "REPOSITORY_LOCAL",
     "cortenAdminBrowserRequired",
   ),
+  gate(
+    "corten-public-browser",
+    "Corten Public Browser Tests",
+    "scope-gated",
+    "REPOSITORY_LOCAL",
+    "cortenPublicBrowserRequired",
+  ),
   gate("corten-pilot-check", "Corten Pilot Check", "scope-gated", "REPOSITORY_LOCAL", "cortenPilotCheckRequired"),
   gate("build", "Build", "full-battery-only", "REPOSITORY_LOCAL", "buildRequired"),
   gate("docker-image", "Docker Image Build", "full-battery-only", "HOSTED_ONLY", "dockerImageRequired"),
@@ -140,6 +147,7 @@ export function validateCiGateScope(scope) {
     "catalogUatSyntheticRequired",
     "cortenMarketplaceBrowserRequired",
     "cortenAdminBrowserRequired",
+    "cortenPublicBrowserRequired",
     "cortenPilotCheckRequired",
   ];
   for (const key of booleans) {

@@ -94,11 +94,12 @@ describe("browser e2e readiness", () => {
     expect(observations).toEqual([expect.objectContaining({ name: "platform-worker", ready: true })]);
   });
 
-  it("waits on the web host each target boots: the marketplace for the Corten marketplace, else admin", () => {
+  it("waits on the web host each target boots: the marketplace or public for those Corten apps, else admin", () => {
     const sandbox = {
       urls: {
         adminWeb: "http://localhost:6172",
         marketplaceWeb: "http://localhost:6173",
+        publicWeb: "http://localhost:6174",
         platformApi: "http://localhost:6182",
         platformWorker: "http://localhost:6183",
       },
@@ -109,6 +110,10 @@ describe("browser e2e readiness", () => {
     ];
     expect(browserE2eComponents(sandbox, "browser-e2e-corten-marketplace")).toEqual([
       { name: "marketplace", url: "http://localhost:6173/health/ready" },
+      ...rest,
+    ]);
+    expect(browserE2eComponents(sandbox, "browser-e2e-corten-public")).toEqual([
+      { name: "public-web", url: "http://localhost:6174/health/ready" },
       ...rest,
     ]);
     for (const target of ["browser-e2e", "browser-e2e-production", "browser-e2e-corten-admin"]) {

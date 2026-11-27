@@ -15,6 +15,7 @@ import {
   browserE2eProductionBuilds,
   browserE2eCortenAdminTarget,
   browserE2eCortenMarketplaceTarget,
+  browserE2eCortenPublicTarget,
   browserE2eProductionTarget,
   buildPlatformBootstrapEnvironment,
   buildPlatformChildEnvironment,
@@ -250,6 +251,7 @@ const devTargets = {
   [browserE2eProductionTarget]: ["platform-api", "platform-worker", "admin-web"],
   [browserE2eCortenMarketplaceTarget]: ["platform-api", "platform-worker", "marketplace"],
   [browserE2eCortenAdminTarget]: ["platform-api", "platform-worker", "admin-web"],
+  [browserE2eCortenPublicTarget]: ["platform-api", "platform-worker", "public-web"],
   "public-web": ["platform-api", "platform-worker", "public-web"],
 };
 
@@ -586,7 +588,8 @@ async function runDev(targetName = "all") {
   if (
     targetName === browserE2eProductionTarget ||
     targetName === browserE2eCortenMarketplaceTarget ||
-    targetName === browserE2eCortenAdminTarget
+    targetName === browserE2eCortenAdminTarget ||
+    targetName === browserE2eCortenPublicTarget
   ) {
     selectedProcesses.push(
       ...createBrowserE2eProductionIngressDefinitions(selectedProcesses, {

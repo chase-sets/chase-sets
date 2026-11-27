@@ -10,7 +10,11 @@ import {
   resolveBrowserE2eEvidencePaths,
   writeBrowserE2eReadinessEvidence,
 } from "./browser-e2e-evidence.mjs";
-import { browserE2eCortenMarketplaceTarget, resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
+import {
+  browserE2eCortenMarketplaceTarget,
+  browserE2eCortenPublicTarget,
+  resolveBrowserE2eSystemTarget,
+} from "./dev-system-config.mjs";
 import { resolveWorktreeSandbox } from "./lib/sandbox.mjs";
 
 // Playwright permits each web server six hundred seconds to boot. Phase one
@@ -248,7 +252,9 @@ export function browserE2eComponents(sandbox, target = resolveBrowserE2eSystemTa
   const web =
     target === browserE2eCortenMarketplaceTarget
       ? { name: "marketplace", url: `${sandbox.urls.marketplaceWeb}/health/ready` }
-      : { name: "admin-web", url: `${sandbox.urls.adminWeb}/health/ready` };
+      : target === browserE2eCortenPublicTarget
+        ? { name: "public-web", url: `${sandbox.urls.publicWeb}/health/ready` }
+        : { name: "admin-web", url: `${sandbox.urls.adminWeb}/health/ready` };
   return [
     web,
     { name: "platform-api", url: `${sandbox.urls.platformApi}/health/ready` },
