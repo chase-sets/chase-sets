@@ -113,7 +113,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "corten-pilot": "runtime",
     "platform-api": "runtime",
     "platform-worker": "runtime",
-    "public-web": "runtime",
     "tcgplayer-connector-extension": "runtime",
     "tcgplayer-operator-extension": "runtime",
   }),

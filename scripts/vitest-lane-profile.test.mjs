@@ -223,7 +223,7 @@ test("preserves explicit workspace overrides in lane mode", () => {
   assert.equal(config.test.maxWorkers, 1);
 });
 
-test("keeps the exact 68+1 tracked Vitest config topology on the shared lane resolver", () => {
+test("keeps the exact 67+1 tracked Vitest config topology on the shared lane resolver", () => {
   const trackedConfigs = execFileSync("git", ["ls-files", "--", "*vitest*.config.*"], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -235,9 +235,9 @@ test("keeps the exact 68+1 tracked Vitest config topology on the shared lane res
   const scriptsConfig = "vitest.scripts.config.mjs";
   const workspaceConfigs = trackedConfigs.filter((configPath) => configPath !== scriptsConfig);
 
-  // marketplace-web's config left with that deployable.
-  assert.equal(trackedConfigs.length, 69);
-  assert.equal(workspaceConfigs.length, 68);
+  // marketplace-web's and public-web's configs left with those deployables.
+  assert.equal(trackedConfigs.length, 68);
+  assert.equal(workspaceConfigs.length, 67);
   assert.ok(workspaceConfigs.includes("contracts/order-groups/vitest.config.ts"));
   assert.ok(workspaceConfigs.includes("contracts/tcgplayer-market-observations/vitest.config.ts"));
   assert.ok(workspaceConfigs.includes("deployables/agent-apps/vitest.config.ts"));
