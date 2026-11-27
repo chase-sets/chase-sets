@@ -167,7 +167,7 @@ const retiredConsumerZeroConsumerExports = [
   "TrustBadge",
 ].map((symbol) => ({
   symbol,
-  reason: "only consumer was marketplace-web's item page, removed with that deployable; queued for deletion",
+  reason: "only consumer was marketplace-web's item page, removed with that deployable; queued for deletion in #12102",
 }));
 
 const retiredPublicWebZeroConsumerExports = [
@@ -183,7 +183,7 @@ const retiredPublicWebZeroConsumerExports = [
 ].map((symbol) => ({
   symbol,
   reason:
-    "only consumer was the public-presence feature UI public-web rendered, removed after that deployable; queued for deletion",
+    "only consumer was the public-presence feature UI public-web rendered, removed after that deployable; queued for deletion in #12141",
 }));
 
 const defaultAllowedZeroConsumerExports = [
