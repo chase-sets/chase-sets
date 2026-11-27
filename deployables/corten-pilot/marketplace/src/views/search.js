@@ -132,10 +132,19 @@ export function find(event) {
  * `AUTO_LOAD_ROOT_MARGIN`), so the results keep coming as the page scrolls. The patch that adds
  * the rows draws the form again for the page after, which connects and waits again; a form drawn
  * after a failed load is not watched, so it waits for its button, as marketplace's does.
+ *
+ * A form a patch drew after adding rows passes `address`, the address that draws every row the
+ * page now shows (`more=`), and it takes the history entry's place, so Back from an item and a
+ * reload draw them again, as corten-ui's tabs keep their place, since the patch leaves the address it
+ * was sent from. The page's own form passes "", since its address draws its rows.
  * @param {HTMLFormElement} form
  * @param {AbortSignal} signal
+ * @param {string} address
  */
-export function near(form, signal) {
+export function near(form, signal, address) {
+  if (address !== "" && location.pathname + location.search !== address) {
+    history.replaceState(history.state, "", address);
+  }
   if (form.hidden) return;
   const watch = new IntersectionObserver(
     (seen) => {
@@ -147,20 +156,6 @@ export function near(form, signal) {
   );
   watch.observe(form);
   signal.addEventListener("abort", () => watch.disconnect(), { once: true });
-}
-
-/**
- * Load more's patch added rows: put `address`, the address that draws every row the page now
- * shows (`more=`), in place of the history entry's, so Back from an item and a reload draw them
- * again, as corten-ui's tabs keep their place. The patch leaves the address it was sent from
- * (corten-run/corten#1406). Then watch for the next page, as `near` does.
- * @param {HTMLFormElement} form
- * @param {AbortSignal} signal
- * @param {string} address
- */
-export function grown(form, signal, address) {
-  if (location.pathname + location.search !== address) history.replaceState(history.state, "", address);
-  near(form, signal);
 }
 
 /**

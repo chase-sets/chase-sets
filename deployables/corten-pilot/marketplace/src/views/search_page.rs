@@ -1018,7 +1018,7 @@ pub fn ResultRows<'a>(
 /// there is no more, so a patch can still replace it. With JavaScript it also sends itself as the
 /// reader comes near (`search.near`), unless a load just failed. After a failed load it says so,
 /// and its button tries again. Drawn by a patch that added rows, it puts `kept`, the address of
-/// the rows the page now shows, in place of the history entry's (`search.grown`).
+/// the rows the page now shows, in place of the history entry's (`search.near`'s `address`).
 #[component(css = SearchPage)]
 pub fn LoadMore<'a>(
     t: SearchMsg,
@@ -1040,10 +1040,8 @@ pub fn LoadMore<'a>(
             action={&action}
             data-patch
             hidden={cursor.is_none()}
-            on:connect={match kept {
-                Some(kept) => Some(handlers::grown(target, signal, kept)),
-                None => (cursor.is_some() && !failed).then(|| handlers::near(target, signal)),
-            }}
+            on:connect={(kept.is_some() || (cursor.is_some() && !failed))
+                .then(|| handlers::near(target, signal, kept.unwrap_or("")))}
         >
             for (key, value) in &pairs {
                 <input type="hidden" name={key} value={value}>

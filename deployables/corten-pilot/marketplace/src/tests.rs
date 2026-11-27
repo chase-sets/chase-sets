@@ -6892,7 +6892,7 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     // JavaScript it is the address with a page more, at the first result it adds.
     let form = r#"<form id="load-more" class="#;
     assert!(
-        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s)'>"#),
+        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s,"#),
         "{html}"
     );
     for field in [
@@ -6949,10 +6949,10 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert!(html.contains(r#"<li id="result-25""#) && html.contains(r#"<li id="result-30""#), "{html}");
     assert!(html.contains(r#"href="/items/card-25?dimension.dim_grade=chc_10""#), "{html}");
     // Load more again, hidden: there is no page after it. It puts the address of the 30 rows in
-    // place of the history entry's, so Back from an item draws them again (search.grown).
+    // place of the history entry's, so Back from an item draws them again (search.near's address).
     let form = load_more_tag(&html);
     assert!(form.contains(r#"action="/categories/singles-x1#result-31" data-patch hidden"#), "{form}");
-    assert!(form.contains("connect:search.grown(") && !form.contains("search.near"), "{form}");
+    assert!(form.contains("connect:search.near("), "{form}");
     assert!(form.contains("/categories/singles-x1?q=pika") && form.contains("more=24"), "{form}");
     assert!(!form.contains("cursor"), "the address is the page's, not the API's: {form}");
 
@@ -6965,7 +6965,7 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert!(html.contains(r#"<input type="hidden" name="more" value="24">"#), "{html}");
     // The rows are the first page again, so the address it keeps has no more.
     let form = load_more_tag(&html);
-    assert!(form.contains("connect:search.grown(") && form.contains("/search?q=pika"), "{form}");
+    assert!(form.contains("connect:search.near(") && form.contains("/search?q=pika"), "{form}");
     assert!(!form.contains("more="), "{form}");
 
     // A failed read leaves the rows and offers Load more again, saying so.
@@ -6976,7 +6976,6 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert!(html.contains(r#"<input type="hidden" name="cursor" value="broken">"#), "{html}");
 
     assert!(!html.contains("search.near"), "a failed load waits for its button: {html}");
-    assert!(!html.contains("search.grown"), "a failed load added no rows: {html}");
 
     // Without JavaScript the same form is the page with a page more.
     let (status, headers, html) = pilot.send(get(more, None)).await;
@@ -6990,7 +6989,7 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     let form = &html[html.find(r#"<form id="load-more""#).expect("Load more")..];
     let form = &form[..form.find('>').unwrap()];
     assert!(!form.contains(" hidden") && form.contains("connect:search.near("), "{form}");
-    assert!(!form.contains("search.grown"), "the page's own address already draws its rows: {form}");
+    assert!(!form.contains("?q="), "the page's own address already draws its rows: {form}");
 }
 
 /// The opening tag of a Load more form `html` draws.

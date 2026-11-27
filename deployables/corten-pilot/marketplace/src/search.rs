@@ -857,7 +857,8 @@ pub(crate) async fn with_sheet(
 }
 
 /// The address that draws `rows` results here: the whole pages beyond the first that hold them,
-/// up to the most one address shows. A Load more patch puts it in the history entry's place.
+/// up to the most one address shows. A Load more patch puts it in the history entry's place, since a
+/// `data-patch` GET leaves the address it was sent from (corten-run/corten#1406).
 pub(crate) fn kept_address(place: Place<'_>, terms: &Terms, rows: usize) -> String {
     let beyond = rows.saturating_sub(PAGE_SIZE).div_ceil(PAGE_SIZE) * PAGE_SIZE;
     place.href(&Terms { more: beyond.min(MOST_SHOWN - PAGE_SIZE), ..terms.clone() })
