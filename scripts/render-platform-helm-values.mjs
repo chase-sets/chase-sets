@@ -445,10 +445,9 @@ export function buildPlatformHelmStagingValues(options = {}) {
     doksIngress: buildDoksIngressValues({ env: options.env }),
     components: {
       ...readPlatformRuntimeValues(path.resolve(options.repoRoot ?? repoRoot)).stagingComponents,
-      "public-web": {
-        rollout: rolloutValues(true, true, "/health/ready"),
-      },
-      // admin-corten serves admin.staging, so admin-web is not deployed.
+      // public-corten serves www.staging and admin-corten serves admin.staging, so neither public-web nor
+      // admin-web is deployed.
+      "public-web": { enabled: false },
       "admin-web": { enabled: false },
       "platform-api": {
         ...doksStagingApiOverrides,
@@ -479,7 +478,6 @@ export function buildPlatformHelmStagingValues(options = {}) {
 // 1 vCPU / 1 GiB envelope the staging API has run on (doksStagingApiOverrides).
 // platform-bootstrap is a short pre-rollout hook and is deliberately absent.
 const productionAppComponentRequests = {
-  "public-web": { cpu: "200m", memory: "256Mi" },
   "platform-api": { cpu: "250m", memory: "512Mi" },
   "platform-worker": { cpu: "200m", memory: "512Mi" },
 };
@@ -512,9 +510,8 @@ export function buildPlatformHelmProductionValues(options = {}) {
       },
     },
     components: {
-      // The Corten admin, marketplace and public apps. The deploy renders public-corten disabled while public-web
-      // serves chasesets.com and www.chasesets.com. admin-corten always serves admin.chasesets.com and
-      // marketplace-corten always serves marketplace.chasesets.com.
+      // The Corten admin, marketplace and public apps, which serve admin.chasesets.com, marketplace.chasesets.com,
+      // and chasesets.com with www.chasesets.com.
       ...productionComponents,
       ...Object.fromEntries(
         Object.entries(productionAppComponentRequests).map(([name, requests]) => [
@@ -525,7 +522,9 @@ export function buildPlatformHelmProductionValues(options = {}) {
           },
         ]),
       ),
-      // admin-corten serves admin.chasesets.com, so admin-web is not deployed.
+      // public-corten serves chasesets.com and www.chasesets.com and admin-corten serves admin.chasesets.com, so
+      // neither public-web nor admin-web is deployed.
+      "public-web": { enabled: false },
       "admin-web": { enabled: false },
     },
   };
@@ -576,45 +575,10 @@ export const adminApp = "admin-corten";
 // (docs/runbooks/staging-marketplace-app.md, docs/runbooks/production-marketplace-app.md).
 export const marketplaceApp = "marketplace-corten";
 
-// The app that serves www.staging. STAGING_PUBLIC_APP is a GitHub variable, so a rollback to public-web is a
-// variable change and a deploy, with no pull request. Unset means the default; any other value fails.
-export const STAGING_PUBLIC_APPS = Object.freeze(["public-corten", "public-web"]);
-export const defaultStagingPublicApp = "public-corten";
-
-export function resolveStagingPublicApp(env = {}) {
-  const value = String(env.STAGING_PUBLIC_APP ?? "").trim();
-  if (value === "") {
-    return { app: defaultStagingPublicApp, source: "default" };
-  }
-  if (!STAGING_PUBLIC_APPS.includes(value)) {
-    throw new Error(`STAGING_PUBLIC_APP must be one of ${STAGING_PUBLIC_APPS.join(", ")}; got "${value}".`);
-  }
-  return { app: value, source: "variable" };
-}
-
-// The app that serves chasesets.com and www.chasesets.com, from the production environment's PRODUCTION_PUBLIC_APP.
-// It defaults to public-web; switching production to the Corten public app is its own reviewed change
-// (docs/runbooks/production-public-app.md). Unset means the default; any other value fails.
-export const PRODUCTION_PUBLIC_APPS = STAGING_PUBLIC_APPS;
-export const defaultProductionPublicApp = "public-web";
-
-export function resolveProductionPublicApp(env = {}) {
-  const value = String(env.PRODUCTION_PUBLIC_APP ?? "").trim();
-  if (value === "") {
-    return { app: defaultProductionPublicApp, source: "default" };
-  }
-  if (!PRODUCTION_PUBLIC_APPS.includes(value)) {
-    throw new Error(`PRODUCTION_PUBLIC_APP must be one of ${PRODUCTION_PUBLIC_APPS.join(", ")}; got "${value}".`);
-  }
-  return { app: value, source: "variable" };
-}
-
-// The public app for a staging or production deploy; null for any other environment.
-export function resolvePublicApp(env = {}, environment) {
-  if (environment === "staging") return { ...resolveStagingPublicApp(env), variable: "STAGING_PUBLIC_APP" };
-  if (environment === "production") return { ...resolveProductionPublicApp(env), variable: "PRODUCTION_PUBLIC_APP" };
-  return null;
-}
+// The Corten public app serves www.staging, chasesets.com and www.chasesets.com. There is no variable to choose
+// public-web: rolling back is reverting to an earlier release (docs/runbooks/staging-public-app.md,
+// docs/runbooks/production-public-app.md).
+export const publicApp = "public-corten";
 
 export function buildDoksIngressValues(options = {}) {
   const env = options.env ?? {};
@@ -624,7 +588,6 @@ export function buildDoksIngressValues(options = {}) {
   }
 
   const production = environment === "production";
-  const publicApp = production ? resolveProductionPublicApp(env).app : resolveStagingPublicApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
 
@@ -656,7 +619,7 @@ export function buildDoksIngressValues(options = {}) {
       host: `marketplace-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("marketplace-corten"),
     });
-    // The public pilot's own host, whichever app serves www.staging.
+    // The Corten public app's own host, beside www.staging.
     hosts.push({
       host: `public-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("public-corten"),
@@ -724,8 +687,8 @@ export function buildPreviewDoksIngressValues(options = {}) {
 }
 
 function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
-  const apexService = options.apexService ?? "public-web";
-  const wwwService = options.wwwService ?? "public-web";
+  const apexService = options.apexService ?? publicApp;
+  const wwwService = options.wwwService ?? publicApp;
   const marketplaceService = options.marketplaceService ?? marketplaceApp;
   const adminService = options.adminService ?? "admin-web";
   const hosts =

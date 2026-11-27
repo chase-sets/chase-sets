@@ -1059,9 +1059,9 @@ spec:
     // redirect hostnames (those were retired outright, not rewired to DOKS;
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes this host set
-    // (guarded in digitalocean-platform-config.test.mjs), except the
-    // admin-corten, marketplace-corten and public-corten pilot hosts, which it
-    // probes only while each pilot serves its host.
+    // (guarded in digitalocean-platform-config.test.mjs), with the
+    // admin-corten, marketplace-corten and public-corten hosts read through
+    // their /health/ready paths.
     // It must never regress to including a legacy hostname.
     for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
       expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);
@@ -1090,7 +1090,7 @@ spec:
     });
     expect(doksIngress.hosts.find((host) => host.host === "chasesets.com").paths.at(-1)).toEqual({
       path: "/",
-      service: "public-web",
+      service: "public-corten",
     });
     expect(doksIngress.hosts.some((host) => host.host.startsWith("marketplace."))).toBe(false);
   });
@@ -1511,22 +1511,28 @@ spec:
     const expectedRequests = {
       "platform-api": { cpu: "250m", memory: "512Mi" },
       "platform-worker": { cpu: "200m", memory: "512Mi" },
-      "public-web": { cpu: "200m", memory: "256Mi" },
     };
 
     expect(production.components, "production overlay must carry per-component resources").toBeDefined();
-    // Exactly the three long-lived React and platform app components. platform-bootstrap is a
+    // Exactly the two long-lived platform app components. platform-bootstrap is a
     // short pre-rollout hook that finishes before the cutover it guards, so
     // reserving a node share for it would only shrink what the app pods can
     // land on.
-    // The Corten admin, marketplace and public pilots are the only other running components, each with its own
-    // Burstable 100m / 128Mi request. The public pilot runs only while PRODUCTION_PUBLIC_APP=public-corten, beside
-    // public-web (the rollback). The Corten admin and marketplace always serve admin.chasesets.com and
-    // marketplace.chasesets.com, so admin-web is rendered disabled.
+    // The Corten admin, marketplace and public apps are the only other running components, each with its own
+    // Burstable 100m / 128Mi request. They always serve admin.chasesets.com, marketplace.chasesets.com and the apex
+    // and www, so admin-web and public-web are rendered disabled.
     expect(Object.keys(production.components).sort()).toEqual(
-      [...Object.keys(expectedRequests), "admin-corten", "admin-web", "marketplace-corten", "public-corten"].sort(),
+      [
+        ...Object.keys(expectedRequests),
+        "admin-corten",
+        "admin-web",
+        "marketplace-corten",
+        "public-corten",
+        "public-web",
+      ].sort(),
     );
     expect(production.components["admin-web"]).toEqual({ enabled: false });
+    expect(production.components["public-web"]).toEqual({ enabled: false });
     for (const pilot of ["admin-corten", "marketplace-corten", "public-corten"]) {
       expect(production.components[pilot].resources).toEqual({
         requests: { cpu: "100m", memory: "128Mi" },
@@ -1537,8 +1543,8 @@ spec:
       (total, { resources }) => total + (resources ? millicores(resources.requests.cpu) : 0),
       0,
     );
-    // Every app pod and the three pilots together still fit one 1900m-allocatable runtime node.
-    expect(summed).toBe(950);
+    // Every app pod and the three Corten apps together still fit one 1900m-allocatable runtime node.
+    expect(summed).toBe(750);
     expect(summed).toBeLessThan(1900);
 
     for (const [name, requests] of Object.entries(expectedRequests)) {
@@ -1575,9 +1581,9 @@ spec:
       0,
     );
 
-    expect(totalMillicores).toBe(650);
-    expect(totalMemoryKi).toBe(1310720);
-    // Headroom left on that node for the add-ons: 1250m CPU and 1764172Ki.
+    expect(totalMillicores).toBe(450);
+    expect(totalMemoryKi).toBe(1048576);
+    // Headroom left on that node for the add-ons: 1450m CPU and 2026316Ki.
     expect(1900 - totalMillicores).toBeGreaterThanOrEqual(900);
     expect(3074892 - totalMemoryKi).toBeGreaterThanOrEqual(1024 * 1024);
 
@@ -1607,7 +1613,7 @@ spec:
 
     expect(production.components, "production overlay must carry per-component spread").toBeDefined();
 
-    for (const name of ["platform-api", "platform-worker", "public-web"]) {
+    for (const name of ["platform-api", "platform-worker"]) {
       // ScheduleAnyway, not DoNotSchedule: a rolling cutover with one
       // schedulable node must still place the replacement pod rather than hang
       // Pending. The exact-equality also pins the absence of `labelSelector` --
@@ -1643,8 +1649,8 @@ spec:
     );
 
     const [generated] = readChartFiles(["values.production.yaml"]);
-    // marketplace-web and admin-web are disabled in production, so they carry no spread.
-    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(3);
+    // marketplace-web, admin-web and public-web are disabled in production, so they carry no spread.
+    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(2);
     expect(generated).toContain(
       [
         "    topologySpreadConstraints:",
