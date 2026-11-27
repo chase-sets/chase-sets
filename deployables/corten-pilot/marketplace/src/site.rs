@@ -23,7 +23,7 @@
 //! leaving out the position and the keys, as its log does), and counts them in marketplace-web's
 //! metric, `chase_sets_marketplace_item_detail_rail_events_total`, with its labels
 //! (`platform::telemetry`). The endpoint and its vocabulary are Discovery's to own, not a
-//! web host's (chase-sets/chase-sets#3494); the pilot keeps marketplace's copy until Discovery
+//! web host's (chase-sets/chase-sets#12149); the pilot keeps marketplace's copy until Discovery
 //! contributes it.
 use std::{sync::OnceLock, time::Duration};
 
