@@ -593,17 +593,18 @@ describe("metadata-only web hosts", () => {
     };
     expect(findRoutesExportViolation(both)).toBe("contexts with route contributions must export ./routes/* publicly");
   });
-  it("names marketplace-web as the only metadata-only host, matching the runtime list", () => {
-    expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web"]);
+  it("names marketplace-web and public-web as the metadata-only hosts, matching the runtime list", () => {
+    expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web", "public-web"]);
     const runtimeSource = readFileSync(path.join(repoRoot, "infrastructure/platform-runtime/web.ts"), "utf8");
+    const runtimeList = METADATA_ONLY_WEB_HOSTS.map((host) => JSON.stringify(host)).join(", ");
     expect(runtimeSource).toContain(
-      `export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze(${JSON.stringify(METADATA_ONLY_WEB_HOSTS)});`,
+      `export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze([${runtimeList}]);`,
     );
   });
 
   it("rejects a context registry written for a metadata-only host", () => {
     const rootDir = copyRealTree();
-    writeFiles(rootDir, { [marketplacePath]: readFileSync(path.join(repoRoot, publicPath), "utf8") });
+    writeFiles(rootDir, { [marketplacePath]: readFileSync(path.join(repoRoot, adminPath), "utf8") });
 
     expect(violationsFor(rootDir)).toEqual([
       `${marketplacePath}: marketplace-web is a metadata-only host; its contributions name no route module, so it must have no context registry`,
@@ -617,6 +618,7 @@ describe("metadata-only web hosts", () => {
 
     expect(violationsFor(copyRealTree(), { metadataOnlyHosts: [] })).toEqual([
       `${marketplacePath}: context registry is missing`,
+      `${publicPath}: context registry is missing`,
     ]);
   });
 });

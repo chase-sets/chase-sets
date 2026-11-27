@@ -14,10 +14,11 @@ export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
 
 /**
  * Hosts whose route contributions are metadata only. The Corten marketplace
- * serves marketplace-web's routes, so its records name no route module; they
- * still publish the canonical links Notifications and agents build.
+ * and public apps serve marketplace-web's and public-web's routes, so their
+ * records name no route module; they still publish the canonical links
+ * Notifications, agents and the sitemap build.
  */
-export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze(["marketplace-web"]);
+export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze(["marketplace-web", "public-web"]);
 export type WebHostSection = "access" | "catalog" | "commerce" | "growth" | "support" | "platform";
 
 export type WebContextManifest = Readonly<{

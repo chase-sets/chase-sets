@@ -1715,7 +1715,7 @@ describe("read-after-write route inventory guard", () => {
     const metadataOnly = { metadataOnlyHosts: ["marketplace-web"] };
 
     it("defaults to the shared metadata-only host list", () => {
-      expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web"]);
+      expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web", "public-web"]);
       const root = createTempRepo();
       const indexes = collectReadAfterWriteRouteIndexes(createContextManifest(root));
       expect([...indexes.metadataOnlyRouteIds].sort()).toEqual(["buy-checkout-readiness", "buy-checkout-session"]);

@@ -186,7 +186,7 @@ export const CONTEXT_REGISTRY_HOST_ARMS = Object.freeze(
 // no route module, page component or context registry exists for them because
 // the Corten pilot serves those pages. Mirrors metadataOnlyWebHosts in
 // infrastructure/platform-runtime/web.ts.
-export const METADATA_ONLY_WEB_HOSTS = Object.freeze(["marketplace-web"]);
+export const METADATA_ONLY_WEB_HOSTS = Object.freeze(["marketplace-web", "public-web"]);
 function contextManifestArmMatches(arm, manifest, hostName) {
   const value = manifest?.[arm.field];
   if (!Array.isArray(value)) return false;
