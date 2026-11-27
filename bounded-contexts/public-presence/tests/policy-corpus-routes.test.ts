@@ -9,16 +9,16 @@ import { publicPresenceEnglishTranslations } from "@chase-sets/localization/loca
 import { policiesEnglishTranslations } from "../features/policies/ui/localization/locales/en";
 import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import FoundersRoute, { loader as foundersLoader, meta as foundersMeta } from "../routes/marketplace/founders";
+import FoundersRoute, { loader as foundersLoader, meta as foundersMeta } from "../features/policies/ui/routes/founders";
 import { foundersOfferTermsPolicyArtifact } from "../features/policies/domain/founders-offer-terms";
 import { renderPublicPolicyPublicationContracts } from "../features/policies/integrations/compile-policy-publications.mjs";
 import { publicOpenGraphImages } from "../features/waitlist/ui/social-meta";
-import { meta as agentTermsMeta } from "../routes/marketplace/agent-terms";
-import { meta as authenticityTermsMeta } from "../routes/marketplace/authenticity-terms";
-import { meta as paymentsTermsMeta } from "../routes/marketplace/payments-terms";
-import { meta as privacyPolicyMeta } from "../routes/marketplace/privacy";
-import { meta as sellerAgreementMeta } from "../routes/marketplace/seller-agreement";
-import { meta as termsOfServiceMeta } from "../routes/marketplace/terms";
+import { meta as agentTermsMeta } from "../features/policies/ui/routes/agent-terms";
+import { meta as authenticityTermsMeta } from "../features/policies/ui/routes/authenticity-terms";
+import { meta as paymentsTermsMeta } from "../features/policies/ui/routes/payments-terms";
+import { meta as privacyPolicyMeta } from "../features/policies/ui/routes/privacy";
+import { meta as sellerAgreementMeta } from "../features/policies/ui/routes/seller-agreement";
+import { meta as termsOfServiceMeta } from "../features/policies/ui/routes/terms";
 
 const corpusRoutes = [
   { routeName: "founders", meta: foundersMeta, policyKey: "founders-offer-terms", noindexWhilePending: false },
@@ -236,9 +236,10 @@ describe("atomic founders migration at the candidate head", () => {
     );
     expect(email).toContain('trackedPublicUrl("/founders", step, "founders_terms")');
     expect(email.match(/"founders_terms"/g)).toHaveLength(1);
-    const sitemap = source("deployables/public-web/app/routes/sitemap.ts");
-    const stablePaths = /STABLE_PUBLIC_PATHS\s*=\s*\[([\s\S]*?)\]/.exec(sitemap)![1]!;
-    expect(stablePaths.match(/"\/founders"/g)).toHaveLength(1);
+    // The Corten public app serves the sitemap; its stable paths list /founders once.
+    const sitemap = source("deployables/corten-pilot/public/src/market.rs");
+    const stablePaths = /let stable = \[([\s\S]*?)\];/.exec(sitemap)![1]!;
+    expect(stablePaths.match(/url::Founders\.href\(\)/g)).toHaveLength(1);
     expect(source("bounded-contexts/public-presence/docs/landing-page-analytics.md")).not.toMatch(
       /founders.*faq|faq.*founders/i,
     );

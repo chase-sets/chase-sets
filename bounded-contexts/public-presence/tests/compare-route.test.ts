@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  loader as tcgplayerLoader,
-  meta as tcgplayerMeta,
-  compareTcgplayerJsonLd,
-} from "../routes/marketplace/compare-tcgplayer";
-import { loader as ebayLoader, meta as ebayMeta, compareEbayJsonLd } from "../routes/marketplace/compare-ebay";
+import { buildCompareStructuredData, compareMeta } from "../features/waitlist/ui/compare-page";
+import { loadLandingFeePresentation } from "../support/request-support/landing-fee-presentation";
+
+const compareTcgplayerJsonLd = (publicOrigin?: string) => buildCompareStructuredData("tcgplayer", publicOrigin);
+const compareEbayJsonLd = (publicOrigin?: string) => buildCompareStructuredData("ebay", publicOrigin);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -59,16 +58,6 @@ const standardSchedulePolicyResponse = () =>
     { headers: { "Content-Type": "application/json" } },
   );
 
-function metaArgs(data: unknown, pathname: string) {
-  return {
-    data,
-    params: {},
-    location: { pathname, search: "", hash: "", state: null, key: "test" },
-    matches: [],
-    error: undefined,
-  } as never;
-}
-
 describe("comparison SEO routes (#4087)", () => {
   // Order-sensitive on purpose: the shared landing-fee module memoizes a
   // SUCCESSFUL policy read for five minutes, so the failure case must run
@@ -82,11 +71,7 @@ describe("comparison SEO routes (#4087)", () => {
     );
 
     try {
-      const data = await tcgplayerLoader({
-        request: new Request("https://chasesets.test/compare/tcgplayer"),
-        params: {},
-        context: undefined,
-      } as never);
+      const data = await loadLandingFeePresentation(new Request("https://chasesets.test/compare/tcgplayer"));
 
       expect(data.feeSchedule).toBeNull();
       expect(error).toHaveBeenCalledWith(
@@ -103,11 +88,7 @@ describe("comparison SEO routes (#4087)", () => {
     const fetch = vi.fn(async () => standardSchedulePolicyResponse());
     vi.stubGlobal("fetch", fetch);
 
-    const data = await ebayLoader({
-      request: new Request("https://chasesets.test/compare/ebay"),
-      params: {},
-      context: undefined,
-    } as never);
+    const data = await loadLandingFeePresentation(new Request("https://chasesets.test/compare/ebay"));
 
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/public-presence/policy-values"),
@@ -119,11 +100,10 @@ describe("comparison SEO routes (#4087)", () => {
       capAmount: "25.00",
       effectiveFrom: "2026-07-03T00:00:00.000Z",
     });
-    expect(data.publicOrigin).toBe("https://chasesets.test");
   });
 
   it("positions both pages' metadata on the competitor fee queries without owning canonical tags", () => {
-    const tcgplayerDescriptors = tcgplayerMeta(metaArgs(undefined, "/compare/tcgplayer"));
+    const tcgplayerDescriptors = compareMeta("tcgplayer");
     expect(tcgplayerDescriptors).toEqual(
       expect.arrayContaining([
         { title: "TCGplayer Seller Fees vs Chase Sets | 2026 Comparison" },
@@ -132,7 +112,7 @@ describe("comparison SEO routes (#4087)", () => {
     );
     expect(tcgplayerDescriptors).not.toContainEqual(expect.objectContaining({ rel: "canonical" }));
 
-    const ebayDescriptors = ebayMeta(metaArgs({ publicOrigin: "https://preview.chasesets.test" }, "/compare/ebay"));
+    const ebayDescriptors = compareMeta("ebay", "https://preview.chasesets.test");
     expect(ebayDescriptors).toEqual(
       expect.arrayContaining([
         { title: "eBay Trading Card Seller Fees vs Chase Sets | 2026 Comparison" },
