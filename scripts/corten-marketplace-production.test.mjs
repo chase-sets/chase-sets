@@ -24,9 +24,12 @@ const workflowText = read(".github/workflows/platform-production.yml");
 const workflow = parse(workflowText);
 const digest = "sha256:" + "a".repeat(64);
 const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@${digest}`;
+// admin-corten serves admin.chasesets.com, so every production deploy also carries its staged image.
+const adminImage = image.replace("corten-marketplace", "corten-admin");
 const proxies = "10.244.0.0/25,10.244.1.0/25";
 const production = (env = {}, overrides = {}) => ({
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
+  cortenAdminImage: adminImage,
   cortenMarketplaceImage: image,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: proxies },
   env: {
@@ -64,10 +67,10 @@ describe("production marketplace app", () => {
       expect(pilotArgs(args)).toEqual([`components.marketplace-corten.image=${image}`]);
       expect(args[args.indexOf(`components.marketplace-corten.image=${image}`) - 1]).toBe("--set-string");
       expect(hostRoot(args, "marketplace.chasesets.com")).toBe("marketplace-corten");
-      // The apex and www stay public-web and admin stays admin-web.
+      // The apex and www stay public-web and admin stays admin-corten.
       expect(hostRoot(args, "chasesets.com")).toBe("public-web");
       expect(hostRoot(args, "www.chasesets.com")).toBe("public-web");
-      expect(hostRoot(args, "admin.chasesets.com")).toBe("admin-web");
+      expect(hostRoot(args, "admin.chasesets.com")).toBe("admin-corten");
       expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
       expect(withheldCortenPilots(production(env))).not.toContain("marketplace-corten");
     }
@@ -104,14 +107,11 @@ describe("production marketplace app", () => {
     expect(refusal).toThrow("To recover, fix the ingress pod CIDR discovery and deploy again");
   });
 
-  it("keeps the admin and public pilots' switches independent of the marketplace", () => {
-    const admin = image.replace("corten-marketplace", "corten-admin");
-    const args = buildHelmUpgradeArgs(
-      production({ PRODUCTION_ADMIN_APP: "admin-corten" }, { cortenAdminImage: admin }),
-    );
-    expect(args).toContain(`components.admin-corten.image=${admin}`);
+  it("keeps the public pilot's switch independent of the marketplace", () => {
+    const args = buildHelmUpgradeArgs(production());
+    expect(args).toContain(`components.admin-corten.image=${adminImage}`);
     expect(args).toContain(`components.marketplace-corten.image=${image}`);
-    expect(withheldCortenPilots(production())).toEqual(["admin-corten", "public-corten"]);
+    expect(withheldCortenPilots(production())).toEqual(["public-corten"]);
     // The public pilot stays withheld while public-web serves the apex and www, image or not.
     const publicImage = image.replace("corten-marketplace", "corten-public");
     expect(

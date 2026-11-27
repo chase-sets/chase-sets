@@ -49,7 +49,8 @@ describe("Corten public staging, first slice", () => {
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
       // Moved for the production public switch (PRODUCTION_PUBLIC_APP, the staged Corten public image, best-effort PROXIES),
       // then for retiring marketplace-web (no PRODUCTION_MARKETPLACE_APP).
-      "deploy-production": "9eabad66f3039a0bcd0fda196becdf3bbebbc59a69f127fbfb2c55ab300d9c48",
+      // Then for retiring admin-web: no PRODUCTION_ADMIN_APP, and admin-corten is always readied and smoked.
+      "deploy-production": "f54c4edc1b26f819ad9e3890afcad9a82a5c4144823e0c056c316f618db54dbe",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -71,7 +72,8 @@ describe("Corten public staging, first slice", () => {
       // Moved for retiring marketplace-web: the base values no longer carry the marketplace component,
       // and production no longer disables it.
       "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
-      "values.production.yaml": "2d12059c80fe6ac167b48df4c3140a1e7f0a4902fe9789d89d1fcffc8744a8ec",
+      // Then for retiring admin-web: production keeps no admin-web resources and disables it.
+      "values.production.yaml": "dc49af728c4543cfa44866842cae5977cb120fe526063f32486a7de66a634313",
     })) {
       expect(
         createHash("sha256")
@@ -276,7 +278,7 @@ describe("Corten public staging, first slice", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const index = steps.findIndex(({ name }) => name === "Advisory Corten public smoke");
     const smoke = steps[index];
-    expect(steps[index - 1].name).toBe("Advisory Corten admin smoke");
+    expect(steps[index - 1].name).toBe("Smoke check");
     expect(smoke["continue-on-error"]).toBe(true);
     expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
     expect(smoke.env).toEqual({ PUBLIC_APP: "${{ steps.staging_kubernetes_deploy.outputs.public_app }}" });

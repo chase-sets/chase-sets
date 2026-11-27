@@ -30,7 +30,9 @@ const proxies = "10.244.0.0/25,10.244.1.0/25";
 const production = (env = {}, overrides = {}) => ({
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenPublicImage: image,
-  // marketplace-corten serves marketplace.chasesets.com, so every production deploy carries its staged image.
+  // admin-corten and marketplace-corten serve admin.chasesets.com and marketplace.chasesets.com, so every production
+  // deploy carries their staged images.
+  cortenAdminImage: image.replace("corten-public", "corten-admin"),
   cortenMarketplaceImage: image.replace("corten-public", "corten-marketplace"),
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: proxies },
   env: {
@@ -92,10 +94,10 @@ describe("production public app switch", () => {
       {},
       { envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" } },
     );
-    // Without PROXIES the deploy refuses for the Corten marketplace, which always serves its host, not for the
-    // withheld public pilot.
+    // Without PROXIES the deploy refuses for the Corten admin, which always serves its host and is checked first,
+    // not for the withheld public pilot.
     expect(() => buildHelmUpgradeArgs(withoutProxies)).toThrow(
-      "PROXIES is required on production: the ingress pod CIDRs could not be read, and the Corten marketplace",
+      "PROXIES is required on production: the ingress pod CIDRs could not be read, and the Corten admin",
     );
   });
 
@@ -110,7 +112,7 @@ describe("production public app switch", () => {
         "chasesets.com": "public-web",
         "www.chasesets.com": "public-web",
         ...(served === "true" ? { "marketplace.chasesets.com": "marketplace-corten" } : {}),
-        "admin.chasesets.com": "admin-web",
+        "admin.chasesets.com": "admin-corten",
       });
       expect(hosts({ ...env, PRODUCTION_PUBLIC_APP: "public-web" })).toEqual(hosts(env));
     }
@@ -122,9 +124,9 @@ describe("production public app switch", () => {
     expect(args[args.indexOf(`components.public-corten.image=${image}`) - 1]).toBe("--set-string");
     expect(hostRoot(args, "chasesets.com")).toBe("public-corten");
     expect(hostRoot(args, "www.chasesets.com")).toBe("public-corten");
-    // The marketplace host stays with the Corten marketplace and admin keeps admin-web.
+    // The marketplace and admin hosts stay with the Corten marketplace and admin.
     expect(hostRoot(args, "marketplace.chasesets.com")).toBe("marketplace-corten");
-    expect(hostRoot(args, "admin.chasesets.com")).toBe("admin-web");
+    expect(hostRoot(args, "admin.chasesets.com")).toBe("admin-corten");
     // /api and the other platform paths stay on platform-api on both public hosts.
     const ingress = buildDoksIngressValues({ environment: "production", env: production(publicCorten).env });
     for (const name of ["chasesets.com", "www.chasesets.com"]) {
@@ -159,18 +161,17 @@ describe("production public app switch", () => {
     expect(refusal).toThrow("To recover, fix the ingress pod CIDR discovery and deploy again");
   });
 
-  it("keeps the admin switch and the marketplace independent of the public switch", () => {
+  it("keeps the admin and the marketplace independent of the public switch", () => {
     const admin = image.replace("corten-public", "corten-admin");
     const marketplace = image.replace("corten-public", "corten-marketplace");
-    const all = { ...publicCorten, PRODUCTION_ADMIN_APP: "admin-corten" };
-    const args = buildHelmUpgradeArgs(
-      production(all, { cortenAdminImage: admin, cortenMarketplaceImage: marketplace }),
-    );
-    expect(args).toContain(`components.admin-corten.image=${admin}`);
-    expect(args).toContain(`components.marketplace-corten.image=${marketplace}`);
-    expect(args).toContain(`components.public-corten.image=${image}`);
-    expect(withheldCortenPilots(production(all))).toEqual([]);
-    expect(withheldCortenPilots(production(publicCorten))).toEqual(["admin-corten"]);
+    for (const env of [{}, publicCorten]) {
+      const args = buildHelmUpgradeArgs(production(env));
+      expect(args).toContain(`components.admin-corten.image=${admin}`);
+      expect(args).toContain(`components.marketplace-corten.image=${marketplace}`);
+    }
+    expect(buildHelmUpgradeArgs(production(publicCorten))).toContain(`components.public-corten.image=${image}`);
+    expect(withheldCortenPilots(production(publicCorten))).toEqual([]);
+    expect(withheldCortenPilots(production())).toEqual(["public-corten"]);
   });
 
   it("does not wait for public-corten under public-web and waits for it under public-corten", async () => {

@@ -20,7 +20,6 @@ import {
   platformHelmComponentName,
   platformHelmFullname,
   previewWildcardTlsSecretName,
-  resolveStagingAdminApp,
   syncPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
 import { PROVIDER_WEBHOOK_PATHS } from "./provider-webhook-paths.mjs";
@@ -965,56 +964,37 @@ spec:
     expect(doksIngress.hosts[0].paths.slice(0, -1).every((route) => route.service === "platform-api")).toBe(true);
   });
 
-  it("serves admin.staging from the app STAGING_ADMIN_APP names, and nothing else", () => {
-    const adminHost = (env) =>
-      buildDoksIngressValues({ env: { DOKS_INGRESS_TARGET: "203.0.113.10", ...env } }).hosts.filter(({ host }) =>
-        host.startsWith("admin"),
+  it("serves admin.staging and admin.chasesets.com from admin-corten, whatever a leftover variable says", () => {
+    const adminServing = (environment, env) =>
+      Object.fromEntries(
+        buildDoksIngressValues({
+          environment,
+          env: { DOKS_INGRESS_TARGET: "203.0.113.10", PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20", ...env },
+        })
+          .hosts.filter(({ host }) => host.startsWith("admin"))
+          .map(({ host, paths }) => [host, paths.at(-1).service]),
       );
-    const serving = (env) => Object.fromEntries(adminHost(env).map(({ host, paths }) => [host, paths.at(-1).service]));
-    for (const env of [{}, { STAGING_ADMIN_APP: "" }, { STAGING_ADMIN_APP: " admin-corten " }]) {
-      expect(serving(env)).toEqual({
+    const leftovers = [
+      {},
+      { STAGING_ADMIN_APP: "admin-web" },
+      { PRODUCTION_ADMIN_APP: "admin-web" },
+      { STAGING_ADMIN_APP: "not-an-app", PRODUCTION_ADMIN_APP: "not-an-app" },
+    ];
+    for (const env of leftovers) {
+      expect(adminServing("staging", env)).toEqual({
         "admin.staging.chasesets.com": "admin-corten",
         "admin-corten.staging.chasesets.com": "admin-corten",
       });
+      expect(adminServing("production", env)).toEqual({ "admin.chasesets.com": "admin-corten" });
     }
-    expect(serving({ STAGING_ADMIN_APP: "admin-web" })).toEqual({
-      "admin.staging.chasesets.com": "admin-web",
-      "admin-corten.staging.chasesets.com": "admin-corten",
-    });
-    // The switch moves only "/": every platform-api path on the admin host stays where it was.
-    const apiPaths = (env) => adminHost(env)[0].paths.slice(0, -1);
-    expect(apiPaths({ STAGING_ADMIN_APP: "admin-web" })).toEqual(apiPaths({}));
-    for (const value of ["admin", "Admin-Corten", "marketplace", "public-web", "admin-corten,admin-web"]) {
-      expect(() => adminHost({ STAGING_ADMIN_APP: value })).toThrow(
-        `STAGING_ADMIN_APP must be one of admin-corten, admin-web; got "${value}".`,
-      );
+    // No ingress path on staging or production routes to admin-web any more.
+    for (const environment of ["staging", "production"]) {
+      const services = buildDoksIngressValues({
+        environment,
+        env: { DOKS_INGRESS_TARGET: "203.0.113.10", PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20" },
+      }).hosts.flatMap(({ paths }) => paths.map(({ service }) => service));
+      expect(services, environment).not.toContain("admin-web");
     }
-    // A bad value fails even before the ingress is enabled, so it cannot wait for the first live deploy.
-    expect(() => buildDoksIngressValues({ env: { STAGING_ADMIN_APP: "admin" } })).toThrow("STAGING_ADMIN_APP");
-    expect(resolveStagingAdminApp({})).toEqual({ app: "admin-corten", source: "default" });
-    expect(resolveStagingAdminApp({ STAGING_ADMIN_APP: "admin-web" })).toEqual({
-      app: "admin-web",
-      source: "variable",
-    });
-  });
-
-  it("leaves production admin on admin-web whatever STAGING_ADMIN_APP says", () => {
-    const production = (env) =>
-      buildDoksIngressValues({
-        environment: "production",
-        env: { PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20", ...env },
-      });
-    for (const STAGING_ADMIN_APP of ["admin-corten", "admin-web", "not-an-app"]) {
-      expect(production({ STAGING_ADMIN_APP })).toEqual(production({}));
-    }
-    expect(
-      production({})
-        .hosts.find(({ host }) => host === "admin.chasesets.com")
-        .paths.at(-1),
-    ).toEqual({
-      path: "/",
-      service: "admin-web",
-    });
   });
 
   // #9985: the browser extension's connector credential mount
@@ -1529,24 +1509,24 @@ spec:
     // and the add-ons were restarted under the pressure.
     const production = buildPlatformHelmProductionValues({ repoRoot });
     const expectedRequests = {
-      "admin-web": { cpu: "100m", memory: "256Mi" },
       "platform-api": { cpu: "250m", memory: "512Mi" },
       "platform-worker": { cpu: "200m", memory: "512Mi" },
       "public-web": { cpu: "200m", memory: "256Mi" },
     };
 
     expect(production.components, "production overlay must carry per-component resources").toBeDefined();
-    // Exactly the four long-lived React and platform app components. platform-bootstrap is a
+    // Exactly the three long-lived React and platform app components. platform-bootstrap is a
     // short pre-rollout hook that finishes before the cutover it guards, so
     // reserving a node share for it would only shrink what the app pods can
     // land on.
-    // The Corten admin, marketplace and public pilots are the only other components, each with its own Burstable
-    // 100m / 128Mi request. The admin and public pilots run only while PRODUCTION_ADMIN_APP=admin-corten or
-    // PRODUCTION_PUBLIC_APP=public-corten, beside their React apps (the rollback). The Corten marketplace always
-    // serves marketplace.chasesets.com.
+    // The Corten admin, marketplace and public pilots are the only other running components, each with its own
+    // Burstable 100m / 128Mi request. The public pilot runs only while PRODUCTION_PUBLIC_APP=public-corten, beside
+    // public-web (the rollback). The Corten admin and marketplace always serve admin.chasesets.com and
+    // marketplace.chasesets.com, so admin-web is rendered disabled.
     expect(Object.keys(production.components).sort()).toEqual(
-      [...Object.keys(expectedRequests), "admin-corten", "marketplace-corten", "public-corten"].sort(),
+      [...Object.keys(expectedRequests), "admin-corten", "admin-web", "marketplace-corten", "public-corten"].sort(),
     );
+    expect(production.components["admin-web"]).toEqual({ enabled: false });
     for (const pilot of ["admin-corten", "marketplace-corten", "public-corten"]) {
       expect(production.components[pilot].resources).toEqual({
         requests: { cpu: "100m", memory: "128Mi" },
@@ -1558,7 +1538,7 @@ spec:
       0,
     );
     // Every app pod and the three pilots together still fit one 1900m-allocatable runtime node.
-    expect(summed).toBe(1050);
+    expect(summed).toBe(950);
     expect(summed).toBeLessThan(1900);
 
     for (const [name, requests] of Object.entries(expectedRequests)) {
@@ -1595,9 +1575,9 @@ spec:
       0,
     );
 
-    expect(totalMillicores).toBe(750);
-    expect(totalMemoryKi).toBe(1572864);
-    // Headroom left on that node for the add-ons: 1150m CPU and 1502028Ki.
+    expect(totalMillicores).toBe(650);
+    expect(totalMemoryKi).toBe(1310720);
+    // Headroom left on that node for the add-ons: 1250m CPU and 1764172Ki.
     expect(1900 - totalMillicores).toBeGreaterThanOrEqual(900);
     expect(3074892 - totalMemoryKi).toBeGreaterThanOrEqual(1024 * 1024);
 
@@ -1627,7 +1607,7 @@ spec:
 
     expect(production.components, "production overlay must carry per-component spread").toBeDefined();
 
-    for (const name of ["admin-web", "platform-api", "platform-worker", "public-web"]) {
+    for (const name of ["platform-api", "platform-worker", "public-web"]) {
       // ScheduleAnyway, not DoNotSchedule: a rolling cutover with one
       // schedulable node must still place the replacement pod rather than hang
       // Pending. The exact-equality also pins the absence of `labelSelector` --
@@ -1663,8 +1643,8 @@ spec:
     );
 
     const [generated] = readChartFiles(["values.production.yaml"]);
-    // marketplace-web is disabled in production, so it carries no spread.
-    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(4);
+    // marketplace-web and admin-web are disabled in production, so they carry no spread.
+    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(3);
     expect(generated).toContain(
       [
         "    topologySpreadConstraints:",

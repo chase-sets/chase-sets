@@ -196,18 +196,6 @@ components:
       - maxSkew: 1
         topologyKey: "kubernetes.io/hostname"
         whenUnsatisfiable: "ScheduleAnyway"
-  admin-web:
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "1"
-        memory: "1Gi"
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: "kubernetes.io/hostname"
-        whenUnsatisfiable: "ScheduleAnyway"
   platform-api:
     resources:
       requests:
@@ -232,3 +220,5 @@ components:
       - maxSkew: 1
         topologyKey: "kubernetes.io/hostname"
         whenUnsatisfiable: "ScheduleAnyway"
+  admin-web:
+    enabled: false
