@@ -3700,6 +3700,7 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
   function createFixture(
     inventory: "absent" | (() => Promise<InventoryAnswer>),
     current: Partial<NonNullable<InventoryCurrentItemAnswer>> = {},
+    currentPort: "present" | "absent" = "present",
   ) {
     const memory = createInMemoryEventStore();
     const order: string[] = [];
@@ -3780,7 +3781,10 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
       listingEvidencePolicyEvaluator: { evaluate },
       ...(inventory === "absent"
         ? {}
-        : { inventoryItemGradedCardAuthority: { resolve }, inventoryCurrentItemAuthority: currentAuthority }),
+        : {
+            inventoryItemGradedCardAuthority: { resolve },
+            ...(currentPort === "absent" ? {} : { inventoryCurrentItemAuthority: currentAuthority }),
+          }),
     });
     return {
       ...memory,
@@ -4023,6 +4027,41 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     expect(writes(ITEM_WRITE).map((values) => values?.slice(6))).toEqual([["loc_1", 2, "4.50", "USD"]]);
   });
 
+  it("answers a same-key retry with the Listing it created after Inventory's record has changed", async () => {
+    const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }));
+    const command = listingTestCommand("listing.create", snapshot);
+    const created = await f.services.createListingFromInventorySnapshot(command, context);
+    const committed = f.allEvents.length;
+    const queried = f.query.mock.calls.length;
+    // An order now holds a unit and the location was retired; neither may turn the retry into a refusal.
+    const recorded = (await f.currentAuthority.resolve())!;
+    f.currentAuthority.resolve.mockResolvedValue({
+      ...recorded,
+      availableQuantity: 1,
+      storageLocation: { ...recorded.storageLocation, status: "retired" },
+    });
+    f.currentAuthority.resolve.mockClear();
+
+    const retried = await f.services.createListingFromInventorySnapshot(command, context);
+
+    expect(retried).toMatchObject({ listingId: created.listingId, version: created.version });
+    expect(f.allEvents).toHaveLength(committed);
+    expect(f.currentAuthority.resolve).not.toHaveBeenCalled();
+    expect(f.query.mock.calls.slice(queried).filter(([sql]) => sql.includes("INSERT INTO"))).toEqual([]);
+  });
+
+  it("keeps the snapshot create closed when only Inventory's current item port is absent", async () => {
+    const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }), {}, "absent");
+
+    await expect(
+      f.services.createListingFromInventorySnapshot(listingTestCommand("listing.create", snapshot), context),
+    ).rejects.toThrow("Inventory item details are unavailable.");
+
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.resolveListingTerms).not.toHaveBeenCalled();
+    expect(f.allEvents).toHaveLength(0);
+  });
+
   it("asks the authority the Marketplace services were given", async () => {
     const { createMarketplaceServices } = await import("../../../support/runtime-support/services");
     const resolve = vi.fn(async (_input: Readonly<{ accountId: string; inventoryItemId: string }>) => null);
@@ -4044,7 +4083,10 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     expect({ name, message, code }).toEqual(notFound);
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(resolve).toHaveBeenCalledWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
-    expect(query).not.toHaveBeenCalled();
+    // Only the attempt's receipt lookups read the database, before and after the refusal; nothing is written.
+    const statements = (query.mock.calls as unknown as [string][]).map(([sql]) => sql.replace(/\s+/g, " ").trim());
+    expect(statements.length).toBeGreaterThan(0);
+    for (const sql of statements) expect(sql).toMatch(/^SELECT .* FROM event_store_events WHERE stream_id = \$1/);
     expect(connect).not.toHaveBeenCalled();
   });
 
