@@ -1,22 +1,17 @@
-import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import type { AggregateEvolver, DomainEvent } from "@chase-sets/event-core/domain";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { loadAuthoritativeInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
 import {
-  decideStorageLocation,
   evolveStorageLocation,
   initialStorageLocationState,
   type StorageLocationEvent,
 } from "../../storage-locations/domain/domain";
-import {
-  decideInventoryItem,
-  evolveInventoryItem,
-  initialInventoryItemState,
-  type InventoryItemEvent,
-} from "../domain/domain";
+import { evolveInventoryItem, initialInventoryItemState, type InventoryItemEvent } from "../domain/domain";
 
 export type InventoryCurrentItem = Readonly<{
   catalogItemId: string;
@@ -44,20 +39,26 @@ export type InventoryCurrentItem = Readonly<{
  */
 export function createInventoryCurrentItemAuthority(pool: PgTransactionalPool) {
   const eventStore = createPostgresEventStore({ pool });
-  const items = createAggregateCommandHandler({
-    eventStore,
-    codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
-    initialState: () => initialInventoryItemState,
-    evolve: evolveInventoryItem,
-    decide: decideInventoryItem,
-  }).repository;
-  const locations = createAggregateCommandHandler({
-    eventStore,
-    codec: createPassthroughDomainEventCodec<StorageLocationEvent>(),
-    initialState: () => initialStorageLocationState,
-    evolve: evolveStorageLocation,
-    decide: decideStorageLocation,
-  }).repository;
+  // A plain fold of the stream: this authority only reads, so it builds no command handler.
+  const folder =
+    <State, Event extends DomainEvent>(initialState: State, evolve: AggregateEvolver<State, Event>) =>
+    async (streamId: string) => {
+      const codec = createPassthroughDomainEventCodec<Event>();
+      const stored = await readCompleteStream(eventStore, { streamId });
+      return {
+        state: stored.reduce((state, event) => evolve(state, codec.decode(event)), initialState),
+        version: stored.at(-1)?.streamVersion ?? 0,
+      };
+    };
+  const items = {
+    load: folder<typeof initialInventoryItemState, InventoryItemEvent>(initialInventoryItemState, evolveInventoryItem),
+  };
+  const locations = {
+    load: folder<typeof initialStorageLocationState, StorageLocationEvent>(
+      initialStorageLocationState,
+      evolveStorageLocation,
+    ),
+  };
 
   return {
     async resolveInventoryCurrentItem(
