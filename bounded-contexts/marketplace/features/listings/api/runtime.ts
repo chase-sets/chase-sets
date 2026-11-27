@@ -1793,6 +1793,28 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     return recorded;
   }
 
+  /** What Inventory records for the item now; a snapshot create writes these values, never the request's. */
+  async function resolveInventoryCurrentItem(
+    params: Readonly<{ accountId: string; inventoryItemId: string }>,
+    context: EventStoreContext,
+  ) {
+    const authority = deps.inventoryCurrentItemAuthority;
+    if (!authority) throw new Error("Inventory item details are unavailable.");
+    let current;
+    try {
+      current = await authority.resolve(
+        { accountId: params.accountId, inventoryItemId: params.inventoryItemId },
+        context,
+      );
+    } catch {
+      throw new Error("Inventory item details are unavailable.");
+    }
+    if (!current) {
+      throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+    }
+    return current;
+  }
+
   function stringField(data: Readonly<Record<string, unknown>>, key: string) {
     const value = data[key];
     return typeof value === "string" && value.trim().length > 0 ? value : null;
@@ -2322,12 +2344,42 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     createListingFromInventorySnapshot: async (params, context) => {
       attemptFor("listing.create", params, { ...params }, params.inventoryItemId, params.listingIdOverride);
+      const { gradedCard, selectedOptions } = await resolveInventoryRecordedItem(params);
+      const current = await resolveInventoryCurrentItem(params, context);
+      // The snapshot only bridges projection lag; a page showing anything other than what Inventory records now
+      // is told so rather than listing something else.
+      if (
+        current.catalogItemId !== params.catalogItemId ||
+        current.productId !== params.productId ||
+        current.storageLocation.storageLocationId !== params.storageLocationId ||
+        current.storageLocation.status !== "active" ||
+        current.totalQuantity !== params.totalQuantity ||
+        (params.availableQuantity !== undefined && current.availableQuantity !== params.availableQuantity)
+      ) {
+        throw new MarketplaceListingRequestError(
+          "inventory-snapshot-invalid",
+          "Inventory snapshot does not match the item Inventory records.",
+        );
+      }
       assert(
-        params.quantityCap <= (params.availableQuantity ?? params.totalQuantity),
+        params.quantityCap <= current.availableQuantity,
         "Listing quantity caps cannot exceed available listing stock.",
       );
-      const { gradedCard, selectedOptions } = await resolveInventoryRecordedItem(params);
-      await upsertBatchInventorySnapshot({ ...params, gradedCard, selectedOptions });
+      await upsertBatchInventorySnapshot({
+        accountId: params.accountId,
+        inventoryItemId: params.inventoryItemId,
+        catalogItemId: current.catalogItemId,
+        productId: current.productId,
+        selectedOptions,
+        gradedCard,
+        storageLocationId: current.storageLocation.storageLocationId,
+        storageLocationName: current.storageLocation.name,
+        shipFromCode: current.storageLocation.shipFromCode,
+        shipFromAddress: current.storageLocation.shipFromAddress,
+        totalQuantity: current.totalQuantity,
+        acquisitionCostAmount: current.acquisitionCostAmount,
+        acquisitionCostCurrencyCode: current.acquisitionCostCurrencyCode,
+      });
       return createListing(
         {
           accountId: params.accountId as AccountId,

@@ -753,6 +753,11 @@
       "purpose": "Read the Graded Item Details Inventory recorded for an account's item so Listing creation from an Inventory snapshot never takes them from the request."
     },
     {
+      "portName": "inventoryCurrentItemAuthority",
+      "providedBy": "inventory",
+      "purpose": "Read the catalog item, product, storage location, ship-from details, quantities and acquisition cost Inventory records now for an account's item so Listing creation from an Inventory snapshot refuses a stale snapshot and writes Inventory's values."
+    },
+    {
       "portName": "managedOfferPricing",
       "providedBy": "pricing",
       "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."
