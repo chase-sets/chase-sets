@@ -92,18 +92,22 @@ const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platfo
 const stagingCortenAdminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
 const stagingCortenMarketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"e".repeat(64)}`;
 const stagingCortenPublicImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@sha256:${"f".repeat(64)}`;
-// admin-corten serves admin.chasesets.com and marketplace-corten serves marketplace.chasesets.com, so every
-// production deploy carries the images staging deployed and the ingress pod CIDRs they believe X-Forwarded-For from.
+// admin-corten, marketplace-corten and public-corten serve admin.chasesets.com, marketplace.chasesets.com and the
+// apex and www, so every production deploy carries the images staging deployed and the ingress pod CIDRs they
+// believe X-Forwarded-For from.
 const productionProxies = "10.244.0.0/25";
 const productionMarketplacePilot = {
   cortenAdminImage: stagingCortenAdminImage,
   cortenMarketplaceImage: stagingCortenMarketplaceImage,
+  cortenPublicImage: stagingCortenPublicImage,
 };
 const productionMarketplaceArgv = [
   "--corten-admin-image",
   stagingCortenAdminImage,
   "--corten-marketplace-image",
   stagingCortenMarketplaceImage,
+  "--corten-public-image",
+  stagingCortenPublicImage,
   "--runtime-env",
   `PROXIES=${productionProxies}`,
 ];
@@ -464,13 +468,6 @@ function failedRollbackCaptureCompletions() {
     { code: 0, stdout: helmHistory(failedRollbackPostHistory) },
   ];
 }
-
-// What every production deploy says about the public app while PRODUCTION_PUBLIC_APP is unset.
-const productionAdminWebLines = [
-  "chasesets.com and www.chasesets.com are served by public-web (PRODUCTION_PUBLIC_APP is unset, so the default applies).",
-  "public-corten is not deployed while public-web serves chasesets.com and www.chasesets.com.",
-  "Warning: public-corten is not deployed because public-web serves chasesets.com and www.chasesets.com (PRODUCTION_PUBLIC_APP=public-web).",
-];
 
 function successfulSpawn(calls) {
   return (command, args, options) => {
@@ -6865,7 +6862,7 @@ describe("attempts record", () => {
         }
         expect(output).not.toContain("--set-string");
         if (exitCode) {
-          expect(error.mock.calls.flat()).toEqual([...productionAdminWebLines, "helm upgrade exited with code 1."]);
+          expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
         }
       } finally {
         log.mockRestore();
@@ -7162,7 +7159,7 @@ describe("admission webhook root cause", () => {
     const { exitCode, calls, record, rootCause, errors } = await classifiedDeploy(scenario, options);
     expect(exitCode).toBe(1);
     expect(upgradeCalls(calls)).toHaveLength(1);
-    expect(errors).toEqual([...productionAdminWebLines, "helm upgrade exited with code 1."]);
+    expect(errors).toEqual(["helm upgrade exited with code 1."]);
     expect(record).toMatchObject({ result: "failure", retry: "refused", refusal, attempts: [recognized(1)] });
     expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
   });
@@ -7854,8 +7851,8 @@ describe("advisory Corten pilots without an image", () => {
   const adminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}`;
   const marketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"c".repeat(64)}`;
   const publicImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@sha256:${"d".repeat(64)}`;
-  // admin-corten serves admin.staging and public-corten serves www.staging here (STAGING_ADMIN_APP and
-  // STAGING_PUBLIC_APP unset), and marketplace-corten always serves marketplace.staging, so no pilot is advisory.
+  // admin-corten, marketplace-corten and public-corten always serve admin.staging, marketplace.staging and
+  // www.staging, so no pilot is advisory.
   // The advisory path is exercised by naming a pilot in advisoryCortenPilotComponents.
   const staging = {
     release: "proof",
@@ -7976,35 +7973,24 @@ describe("advisory Corten pilots without an image", () => {
     expect(JSON.stringify(result)).toContain(marketplaceWorkload);
   });
 
-  it("does not deploy public-corten while public-web serves www.staging, whether or not its image was built", async () => {
-    for (const cortenPublicImage of [publicImage, undefined]) {
-      const { result, warnings, helm, waited } = await deployStaging({
-        env: { STAGING_PUBLIC_APP: "public-web" },
-        cortenPublicImage,
-      });
-      expect(helm.filter((arg) => String(arg).startsWith("components.public-corten."))).toEqual([
-        "components.public-corten.enabled=false",
-      ]);
-      expect(warnings).toContain(
-        "Warning: public-corten is not deployed because public-web serves www.staging (STAGING_PUBLIC_APP=public-web).",
-      );
-      expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
-      expect(waited.filter((args) => args.includes(publicWorkload))).toEqual([]);
-      expect(JSON.stringify(result)).not.toContain(publicWorkload);
-    }
+  it("deploys public-corten whatever a leftover STAGING_PUBLIC_APP says", async () => {
+    const { result, warnings, helm, waited } = await deployStaging({
+      env: { STAGING_PUBLIC_APP: "public-web" },
+    });
+    expect(helm.filter((arg) => String(arg).startsWith("components.public-corten."))).toEqual([
+      `components.public-corten.image=${publicImage}`,
+    ]);
+    expect(warnings.filter((message) => message.includes("public"))).toEqual([]);
+    expect(waited.filter((args) => args.includes(publicWorkload))).toHaveLength(1);
+    // public-web is disabled in the staging values, so the deploy does not wait for it.
+    expect(waited.filter((args) => args.includes("/proof-chase-sets-platform-public-web "))).toEqual([]);
+    expect(JSON.stringify(result)).toContain(publicWorkload);
   });
 
   it("drops no pilot outside staging", () => {
     for (const DEPLOYMENT_ENVIRONMENT of ["production", "preview"]) {
       const envOverrides = { DEPLOYMENT_ENVIRONMENT, PREVIEW_IDENTIFIER: "pr-123" };
       expect(platformKubernetesDeployment.droppedAdvisoryCortenPilots({ envOverrides })).toEqual([]);
-      const env = {
-        STAGING_ADMIN_APP: "admin-web",
-        PRODUCTION_ADMIN_APP: "admin-corten",
-        STAGING_PUBLIC_APP: "public-web",
-        PRODUCTION_PUBLIC_APP: "public-corten",
-      };
-      expect(platformKubernetesDeployment.withheldCortenPilots({ envOverrides, env })).toEqual([]);
     }
   });
 });

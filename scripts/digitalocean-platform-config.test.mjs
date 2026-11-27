@@ -6580,7 +6580,7 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(playwrightConfig).toContain("baseURL: adminWebBaseUrl");
     expect(playwrightConfig).toContain('name: "public-web-chromium"');
-    expect(playwrightConfig).toContain('testMatch: "deployables/public-web/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain('testMatch: "deployables/corten-pilot/e2e/public/**/*.spec.ts"');
     expect(playwrightConfig).toContain("baseURL: publicWebBaseUrl");
     expect(playwrightConfig).toContain(
       "const publicWebBaseUrl = process.env.PUBLIC_WEB_URL ?? sandbox.urls.publicWeb;",
@@ -6598,7 +6598,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(projectTestMatches).toEqual([
       "deployables/corten-pilot/e2e/*.spec.ts",
       ["deployables/corten-pilot/e2e/admin/**/*.spec.ts", "deployables/admin-web/e2e/**/*.spec.ts"],
-      "deployables/public-web/e2e/**/*.spec.ts",
+      "deployables/corten-pilot/e2e/public/**/*.spec.ts",
     ]);
     expect(playwrightConfig).not.toContain("deployables/*/e2e");
     expect(playwrightConfig).not.toContain("deployables/**/e2e");

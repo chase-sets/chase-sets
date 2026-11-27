@@ -177,30 +177,7 @@ components:
     podAnnotations: {}
     podLabels: {}
   public-web:
-    rollout:
-      enabled: true
-      revisionHistoryLimit: 5
-      progressDeadlineSeconds: 900
-      rollbackWindowRevisions: 3
-      analysis:
-        enabled: false
-        path: "/health/ready"
-        initialDelay: "30s"
-        interval: "10s"
-        count: 5
-        failureLimit: 2
-        timeoutSeconds: 5
-      canary:
-        canaryServiceSuffix: "canary"
-        trafficRouting:
-          nginx:
-            enabled: true
-        weights:
-          - 10
-          - 25
-          - 50
-          - 100
-        pauseAfterWeight: 10
+    enabled: false
   admin-web:
     enabled: false
   platform-api:

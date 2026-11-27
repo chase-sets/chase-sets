@@ -8,18 +8,18 @@ The Playwright e2e layer exists to catch composition and wiring failures that on
 
 ## Suite coverage
 
-The lane runs by tag (`scripts/e2e-suites.mjs` maps each suite id to a `@tag`; `scripts/run-e2e-suite.mjs` invokes `playwright test --grep`). Playwright auto-discovers any spec under the admin-web `e2e/**/*.spec.ts` tree via the `admin-web-chromium` project `testMatch` glob, so a new admin-web spec joins the PR lane purely by carrying an existing suite tag -- no config change. That auto-discovery does not extend to `deployables/public-web/e2e/**` (see Public-web specs below). Change-scope selection (`e2eSuiteIdsForChangedFile`) decides _whether_ e2e runs and _which_ suites, keyed off route-file globs.
+The lane runs by tag (`scripts/e2e-suites.mjs` maps each suite id to a `@tag`; `scripts/run-e2e-suite.mjs` invokes `playwright test --grep`). Playwright auto-discovers any spec under the admin-web `e2e/**/*.spec.ts` tree via the `admin-web-chromium` project `testMatch` glob, so a new admin-web spec joins the PR lane purely by carrying an existing suite tag -- no config change. That auto-discovery does not extend to `deployables/corten-pilot/e2e/public/**` (see Public specs below). Change-scope selection (`e2eSuiteIdsForChangedFile`) decides _whether_ e2e runs and _which_ suites, keyed off route-file globs.
 
 The marketplace host is served by the Corten marketplace, so the marketplace has no named suite. Its browser coverage is the required `Corten Marketplace Browser Tests` job in `platform-pr.yml`, which runs the kept specs under `deployables/corten-pilot/e2e/` by path. Change scope selects it (`corten_marketplace_browser_required`) for the pilot's marketplace paths and for the Bounded Context, route and spec ownership that used to select a marketplace suite (`cortenMarketplaceBrowserOwnership()` in `scripts/e2e-suites.mjs`). The `@marketplace-*` tags left in those specs are labels only; nothing greps for them.
 
 - `catalog_admin_integrations` (`@catalog-admin-integrations`): the admin-web catalog integration workbench.
 - `catalog_admin_modeling` (`@catalog-admin-modeling`): the admin-web catalog model authoring surfaces, including Dimensions list/detail navigation and create-dialog affordances.
 
-### Public-web specs
+### Public specs
 
-`deployables/public-web/e2e/**/*.spec.ts` is deliberately outside this named-suite catalog: `e2eSuites` has no public-web entry, and `e2eNoSuiteExclusions` records the whole tree as deployed-target coverage. Public-web specs are opt-in and deployed-target-only -- the `public-web-chromium` Playwright project exists exactly when `PUBLIC_WEB_URL` names a running public-web host (`includePublicWebProject` in `playwright.config.ts`), so these specs run only under `pnpm run test:e2e:deployed` with `PUBLIC_WEB_URL` set. Today that caller is the staging advisory evidence workflow, which threads `PUBLIC_WEB_URL` inline from the exact-release `landing_domain` Terraform output and fails closed when it is absent.
+The kept public specs live in `deployables/corten-pilot/e2e/public/**/*.spec.ts`, outside this named-suite catalog: `e2eSuites` has no public entry, and `e2eNoSuiteExclusions` records the tree. The `public-web-chromium` Playwright project exists exactly when `PUBLIC_WEB_URL` names a running public host (`includePublicWebProject` in `playwright.config.ts`). On PR CI the required `Corten Public Browser Tests` job in `platform-pr.yml` runs these specs by path against the Corten public app (`CHASE_SETS_BROWSER_E2E_SYSTEM=corten-public`, which sets `PUBLIC_WEB_URL` to that app), and change scope selects it (`corten_public_browser_required`) for the pilot's public and platform paths and for these specs. Against a deployed target they run under `pnpm run test:e2e:deployed` with `PUBLIC_WEB_URL` set.
 
-Without `PUBLIC_WEB_URL` no project matches the tree, so the specs simply do not run. That is what keeps a Public Presence route such as `/privacy` -- contributed to public-web only -- from being answered on the marketplace host, which serves it as the deterministic not-found shell.
+Without `PUBLIC_WEB_URL` no project matches the tree, so the specs simply do not run. That is what keeps a Public Presence route such as `/privacy`, which only the public host serves, from being answered on the marketplace host, which serves it as the deterministic not-found shell.
 
 ## Local Setup
 
@@ -128,7 +128,7 @@ PUBLIC_WEB_URL=https://www.staging.chasesets.com \
 pnpm run test:e2e:deployed
 ```
 
-Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SEARCH_QUERY` to override the default synthetic account and search term. When no account is configured, the suite registers a throwaway account against the target before checking signed-in commerce surfaces. Use `CATALOG_ADMIN_E2E_EMAIL` and `CATALOG_ADMIN_E2E_PASSWORD` when running admin-web suites against a deployed target; deployed admin-web checks are skipped when either admin credential is missing. `PUBLIC_WEB_URL` is the sole opt-in for public-web coverage: set it to a running public-web host to add the `public-web-chromium` project and run `deployables/public-web/e2e/**`, and omit it to leave those specs uncollected. Staging production promotion runs this mode after staging smoke checks and before production deployment can start.
+Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SEARCH_QUERY` to override the default synthetic account and search term. When no account is configured, the suite registers a throwaway account against the target before checking signed-in commerce surfaces. Use `CATALOG_ADMIN_E2E_EMAIL` and `CATALOG_ADMIN_E2E_PASSWORD` when running admin-web suites against a deployed target; deployed admin-web checks are skipped when either admin credential is missing. `PUBLIC_WEB_URL` is the sole opt-in for public coverage: set it to a running public host to add the `public-web-chromium` project and run `deployables/corten-pilot/e2e/public/**`, and omit it to leave those specs uncollected. Staging production promotion runs this mode after staging smoke checks and before production deployment can start.
 
 ## CI
 

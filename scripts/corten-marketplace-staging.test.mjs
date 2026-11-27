@@ -16,7 +16,6 @@ import {
   droppedAdvisoryCortenPilots,
   parseArgs,
   platformKubernetesWorkloads,
-  withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
@@ -48,7 +47,8 @@ describe("Corten marketplace staging, first slice", () => {
       // images and best-effort PROXIES, then for retiring marketplace-web: no PRODUCTION_MARKETPLACE_APP, and the
       // marketplace signed-in smoke runs whenever production serves a marketplace.
       // Then for retiring admin-web: no PRODUCTION_ADMIN_APP, and admin-corten is always readied and smoked.
-      "deploy-production": "f54c4edc1b26f819ad9e3890afcad9a82a5c4144823e0c056c316f618db54dbe",
+      // Then for retiring public-web: no PRODUCTION_PUBLIC_APP, and public-corten is always deployed.
+      "deploy-production": "0034948c6b90b335f808e6ed2e551295e3ca47aa3f74b5acaa857769b2d5ce05",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -70,7 +70,8 @@ describe("Corten marketplace staging, first slice", () => {
       // Moved for retiring marketplace-web: the chart has no marketplace component.
       "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
       // Then for retiring admin-web: production keeps no admin-web resources and disables it.
-      "values.production.yaml": "dc49af728c4543cfa44866842cae5977cb120fe526063f32486a7de66a634313",
+      // Then for retiring public-web: production keeps no public-web resources and disables it.
+      "values.production.yaml": "79b7079f9bf88824a1cd41b1c3376cb009f26f5d7cfe7fd98df3dfeafe404af3",
     })) {
       expect(
         createHash("sha256")
@@ -277,7 +278,7 @@ describe("Corten marketplace staging, first slice", () => {
     const steps = workflow.jobs["deploy-staging"].steps.map(({ name }) => name);
     expect(steps).not.toContain("Advisory Corten marketplace smoke");
     expect(steps).not.toContain("Advisory Corten admin smoke");
-    expect(steps[steps.indexOf("Advisory Corten public smoke") - 1]).toBe("Smoke check");
+    expect(steps).not.toContain("Advisory Corten public smoke");
     expect(JSON.parse(read("package.json")).scripts).not.toHaveProperty("smoke:corten-marketplace");
   });
 
@@ -294,7 +295,6 @@ describe("Corten marketplace staging, first slice", () => {
       expect(hosts["staging.chasesets.com"]).toBe("marketplace-corten");
       expect(hosts["marketplace-corten.staging.chasesets.com"]).toBe("marketplace-corten");
       const withEnv = { ...options, env: { ...options.env, STAGING_MARKETPLACE_APP } };
-      expect(withheldCortenPilots(withEnv)).not.toContain("marketplace-corten");
       const args = buildHelmUpgradeArgs(withEnv);
       expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
         `components.marketplace-corten.image=${image}`,

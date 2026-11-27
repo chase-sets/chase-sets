@@ -1144,7 +1144,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // marketplace's kept browser specs moved there; the C1-C7 normalization is unchanged.
   // Repinned when marketplace-web was deleted: its E2E root and app source prefixes leave the browser-profile,
   // route and jargon surfaces. The C1-C7 normalization is unchanged.
-  [citationFencePaths.staticSurfaces]: "7b35362148f7cd8d49c533fa6724fc0efaf9cfded2d07e2bc919c69b82d68756",
+  // Repinned when public-web's browser specs moved into the Corten pilot's e2e root: its E2E root leaves the
+  // browser-profile surface. The C1-C7 normalization is unchanged.
+  [citationFencePaths.staticSurfaces]: "98f1fc61e062e0c49b90c7b2b82345bf9b1cfe759db2f21ebfa3cd91975a6031",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

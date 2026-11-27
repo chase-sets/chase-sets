@@ -11,7 +11,6 @@ import {
   deployPlatformToKubernetes,
   platformKubernetesWorkloads,
   recordDeployedCortenAdminImage,
-  withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 
 const read = (file) => readFileSync(file, "utf8").replaceAll("\r\n", "\n");
@@ -20,11 +19,13 @@ const workflow = parse(workflowText);
 const digest = "sha256:" + "a".repeat(64);
 const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@${digest}`;
 const marketplaceImage = image.replace("corten-admin", "corten-marketplace");
+const publicImage = image.replace("corten-admin", "corten-public");
 const proxies = "10.244.0.0/25,10.244.1.0/25";
 const production = (env = {}, overrides = {}) => ({
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenAdminImage: image,
   cortenMarketplaceImage: marketplaceImage,
+  cortenPublicImage: publicImage,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: proxies },
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1", ...env },
   managedPostgresCaSha256: "b".repeat(64),
@@ -53,7 +54,6 @@ describe("production admin app", () => {
       expect(args[args.indexOf(`components.admin-corten.image=${image}`) - 1]).toBe("--set-string");
       expect(adminRoot(args)).toBe("admin-corten");
       expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
-      expect(withheldCortenPilots(production(env))).toEqual(["public-corten"]);
     }
     const { deployments } = platformKubernetesWorkloads(production());
     expect(deployments).toContain(pilotWorkload);
@@ -100,10 +100,13 @@ describe("production admin app", () => {
     }
   });
 
-  it("serves the marketplace from marketplace-corten beside the admin", () => {
+  it("serves the marketplace and the public hosts from their Corten apps beside the admin", () => {
     const args = buildHelmUpgradeArgs(production());
     expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
       `components.marketplace-corten.image=${marketplaceImage}`,
+    ]);
+    expect(args.filter((arg) => String(arg).startsWith("components.public-corten."))).toEqual([
+      `components.public-corten.image=${publicImage}`,
     ]);
   });
 

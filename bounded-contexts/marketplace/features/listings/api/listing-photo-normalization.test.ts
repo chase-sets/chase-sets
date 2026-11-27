@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { listingErrorResponse } from "./listing-errors";
-import { normalizeListingPhoto, type ListingPhotoImageProcessor } from "./listing-photo-normalization";
+import {
+  listingPhotoStorageBaseKey,
+  normalizeListingPhoto,
+  type ListingPhotoImageProcessor,
+} from "./listing-photo-normalization";
 
 function normalize(sourceBody: Uint8Array, imageProcessor?: ListingPhotoImageProcessor) {
   const stored: string[] = [];
   const photo = normalizeListingPhoto({
     sourceBody,
-    storageBaseKey: "marketplace/listings/acc_1/lst_1/lpho_1",
+    storageBaseKey: "marketplace/listings/lst_1/lpho_1",
     photoId: "lpho_1",
     originalFilename: "broken.jpg",
     altText: null,
@@ -31,12 +35,18 @@ const onePixelPng = Uint8Array.from(
   ),
 );
 
+describe("listingPhotoStorageBaseKey", () => {
+  it("keys a Listing photo by its Listing and photo ids alone", () => {
+    expect(listingPhotoStorageBaseKey("lst_1", "lpho_1")).toBe("marketplace/listings/lst_1/lpho_1");
+  });
+});
+
 describe("normalizeListingPhoto", () => {
   it("stores normalized WebP listing photo variants under the listing photo key", async () => {
     const stored: { key: string; contentType: string; body: Uint8Array }[] = [];
     const photo = await normalizeListingPhoto({
       sourceBody: new Uint8Array([1, 2, 3]),
-      storageBaseKey: "marketplace/listings/acc_1/lst_1/lpho_1",
+      storageBaseKey: "marketplace/listings/lst_1/lpho_1",
       photoId: "lpho_1",
       originalFilename: "front.png",
       altText: "Front",
@@ -81,7 +91,7 @@ describe("normalizeListingPhoto", () => {
         kind: "listing-photo",
         source: {
           mediaType: "image/webp",
-          storageKey: expect.stringMatching(/^marketplace\/listings\/acc_1\/lst_1\/lpho_1\/source-/),
+          storageKey: expect.stringMatching(/^marketplace\/listings\/lst_1\/lpho_1\/source-/),
         },
       },
     });

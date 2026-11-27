@@ -89,10 +89,9 @@ const stripeEndpointRotationDelta = [
 ];
 // The advisory Corten admin smoke that sat at deploy-staging position 43 was deleted with admin-web's retirement
 // from staging and production, together with the seven grants its reviewed insertion had added, and so was the
-// advisory Corten marketplace smoke that sat at position 44 with marketplace-web's, together with its nine; later
-// anchors moved back by one each time. The advisory Corten public smoke at position 43 shifts later anchors by one.
-// It adds no secret, so it adds no grant.
-const cortenPublicSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 43 }];
+// advisory Corten marketplace smoke that sat at position 44 with marketplace-web's, together with its nine. The
+// advisory Corten public smoke that then sat at position 43 held no grant and was deleted with public-web's
+// retirement. Later anchors moved back by one each time.
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1167,8 +1166,7 @@ describe("managed Postgres authority source generator", () => {
           (record) =>
             !cortenPilotImagesJobRemovals.some((removal) => JSON.stringify(removal) === JSON.stringify(record)),
         )
-        .concat(cortenPilotImagesJobDelta)
-        .map((record) => applyStepInsertions(record, cortenPublicSmokeStepInsertion)),
+        .concat(cortenPilotImagesJobDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
