@@ -83,7 +83,8 @@
 //   route.*, checkout.routes.checkoutRecovery.* as recovery.*, checkout.shared.policyLinks.* as policy.*, and checkout
 //   start's checkout.routes.checkoutStart.* as start.*).
 // - marketplace/locales/item.en.json: the item page's English catalog (discovery.features.itemDetail.ui.itemDetailPage.*,
-//   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the language
+//   its page view's, product selector's, similar items' and market panel's, discovery.routes.itemDetail.*, the account
+//   badges' words as badges.*, the language
 //   labels the details list uses, an item's display identity, Collections' Add to List words,
 //   collections.features.savedLists.ui.addToList.* and .api.route.*, and a Sell List add's attempt words,
 //   checkout.sellList.attempt.* as sell_attempt.*).
@@ -1381,6 +1382,8 @@ const outputs = [
         ["discovery.features.itemDetail.ui.similarItems.", "similar"],
         ["discovery.features.itemDetail.ui.marketPanel.", "panel"],
         ["discovery.routes.itemDetail.", "route"],
+        // The chosen listing's seller's trusted seller and founder badges.
+        ["discovery.features.itemDetail.ui.accountBadges.", "badges"],
       ])),
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
         ["localization.languageCode.", "language"],

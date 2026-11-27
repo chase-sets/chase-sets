@@ -4448,6 +4448,21 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
             item["image_urls"] = json!(["/fake-cdn/front.png", "/fake-cdn/back.png"]);
             Json(item).into_response()
         }
+        "badged" => {
+            let mut item = item();
+            item["slug"] = json!("badged");
+            for listing in item["market_listings"].as_array_mut().unwrap() {
+                match listing["listing_id"].as_str() {
+                    Some("lst_vault") => {
+                        listing["seller_badges"] = json!(["trusted-seller", "founding-account", "manual-payout-review"]);
+                        listing["seller_founder_number"] = json!(47);
+                    }
+                    Some("lst_chase") => listing["seller_badges"] = json!(["founding-account"]),
+                    _ => {}
+                }
+            }
+            Json(item).into_response()
+        }
         "single" => {
             let mut item = item();
             item["slug"] = json!("single");
@@ -4828,6 +4843,31 @@ fn adds(pilot: &Pilot) -> Vec<(Call, Value)> {
         .filter(|c| c.method == Method::POST && (c.path == ACCOUNT_CART_ADD || c.path == GUEST_CART_ADD))
         .map(|c| (c.clone(), serde_json::from_str(&c.body).unwrap()))
         .collect()
+}
+
+/// The rail shows the chosen listing's seller's trusted seller and numbered founder badges, as
+/// marketplace's `PurchaseSection` did, and never manual payout review.
+#[tokio::test]
+async fn the_rail_shows_the_chosen_listings_seller_badges_and_never_manual_payout_review() {
+    let pilot = Pilot::new().await;
+    let badges = |html: &str| -> String {
+        let start = html.find("data-seller-badges").map(|at| at + "data-seller-badges".len());
+        start.map_or(String::new(), |start| text(&html[start..start + html[start..].find("</p>").unwrap()]))
+    };
+    // Both badges, the founder numbered to three digits; nothing for manual payout review.
+    let (status, _, html) = pilot.send(get("/items/badged", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(badges(&html).trim_start_matches('>').trim(), "Trusted seller Founder #047", "{html}");
+    assert!(html.contains(r#"title="Operations has approved this seller"#), "{html}");
+    assert!(!html.to_lowercase().contains("manual payout"), "{html}");
+    // A founder with no number: the badge alone.
+    let (_, _, html) = pilot.send(get("/items/badged?listing=lst_chase", Some("buyer"))).await;
+    assert_eq!(badges(&html).trim_start_matches('>').trim(), "Founder", "{html}");
+    // A seller with neither: no badge row at all.
+    let (_, _, html) = pilot.send(get("/items/badged?listing=lst_psa", Some("buyer"))).await;
+    assert!(!html.contains("data-seller-badges"), "{html}");
+    let (_, _, html) = pilot.send(get(ITEM_PAGE, Some("buyer"))).await;
+    assert!(!html.contains("data-seller-badges"), "{html}");
 }
 
 #[tokio::test]
