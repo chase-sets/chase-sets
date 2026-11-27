@@ -177,9 +177,12 @@ async function assertCollapsedReverseTraversalPrecondition(page: Page, navSelect
 
 async function resolvedHeaderHeightPx(page: Page) {
   return page.evaluate(() => {
+    // The Corten marketplace sets the token on <body>, which the reserved header box inherits; it
+    // has no class carrying the token.
     const shell =
       document.querySelector("[data-search-row-state]") ??
-      document.querySelector('div[class*="--shell-header-height"]');
+      document.querySelector('div[class*="--shell-header-height"]') ??
+      document.querySelector('[data-shell-header-box="reserved"]');
     if (!shell) {
       throw new Error("marketplace shell element not found");
     }
@@ -469,10 +472,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("publishes the expanded search row before scrolling on the pinned item route @marketplace-browse", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await expect(page.locator(searchInputSelector)).toBeVisible();
@@ -503,10 +502,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("binds the search-row state observed across the responsive capture @marketplace-browse", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await driveDownwardPastFloor(page);
@@ -538,10 +533,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("fails the search-row observation when a transient full-page shim changes state during capture @marketplace-browse", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await driveDownwardPastFloor(page);
@@ -574,10 +565,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("proves the collapsed search input is a native reverse-traversal stop and then completes the reveal @marketplace-browse", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     const evidence: CollapsedReverseEvidence = {
       indices: {},
       collapsedFacts: null,
@@ -719,10 +706,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   });
 
   test("fails the collapsed-time authority when the row never collapses @marketplace-browse", async ({ page }) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, "/search?q=charizard", phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await page.keyboard.press("Tab");
@@ -770,10 +753,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("reveals the collapsed search row through sequential keyboard focus @marketplace-browse", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     // Signed-out session: the layout renders no header actions, so the complete
     // sequential order below md is SkipLink, brand link, search input, first
     // main-content focusable. The hydrated trigger is tabindex=-1. Every stop below is produced by a
@@ -926,10 +905,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   test("keeps the search row expanded on the search route under the same downward scroll @marketplace-browse", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, "/search?q=charizard", phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
 
@@ -950,10 +925,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   });
 
   test("collapses every pathname that is not exactly /search @marketplace-browse", async ({ page }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     // Closed published table: armed, high-scroll, unfocused outcomes per route,
     // plus focus-inside-header expanded on all of them, with the header search
     // slot present on every one. The account pathname redirects signed-out to
@@ -961,7 +932,9 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     const table = [
       { path: "/search?q=charizard", expected: "expanded" as const, expectedStatus: undefined },
       { path: itemRoutePath, expected: "collapsed" as const, expectedStatus: undefined },
-      { path: "/categories/pokemon", expected: "collapsed" as const, expectedStatus: undefined },
+      // The seeded Pokemon TCG category by its key, which moves to its slug's path. An unknown
+      // category draws an empty page too short to drive the collapse.
+      { path: "/categories/pokemon-tcg", expected: "collapsed" as const, expectedStatus: undefined },
     ];
     const observed: Array<{ path: string; landedPathname: string; phase: string | null; focusPhase: string | null }> =
       [];
@@ -1022,10 +995,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   });
 
   test("keeps page content anchored across the search-row collapse @marketplace-browse", async ({ page }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await driveDownwardPastFloor(page);
@@ -1072,10 +1041,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   });
 
   test("releases the vacated header strip to page content @marketplace-browse", async ({ page }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
     await driveDownwardPastFloor(page);
@@ -1126,10 +1091,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
   });
 
   test("keeps the search row inline in a single header row at 768 @marketplace-browse", async ({ page }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     await openAtViewport(page, itemRoutePath, { width: 768, height: 1024 });
     const nav = page.locator('nav[aria-label="Primary navigation"]');
     await expect(nav).toBeVisible();

@@ -318,6 +318,14 @@
     "consumer": "bootstrap",
     "status": "cutover"
   },
+  "deployables/corten-pilot/marketplace/src/views/header_search.js": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
   "deployables/corten-pilot/marketplace/src/views/packing.js": {
     "families": ["item-read"],
     "authority": "not Inventory: browser storage",

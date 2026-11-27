@@ -10,15 +10,21 @@
 use std::collections::HashMap;
 
 use corten::{Local, NavLink, NavLinks, NavTo, prelude::*};
-use platform::{brand_mark::BrandMark, glyphs, ui::icon::Icon as KitIcon};
+use platform::{
+    brand_mark::BrandMark,
+    glyphs,
+    ui::{icon::Icon as KitIcon, input::Input},
+};
 
-use super::marketplace;
+use super::{MainContentId, marketplace};
 use crate::{
     app::url,
     auth::{self, NavItem, Viewer},
     chrome::CartCount,
-    text::Pilot,
+    text::{Pilot, SearchMsg},
 };
+
+corten::script::script!(pub mod header = "header_search.js");
 
 /// The badge value the cart's entry reads.
 const CART_COUNT: &str = "checkout.cart-count";
@@ -49,10 +55,13 @@ fn elsewhere(item: &NavItem) -> Option<String> {
     marketplace(item.href.as_deref()?).map(|uri| uri.to_string())
 }
 
-/// marketplace-web's shell: the top bar (its sections and, from 48rem, its utility entries: sign
-/// in, the cart), the account menu or Exit guest checkout, and below 48rem the bottom bar of five
-/// (`BottomNav`), its groups opening upward. An entry the pilot serves links to the pilot, marked
-/// current by Corten's nav rule; every other one to marketplace, never current.
+/// The skip link and the top bar of marketplace-web's shell (`MarketplaceShell` around `TopNav`):
+/// its sections and, from 48rem, its utility entries (sign in, the cart), the header search, and the
+/// account menu or Exit guest checkout. Below 48rem the bar is fixed to the top of the screen and
+/// keeps 7.75rem of the page, the search on its own row, which folds away as the reader scrolls down
+/// (`header_search.js`'s `shell`) while the bar keeps its room, so the page never moves under it.
+/// An entry the pilot serves links to the pilot, marked current by Corten's nav rule; every other one
+/// to marketplace, never current. The phone's bottom bar is `MarketPhoneNav`, after `<main>`.
 #[component(css)]
 pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl Render {
     let items = auth::top_nav(viewer);
@@ -61,24 +70,24 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl
     // The cart last, as `TopNav` orders its utility entries.
     ends.sort_by_key(|(item, _)| item.key == "cart");
     let menu = auth::account_menu(viewer);
-    let bottom = auth::bottom_nav(viewer);
-    // A visitor's cart entry is always drawn, and the stylesheet hides it while its badge is hidden
-    // or missing (`data-hide-empty`), so the count the layout read draws decides it, without a script.
-    let empty = |item: &NavItem| viewer.is_none() && item.hides_when_empty();
+    let t: SearchMsg = req.t();
     html! {
-        // The top bar's sections and its utility entries are one nav, as marketplace marks them;
-        // the phone's bar is another.
+        // The top bar's sections and its utility entries are one nav, as marketplace marks them.
         let top_marks = marks(req, primary.iter().chain(&ends));
         let top: HashMap<&str, NavLink<'_>> = top_marks.links().map(|(link, key)| (*key, link)).collect();
-        let bottom_marks = marks(req, &bottom);
-        let phone: HashMap<&str, NavLink<'_>> = bottom_marks.links().map(|(link, key)| (*key, link)).collect();
-        <header class={Bar}>
-            <a class={Brand} href={marketplace("/").map(|u| u.to_string()).unwrap_or_default()}>
-                <BrandMark gradient_id="chase-logo-market-nav" />
-                <span>{p.shell_marketplace()}</span>
-            </a>
-            <nav class={Wide} aria-label={p.shell_navigation()}>
-                <ul class={Items}>
+        <a class={Skip} href={MainContentId.fragment()}>{p.shell_skip()}</a>
+        <nav
+            class={Bar}
+            aria-label={p.shell_primary_navigation()}
+            data-shell-header-box="reserved"
+            on:connect={header::shell(target, signal)}
+        >
+            <div class={Painted} data-shell-header-box="painted">
+                <a class={Brand} href={url::Home::default().href()} aria-label={p.shell_brand()}>
+                    <BrandMark gradient_id="chase-logo-market-nav" />
+                    <span>{p.shell_brand()}</span>
+                </a>
+                <ul class={(Items, Wide)}>
                     for (item, children) in &primary {
                         <li>
                             if children.is_empty() {
@@ -100,56 +109,122 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl
                         </li>
                     }
                 </ul>
-            </nav>
-            <div class={Ends}>
-                if viewer.is_some_and(Viewer::guest) {
-                    <form class={Exit} method="post" action={url::home::GuestCheckoutExit}>
-                        <button type="submit" class={Item}>{p.shell_exit_guest_checkout()}</button>
-                    </form>
-                }
-                if !menu.is_empty() {
-                    <details class={Account}>
-                        <summary class={Item} aria-label={p.shell_account_menu()}>
-                            <Glyph name={Some("user")} />
-                            <span>{p.shell_account()}</span>
-                        </summary>
-                        <ul class={(Menu, End)}>
-                            for item in &menu {
-                                if let Some(href) = own(req, item).map(|to| to.to_string()).or_else(|| elsewhere(item)) {
-                                    <li>
-                                        <a class={Item} href={&href}>
-                                            <Glyph name={item.icon.as_deref()} />
-                                            {&item.label}
-                                        </a>
-                                    </li>
+                <HeaderSearch t={t} />
+                <div class={Ends}>
+                    if viewer.is_some_and(Viewer::guest) {
+                        <form class={Exit} method="post" action={url::home::GuestCheckoutExit}>
+                            <button type="submit" class={Item}>{p.shell_exit_guest_checkout()}</button>
+                        </form>
+                    }
+                    if !menu.is_empty() {
+                        <details class={Account}>
+                            <summary class={Item} aria-label={p.shell_account_menu()}>
+                                <Glyph name={Some("user")} />
+                                <span>{p.shell_account()}</span>
+                            </summary>
+                            <ul class={(Menu, End)}>
+                                for item in &menu {
+                                    if let Some(href) = own(req, item).map(|to| to.to_string()).or_else(|| elsewhere(item)) {
+                                        <li>
+                                            <a class={Item} href={&href}>
+                                                <Glyph name={item.icon.as_deref()} />
+                                                {&item.label}
+                                            </a>
+                                        </li>
+                                    }
                                 }
+                                <li>
+                                    <form method="post" action={url::sign_out::SignOut}>
+                                        <button type="submit" class={(Item, Plain)}>{p.shell_sign_out()}</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </details>
+                    }
+                    if !ends.is_empty() {
+                        <ul class={(Items, Wide)}>
+                            for (item, _) in &ends {
+                                <li data-hide-empty={hides(viewer, item)}>
+                                    <Entry class={Item} link={top.get(item.key.as_str())} item={item}>
+                                        {&item.label}
+                                        <Count item={item} />
+                                    </Entry>
+                                </li>
                             }
-                            <li>
-                                <form method="post" action={url::sign_out::SignOut}>
-                                    <button type="submit" class={(Item, Plain)}>{p.shell_sign_out()}</button>
-                                </form>
-                            </li>
                         </ul>
-                    </details>
-                }
-                if !ends.is_empty() {
-                    <ul class={(Items, Wide)}>
-                        for (item, _) in &ends {
-                            <li data-hide-empty={empty(item)}>
-                                <Entry class={Item} link={top.get(item.key.as_str())} item={item}>
-                                    {&item.label}
-                                    <Count item={item} />
-                                </Entry>
-                            </li>
-                        }
-                    </ul>
-                }
+                    }
+                </div>
             </div>
-        </header>
+        </nav>
+    }
+}
+
+/// The header search's box (`HeaderSearch`): a GET form to /search with the words as `q`, which
+/// `header_search.js` makes a combobox of, listing suggestions and recent searches. Its row is the
+/// part of the bar that folds away on a phone (`data-search-row-slot`); the list sits outside the
+/// part that folds, so an open list is never cut off. The search button is for a pointer: a
+/// keyboard sends the words with Enter.
+#[component(css = MarketNav)]
+fn HeaderSearch(t: SearchMsg) -> impl Render {
+    let search_for = t.header_search_query("{query}").to_string();
+    html! {
+        <div class={SearchSlot} data-search-row-slot>
+            <div class={Fold}>
+                <form
+                    class={Search}
+                    role="search"
+                    method="get"
+                    action={url::Search::default().href()}
+                    on:connect={header::combobox(
+                        target,
+                        signal,
+                        url::SearchSuggest::default().href(),
+                        search_for.clone(),
+                        t.header_recent_search().to_string(),
+                        t.header_clear_recent_searches().to_string(),
+                        t.header_no_matches().to_string(),
+                        t.header_no_recent_searches().to_string()
+                    )}
+                >
+                    <input
+                        class={(Input {}, Words)}
+                        type="text"
+                        name="q"
+                        role="combobox"
+                        aria-label={t.header_label()}
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls={HeaderSearchListId}
+                        autocomplete="off"
+                        enterkeyhint="search"
+                        placeholder={t.header_placeholder()}
+                    >
+                    <button type="submit" class={Go} tabindex="-1" aria-label={t.header_label()}>
+                        <KitIcon glyph={glyphs::SEARCH} />
+                    </button>
+                </form>
+            </div>
+            <ul class={Choices} id={HeaderSearchListId} role="listbox" aria-label={t.header_label()} hidden></ul>
+        </div>
+    }
+}
+
+/// The header search's list of choices.
+#[derive(Id)]
+pub struct HeaderSearchListId;
+
+/// The phone's bottom bar of marketplace-web's shell (`BottomNav`), after `<main>`: below 48rem,
+/// up to five entries, its groups opening upward. From 48rem the top bar has every entry.
+#[component(css = MarketNav)]
+pub fn MarketPhoneNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl Render {
+    let bottom = auth::bottom_nav(viewer);
+    html! {
+        let bottom_marks = marks(req, &bottom);
+        let phone: HashMap<&str, NavLink<'_>> = bottom_marks.links().map(|(link, key)| (*key, link)).collect();
         <nav class={Phone} aria-label={p.shell_navigation()}>
             <ul class={Slots}>
                 for (item, children) in &bottom {
-                    <li class={Slot} data-hide-empty={empty(item)}>
+                    <li class={Slot} data-hide-empty={hides(viewer, item)}>
                         if children.is_empty() {
                             <Entry class={Tab} link={phone.get(item.key.as_str())} item={item}>
                                 <span class={Mark}>
@@ -181,6 +256,13 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl
             </ul>
         </nav>
     }
+}
+
+/// Whether an entry is drawn hidden until its badge has a count: a visitor's cart entry is always
+/// drawn, and the stylesheet hides it while its badge is hidden or missing (`data-hide-empty`), so
+/// the count the layout read draws decides it, without a script.
+fn hides(viewer: Option<&Viewer>, item: &NavItem) -> bool {
+    viewer.is_none() && item.hides_when_empty()
 }
 
 /// A nav entry's link: the pilot's page with Corten's marks (`link`), or else marketplace's.

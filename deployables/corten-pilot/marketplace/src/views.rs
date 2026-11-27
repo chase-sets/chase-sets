@@ -118,7 +118,7 @@ pub use listing_page::{
 pub use listing_recovery_notice::ListingRecoveryNotice;
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_following::MarketFollowing;
-pub use market_nav::{CartBadge, MarketNav};
+pub use market_nav::{CartBadge, MarketNav, MarketPhoneNav};
 pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
@@ -172,6 +172,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::input_group::InputGroup,
     platform::search::SearchBox,
     MarketNav,
+    market_nav::header::COMPONENT,
     Section,
     Toasts,
     Toaster,
@@ -492,6 +493,10 @@ pub fn SiteRobots(indexed: bool) -> impl Render {
     }
 }
 
+/// Where the shell's skip link moves focus: the page's `<main>`.
+#[derive(Id)]
+pub struct MainContentId;
+
 /// `Layout`'s document, with the shell (`shell`) or without it: for a page that cannot say who is
 /// asking, the offline page (the same for everyone; marketplace serves it outside its layout) and
 /// a session the API could not read, where a visitor's Sign in would be wrong.
@@ -535,7 +540,10 @@ pub fn Frame<'a, H: Render, C: Render>(
                 if shell {
                     <MarketNav p={p} req={req} viewer={viewer} />
                 }
-                <main>{children}</main>
+                <main id={MainContentId} tabindex="-1">{children}</main>
+                if shell {
+                    <MarketPhoneNav p={p} req={req} viewer={viewer} />
+                }
                 <Toasts>
                     <Toaster
                         close={p.shell_toast_close()}

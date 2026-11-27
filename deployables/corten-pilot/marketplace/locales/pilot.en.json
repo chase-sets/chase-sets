@@ -1,8 +1,10 @@
 {
   "shell": {
+    "skip": "Skip to main content",
     "toast_close": "Close",
     "not_sent": "That did not go through, and may not have been saved. Check and try again.",
-    "marketplace": "Chase Sets Marketplace",
+    "brand": "Chase Sets",
+    "primary_navigation": "Primary navigation",
     "navigation": "Marketplace",
     "exit_guest_checkout": "Exit guest checkout",
     "account_menu": "Account menu",

@@ -3659,6 +3659,9 @@ pub struct Suggestion {
     pub title: String,
     pub subtitle: Option<String>,
     pub category: Option<String>,
+    /// The item's page's slug (`/items/{slug}`), which the header search's suggestion opens.
+    #[serde(default)]
+    pub slug: Option<String>,
 }
 
 #[derive(Deserialize)]

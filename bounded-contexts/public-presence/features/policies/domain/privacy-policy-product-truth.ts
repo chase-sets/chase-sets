@@ -189,7 +189,7 @@ const stripeLoaderUrl: PrivacyPilotEvidence = {
   token: "https://js.stripe.com/endive/stripe.js",
 };
 const stripeCspOrigin: PrivacyPilotEvidence = {
-  ref: `${pilotMarketplace}/app.rs:1887`,
+  ref: `${pilotMarketplace}/app.rs:1897`,
   token: 'STRIPE_JS: &str = "https://js.stripe.com"',
 };
 const connectLoaderUrl: PrivacyPilotEvidence = {
@@ -201,15 +201,15 @@ const connectScriptAdded: PrivacyPilotEvidence = {
   token: "script.src = connectScriptUrl()",
 };
 const connectCspOrigin: PrivacyPilotEvidence = {
-  ref: `${pilotMarketplace}/app.rs:1914`,
+  ref: `${pilotMarketplace}/app.rs:1924`,
   token: 'CONNECT_JS: &str = "https://connect-js.stripe.com"',
 };
 const payoutSetupRoute: PrivacyPilotEvidence = {
-  ref: `${pilotMarketplace}/app.rs:1132`,
+  ref: `${pilotMarketplace}/app.rs:1142`,
   token: '"/account/desk/settings"',
 };
 const payoutSetupArea: PrivacyPilotEvidence = {
-  ref: `${pilotMarketplace}/app.rs:2063-2065`,
+  ref: `${pilotMarketplace}/app.rs:2073-2075`,
   token: "stripe_connect(p)",
 };
 
@@ -220,10 +220,10 @@ export const privacyPilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = 
     evidence: [
       { ref: `${pilotMarketplace}/views/payment_entry.js:135`, token: "await loadStripe()" },
       stripeLoaderUrl,
-      { ref: `${pilotMarketplace}/app.rs:1185`, token: '"/account/payments/{id}"' },
-      { ref: `${pilotMarketplace}/app.rs:1216`, token: '"/checkout/payments/{id}"' },
-      { ref: `${pilotMarketplace}/app.rs:2069`, token: "views::PAYMENT).policy(stripe)" },
-      { ref: `${pilotMarketplace}/app.rs:2070`, token: "views::GUEST_PAYMENT).policy(stripe)" },
+      { ref: `${pilotMarketplace}/app.rs:1195`, token: '"/account/payments/{id}"' },
+      { ref: `${pilotMarketplace}/app.rs:1226`, token: '"/checkout/payments/{id}"' },
+      { ref: `${pilotMarketplace}/app.rs:2079`, token: "views::PAYMENT).policy(stripe)" },
+      { ref: `${pilotMarketplace}/app.rs:2080`, token: "views::GUEST_PAYMENT).policy(stripe)" },
       stripeCspOrigin,
     ],
   },
@@ -233,8 +233,8 @@ export const privacyPilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = 
     evidence: [
       { ref: `${pilotMarketplace}/views/payment_setup.js:84`, token: "await loadStripe()" },
       stripeLoaderUrl,
-      { ref: `${pilotMarketplace}/app.rs:1262`, token: '"/account/payment-methods"' },
-      { ref: `${pilotMarketplace}/app.rs:2072`, token: "views::PAYMENT_METHODS).policy(stripe)" },
+      { ref: `${pilotMarketplace}/app.rs:1272`, token: '"/account/payment-methods"' },
+      { ref: `${pilotMarketplace}/app.rs:2082`, token: "views::PAYMENT_METHODS).policy(stripe)" },
       stripeCspOrigin,
     ],
   },
@@ -244,8 +244,8 @@ export const privacyPilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = 
     evidence: [
       { ref: `${pilotMarketplace}/views/checkout_page.js:140`, token: "await loadStripe()" },
       stripeLoaderUrl,
-      { ref: `${pilotMarketplace}/app.rs:1739`, token: '"/checkout/buy/session/{id}"' },
-      { ref: `${pilotMarketplace}/app.rs:2008`, token: "views::CHECKOUT).policy(stripe)" },
+      { ref: `${pilotMarketplace}/app.rs:1749`, token: '"/checkout/buy/session/{id}"' },
+      { ref: `${pilotMarketplace}/app.rs:2018`, token: "views::CHECKOUT).policy(stripe)" },
       stripeCspOrigin,
     ],
   },
@@ -278,10 +278,10 @@ export const privacyPilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = 
     reason: "The Corten marketplace registers Corten's service worker, which leaves the private paths to the network.",
     followUp: "https://github.com/chase-sets/chase-sets/issues/12095",
     evidence: [
-      { ref: `${pilotMarketplace}/app.rs:56`, token: "/service-worker.js" },
-      { ref: `${pilotMarketplace}/app.rs:1938-1949`, token: "const NETWORK_ONLY" },
-      { ref: `${pilotMarketplace}/app.rs:1954`, token: "fn pwa() -> corten::pwa::Pwa" },
-      { ref: `${pilotMarketplace}/app.rs:1986`, token: ".pwa(pwa())" },
+      { ref: `${pilotMarketplace}/app.rs:57`, token: "/service-worker.js" },
+      { ref: `${pilotMarketplace}/app.rs:1948-1959`, token: "const NETWORK_ONLY" },
+      { ref: `${pilotMarketplace}/app.rs:1964`, token: "fn pwa() -> corten::pwa::Pwa" },
+      { ref: `${pilotMarketplace}/app.rs:1996`, token: ".pwa(pwa())" },
     ],
   },
 ];

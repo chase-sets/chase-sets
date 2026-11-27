@@ -419,6 +419,7 @@ pub(crate) async fn catalog(caller: &crate::api::Caller<'_>, draft: &Draft) -> C
                 title: item.title,
                 subtitle: item.subtitle,
                 category: None,
+                slug: None,
             }]),
             Ok(None) => Catalog::NoMatch,
             Err(_) => Catalog::Failed,

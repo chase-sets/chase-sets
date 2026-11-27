@@ -469,7 +469,7 @@ describe(
       }));
       expectSoleViolation(
         evaluate(privacyPolicyArtifact, privacyProductTruthBindings, mutant),
-        /pilot evidence 'deployables\/corten-pilot\/marketplace\/src\/app\.rs:1986' for binding 'cache-storage-marketplace-pwa' no longer carries '\.pwa\(retired_pwa\(\)\)'\./,
+        /pilot evidence 'deployables\/corten-pilot\/marketplace\/src\/app\.rs:1996' for binding 'cache-storage-marketplace-pwa' no longer carries '\.pwa\(retired_pwa\(\)\)'\./,
       );
     });
 

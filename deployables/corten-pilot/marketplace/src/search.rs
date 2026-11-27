@@ -41,9 +41,10 @@ use corten::{
 };
 use futures_util::StreamExt;
 use platform::realtime::Tick;
+use serde::Serialize;
 
 use crate::{
-    api::{Interpretation, Search, SearchCategory, SearchItem, SearchResults, segment},
+    api::{Interpretation, ListingCreate as _, Search, SearchCategory, SearchItem, SearchResults, segment},
     app::{Shared, marketplace_origin, url},
     auth::Session,
     items::Raw,
@@ -627,6 +628,67 @@ pub(crate) async fn live(
         })
         .filter_map(std::future::ready);
     corten::live(fragments)
+}
+
+/// The most of its words the header search sends (`truncateDiscoverySearchSuggestionQuery`), in
+/// characters.
+pub const SUGGEST_MOST: usize = 80;
+
+/// The header search's words (`/search/suggest?q=..`).
+#[derive(Clone, Debug, Default, Fields, Route)]
+#[route(query)]
+pub struct SuggestWords {
+    pub q: Option<String>,
+}
+
+/// A catalog item the header search lists: its title, the line under it (its subtitle, else its
+/// category, else "Catalog item", as `HeaderSearch` writes it) and its page.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Suggested {
+    pub title: String,
+    pub description: String,
+    pub href: String,
+}
+
+/// The header search's suggestions: none for no words, and none when Discovery's read failed, as
+/// `HeaderSearch` shows none then.
+#[derive(Debug, Serialize, ToJson)]
+pub struct Suggestions {
+    pub items: Vec<Suggested>,
+}
+
+/// The header search's suggestions for its words (`suggestItems`, Discovery's
+/// `/api/marketplace/items/suggest`), read for no one in particular: the first 80 characters,
+/// trimmed. An item without a page's slug is left out, since choosing it would go nowhere.
+pub(crate) async fn suggest(
+    req: Req,
+    State(config): State<Shared>,
+    Params(route): Params<url::SearchSuggest>,
+) -> JsonResult<Suggestions> {
+    let t: SearchMsg = req.t();
+    let words: String = route.words.q.unwrap_or_default().chars().take(SUGGEST_MOST).collect();
+    let words = words.trim();
+    if words.is_empty() {
+        return Ok(Json(Suggestions { items: Vec::new() }));
+    }
+    let found = match config.anonymous().suggest(words).await {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::warn!("the header search's suggestions failed: {error}");
+            Vec::new()
+        }
+    };
+    let items = found
+        .into_iter()
+        .filter_map(|item| {
+            let slug = item.slug.filter(|slug| !slug.trim().is_empty())?;
+            let subtitle = item.subtitle.filter(|s| !s.trim().is_empty()).map(|s| s.trim().to_owned());
+            let description = subtitle.or(item.category).unwrap_or_else(|| t.header_catalog_item().to_string());
+            let href = url::Item { slug: &slug, state: crate::items::Address::default(), after: Default::default() }.href();
+            Some(Suggested { title: item.title, description, href })
+        })
+        .collect();
+    Ok(Json(Suggestions { items }))
 }
 
 /// Featured categories the home page shows (`HOME_FEATURED_CATEGORY_LIMIT`).

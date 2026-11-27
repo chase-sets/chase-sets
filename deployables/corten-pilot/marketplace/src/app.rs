@@ -42,6 +42,7 @@
 //! | `GET /account/channels?<place>`, `POST ..`, `../{id}?after_write=..`, `POST ../{id}`, `../publication`, `../publication/{id}?<place>`, `POST ..`, `POST ../{id}/manual-sync`, `../ingest`, `../download` | the channel connections, Connect, a connection's writes and manual sync, the publication list and a connection's publication with its writes (see `channels`) |
 //! | `GET /account/channels/ebay?<place>`, `POST ..`, `/channels/ebay/callback`, `/channels/ebay/declined` | Connect eBay Sandbox: consent, Authorize and Disconnect, and eBay's return (see `ebay`) |
 //! | `GET /search?<terms>` | marketplace search: the results for the words, filters and sort, to anyone |
+//! | `GET /search/suggest?q=..` | the header search's suggestions for its words, as JSON (see `search`) |
 //! | `GET /categories/{slug}?<terms>` | the same, in a category |
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
 //! | `GET /sign-in/magic?token=..` | a magic link's landing |
@@ -250,7 +251,7 @@ pub mod url {
     pub use sale_reviews::SaleReview;
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingSlips, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
-    pub use search::{Search, SearchCart, SearchLive};
+    pub use search::{Search, SearchCart, SearchLive, SearchSuggest};
     pub use security::Security;
     pub use sell_checkout::{SellCheckout, SellConfirmation};
     pub use sell_list::{SellList, SellListEvidence};
@@ -397,6 +398,15 @@ pub mod url {
         pub struct SearchLive {
             #[route(query)]
             pub shown: crate::search::Shown,
+        }
+
+        /// The catalog items the shell's header search suggests for its words, as JSON
+        /// (`search::suggest`).
+        #[derive(Clone, Debug, Default)]
+        #[route("/search/suggest", get = crate::search::suggest)]
+        pub struct SearchSuggest {
+            #[route(query)]
+            pub words: crate::search::SuggestWords,
         }
     }
 
