@@ -16,7 +16,6 @@ import {
   buildHelmUpgradeArgs,
   parseArgs,
   platformKubernetesWorkloads,
-  withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
@@ -45,7 +44,8 @@ describe("Corten admin staging deployment", () => {
       // images and best-effort PROXIES, then for retiring marketplace-web: no PRODUCTION_MARKETPLACE_APP, and the
       // marketplace signed-in smoke runs whenever production serves a marketplace.
       // Then for retiring admin-web: no PRODUCTION_ADMIN_APP, and admin-corten is always readied and smoked.
-      "deploy-production": "f54c4edc1b26f819ad9e3890afcad9a82a5c4144823e0c056c316f618db54dbe",
+      // Then for retiring public-web: no PRODUCTION_PUBLIC_APP, and public-corten is always deployed.
+      "deploy-production": "0034948c6b90b335f808e6ed2e551295e3ca47aa3f74b5acaa857769b2d5ce05",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -68,7 +68,8 @@ describe("Corten admin staging deployment", () => {
       // and production no longer disables it.
       "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
       // Then for retiring admin-web: production keeps no admin-web resources and disables it.
-      "values.production.yaml": "dc49af728c4543cfa44866842cae5977cb120fe526063f32486a7de66a634313",
+      // Then for retiring public-web: production keeps no public-web resources and disables it.
+      "values.production.yaml": "79b7079f9bf88824a1cd41b1c3376cb009f26f5d7cfe7fd98df3dfeafe404af3",
     })) {
       expect(
         createHash("sha256")
@@ -198,9 +199,9 @@ describe("Corten admin staging deployment", () => {
     ).toBe(name);
     const productionArgs = buildHelmUpgradeArgs({
       ...options,
-      // admin-corten and marketplace-corten serve production, so production always carries their staged images.
+      // admin-corten, marketplace-corten and public-corten serve production, so production always carries their
+      // staged images.
       cortenMarketplaceImage: image.replace("corten-admin", "corten-marketplace"),
-      cortenPublicImage: undefined,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: "10.244.0.0/25" },
       env: { ...options.env, PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
     });
@@ -225,7 +226,6 @@ describe("Corten admin staging deployment", () => {
     const production = buildHelmUpgradeArgs({
       ...options,
       cortenMarketplaceImage: image.replace("corten-admin", "corten-marketplace"),
-      cortenPublicImage: undefined,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", PROXIES: "10.244.0.0/25" },
     });
     expect(production.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
@@ -543,11 +543,8 @@ describe("admin-corten serves admin.staging", () => {
     for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/STAGING_ADMIN_APP|ADMIN_APP/);
   });
 
-  it("keeps admin-corten off the advisory list and never withholds it", () => {
+  it("keeps admin-corten off the advisory list", () => {
     expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual([]);
-    for (const value of leftovers) {
-      expect(withheldCortenPilots(withLeftover(options, value))).toEqual([]);
-    }
   });
 
   it("fails a deploy without the admin image, whatever a leftover variable says", () => {

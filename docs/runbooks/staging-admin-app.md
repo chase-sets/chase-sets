@@ -4,7 +4,7 @@ admin-corten serves admin.staging on every staging deploy. `admin.staging.chases
 
 A release without a Corten admin image fails Deploy Staging instead of removing what serves admin. The staging ingress wait reads `admin-corten`'s `/health/ready`, and the Smoke check runs the authenticated admin smoke against `admin.staging`. Each successful Deploy Staging hands its image digest to Deploy Production through `corten_admin_image` (see [Production Admin App](./production-admin-app.md)).
 
-The `STAGING_ADMIN_APP` variable is no longer read. It stays set while a release from before admin-web was retired is still a rollback target, because such a release still reads it; leave it alone until those releases are out of the rollback window.
+The `STAGING_ADMIN_APP` variable is no longer read, and it is not set in the staging environment. A release from before admin-web was retired treats it as unset, which means the Corten admin, so rolling back to such a release keeps admin-corten serving admin.staging.
 
 ## Rolling back
 

@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -16,8 +14,6 @@ import {
   droppedAdvisoryCortenPilots,
   parseArgs,
   platformKubernetesWorkloads,
-  recordStagingPublicApp,
-  withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
@@ -50,7 +46,8 @@ describe("Corten public staging, first slice", () => {
       // Moved for the production public switch (PRODUCTION_PUBLIC_APP, the staged Corten public image, best-effort PROXIES),
       // then for retiring marketplace-web (no PRODUCTION_MARKETPLACE_APP).
       // Then for retiring admin-web: no PRODUCTION_ADMIN_APP, and admin-corten is always readied and smoked.
-      "deploy-production": "f54c4edc1b26f819ad9e3890afcad9a82a5c4144823e0c056c316f618db54dbe",
+      // Then for retiring public-web: no PRODUCTION_PUBLIC_APP, and public-corten is always deployed.
+      "deploy-production": "0034948c6b90b335f808e6ed2e551295e3ca47aa3f74b5acaa857769b2d5ce05",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -73,7 +70,8 @@ describe("Corten public staging, first slice", () => {
       // and production no longer disables it.
       "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
       // Then for retiring admin-web: production keeps no admin-web resources and disables it.
-      "values.production.yaml": "dc49af728c4543cfa44866842cae5977cb120fe526063f32486a7de66a634313",
+      // Then for retiring public-web: production keeps no public-web resources and disables it.
+      "values.production.yaml": "79b7079f9bf88824a1cd41b1c3376cb009f26f5d7cfe7fd98df3dfeafe404af3",
     })) {
       expect(
         createHash("sha256")
@@ -131,7 +129,7 @@ describe("Corten public staging, first slice", () => {
 
   it("keeps the pilot out of base and preview values and preview workloads, and adds no production ingress host", () => {
     expect(buildPlatformHelmValues().components).not.toHaveProperty("public-corten");
-    // Production declares it (corten-public-production.test.mjs) but withholds it while public-web serves.
+    // Production declares it too (corten-public-production.test.mjs).
     expect(buildPlatformHelmProductionValues().components).toHaveProperty("public-corten");
     expect(read("infrastructure/helm/platform/values.preview.yaml")).not.toContain("public-corten");
     expect(
@@ -274,22 +272,28 @@ describe("Corten public staging, first slice", () => {
     expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("build-corten-pilot-images");
   });
 
-  it("only reports from the advisory step, which never fails Deploy Staging and adds no secret", () => {
+  it("requires pilot readiness in both the staging ingress wait and the Smoke check, with no advisory public step", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
-    const index = steps.findIndex(({ name }) => name === "Advisory Corten public smoke");
-    const smoke = steps[index];
-    expect(steps[index - 1].name).toBe("Smoke check");
-    expect(smoke["continue-on-error"]).toBe(true);
-    expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
-    expect(smoke.env).toEqual({ PUBLIC_APP: "${{ steps.staging_kubernetes_deploy.outputs.public_app }}" });
-    expect(JSON.stringify(smoke)).not.toContain("secrets.");
-    expect(smoke.run).toMatch(/if \[ "\$PUBLIC_APP" != "public-web" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
-    expect(smoke.run).not.toContain("smoke:");
-    expect(smoke.run).not.toContain("platform-ingress-wait");
+    const url = "https://public-corten.staging.chasesets.com/health/ready";
+    const wait = steps.find(({ name }) => name === "Wait for staging ingress URLs");
+    const smoke = steps.find(({ name }) => name === "Smoke check");
+    // public-corten serves www.staging on every deploy, so neither check is gated.
+    expect(wait.run).toContain(`  "${url}"\n`);
+    expect(wait.run.split(url)).toHaveLength(2);
+    expect(smoke.run).toContain(
+      `node ./scripts/platform-ingress-wait.mjs \\\n  --attempts 1 \\\n  --expect-status 200 \\\n  --url "${url}"\n`,
+    );
+    expect(smoke.run.split(url)).toHaveLength(2);
+    for (const step of [wait, smoke]) {
+      expect(step.env ?? {}).not.toHaveProperty("PUBLIC_APP");
+      expect(step.run).not.toMatch(/PUBLIC_APP/);
+    }
+    // The advisory step only reported which app served www.staging, so it is gone with public-web.
+    expect(steps.map(({ name }) => name)).not.toContain("Advisory Corten public smoke");
   });
 
-  it("serves www.staging from STAGING_PUBLIC_APP, the Corten public app by default", () => {
-    const withApp = (base, STAGING_PUBLIC_APP) => ({ ...base, env: { ...base.env, STAGING_PUBLIC_APP } });
+  it("serves www.staging from the Corten public app, whatever a leftover variable says", () => {
+    const withLeftover = (base, STAGING_PUBLIC_APP) => ({ ...base, env: { ...base.env, STAGING_PUBLIC_APP } });
     const ingress = (env) =>
       Object.fromEntries(
         buildDoksIngressValues({ environment: "staging", env: { DOKS_INGRESS_TARGET: "192.0.2.1", ...env } }).hosts.map(
@@ -301,98 +305,54 @@ describe("Corten public staging, first slice", () => {
         .hosts.find(({ host }) => host === "www.staging.chasesets.com")
         .paths.filter(({ service }) => service === "platform-api")
         .map(({ path }) => path);
-    for (const value of [undefined, "", "public-corten"]) {
+    for (const value of [undefined, "", "public-corten", "public-web", "not-an-app"]) {
       const hosts = ingress({ STAGING_PUBLIC_APP: value });
       expect(hosts["www.staging.chasesets.com"]).toBe("public-corten");
       expect(hosts["public-corten.staging.chasesets.com"]).toBe("public-corten");
       // The staging root stays with the marketplace.
       expect(hosts["staging.chasesets.com"]).toBe("marketplace-corten");
-      expect(withheldCortenPilots(withApp(options, value))).not.toContain("public-corten");
-      const args = buildHelmUpgradeArgs(withApp(options, value));
-      expect(args).toContain(`components.public-corten.image=${image}`);
-      expect(args).not.toContain("components.public-corten.enabled=false");
+      const args = buildHelmUpgradeArgs(withLeftover(options, value));
+      expect(args.filter((arg) => String(arg).startsWith("components.public-corten."))).toEqual([
+        `components.public-corten.image=${image}`,
+      ]);
       // Serving the host, a missing image refuses the deploy.
-      expect(() => buildHelmUpgradeArgs(withApp({ ...options, cortenPublicImage: undefined }, value))).toThrow(
+      expect(() => buildHelmUpgradeArgs(withLeftover({ ...options, cortenPublicImage: undefined }, value))).toThrow(
         "corten-public-image is required on staging",
       );
+      expect(routedToApi({ STAGING_PUBLIC_APP: value })).toEqual(routedToApi({}));
     }
-    // The platform API keeps its paths on www.staging whichever app serves the root.
-    expect(routedToApi({})).toEqual(routedToApi({ STAGING_PUBLIC_APP: "public-web" }));
     expect(routedToApi({})).toEqual(expect.arrayContaining(["/mcp", "/ucp", "/.well-known", "/api"]));
-    // Rolled back: public-web serves www.staging, and the pilot is not deployed, image or not.
-    expect(ingress({ STAGING_PUBLIC_APP: "public-web" })["www.staging.chasesets.com"]).toBe("public-web");
-    for (const base of [options, { ...options, cortenPublicImage: undefined }]) {
-      expect(withheldCortenPilots(withApp(base, "public-web"))).toContain("public-corten");
-      const args = buildHelmUpgradeArgs(withApp(base, "public-web"));
-      expect(args.filter((arg) => String(arg).startsWith("components.public-corten."))).toEqual([
-        "components.public-corten.enabled=false",
-      ]);
-    }
-    for (const value of ["public", "Public-Web", "corten", "public-web,public-corten", "withheld"]) {
-      expect(() => buildHelmUpgradeArgs(withApp(options, value))).toThrow("STAGING_PUBLIC_APP must be one of");
-    }
-    // Each pilot answers only to its own variable.
-    expect(withheldCortenPilots(withApp(options, "public-web"))).not.toContain("marketplace-corten");
-    // Production never reads it: production's own PRODUCTION_PUBLIC_APP still defaults to public-web.
-    expect(
-      withheldCortenPilots({
-        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
-        env: { STAGING_PUBLIC_APP: "public-corten" },
-      }),
-    ).toContain("public-corten");
   });
 
-  it("says which app served www.staging, in the summary, the step output and the deploy record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "staging-public-app-"));
-    try {
-      const record = (env) => {
-        const summary = join(dir, `summary-${env.STAGING_PUBLIC_APP ?? "unset"}.md`);
-        const output = join(dir, `output-${env.STAGING_PUBLIC_APP ?? "unset"}.txt`);
-        const result = recordStagingPublicApp({ env, githubSummaryPath: summary, githubOutputPath: output });
-        return { result, summary: read(summary), output: read(output) };
-      };
-      const unset = record({});
-      expect(unset.result).toEqual({ app: "public-corten", source: "default", publicCorten: "deployed" });
-      expect(unset.summary).toBe(
-        "### Staging public app\n\n" +
-          "www.staging is served by public-corten (STAGING_PUBLIC_APP is unset, so the default applies).\n\n",
-      );
-      expect(unset.output).toBe("public_app=public-corten\npublic_app_source=default\n");
-      const rolledBack = record({ STAGING_PUBLIC_APP: "public-web" });
-      expect(rolledBack.result).toEqual({ app: "public-web", source: "variable", publicCorten: "not-deployed" });
-      expect(rolledBack.summary).toBe(
-        "### Staging public app\n\n" +
-          "www.staging is served by public-web (STAGING_PUBLIC_APP=public-web).\n\n" +
-          "public-corten is not deployed while public-web serves www.staging.\n\n",
-      );
-      expect(rolledBack.output).toBe("public_app=public-web\npublic_app_source=variable\n");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingPublicApp;
-    expect(evidence({})).toEqual({ app: "public-corten", source: "default", publicCorten: "deployed" });
-    expect(evidence({ STAGING_PUBLIC_APP: "public-web" })).toEqual({
-      app: "public-web",
-      source: "variable",
-      publicCorten: "not-deployed",
-    });
+  it("no longer deploys public-web on staging or routes to it", () => {
+    expect(buildPlatformHelmStagingValues().components["public-web"]).toEqual({ enabled: false });
+    expect(read("infrastructure/helm/platform/values.staging.yaml")).toContain("  public-web:\n    enabled: false\n");
+    const routes = JSON.stringify(
+      buildDoksIngressValues({ environment: "staging", env: { DOKS_INGRESS_TARGET: "192.0.2.1" } }).hosts.flatMap(
+        ({ paths }) => paths,
+      ),
+    );
+    expect(routes).not.toContain('"service":"public-web"');
+    expect(platformKubernetesWorkloads(options).deployments).not.toContain(
+      "chase-sets-platform-chase-sets-platform-public-web",
+    );
   });
 
-  it("reads the variable once, in Deploy Staging only, and walks the public routes on whichever app serves", () => {
+  it("keeps no public app in the deploy record", () => {
+    for (const env of [{}, { STAGING_PUBLIC_APP: "public-web" }]) {
+      const evidence = buildDeploymentEvidence({ ...options, env, workloads: {} });
+      expect(evidence).not.toHaveProperty("stagingPublicApp");
+      expect(evidence).not.toHaveProperty("productionPublicApp");
+    }
+  });
+
+  it("reads no public app variable in Deploy Staging and walks the public routes on www.staging", () => {
     const job = workflow.jobs["deploy-staging"];
-    expect(job.env.STAGING_PUBLIC_APP).toBe("${{ vars.STAGING_PUBLIC_APP || '' }}");
-    expect(job.env).not.toHaveProperty("STAGING_PUBLIC_PILOT");
-    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_PUBLIC_APP/);
-    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("STAGING_PUBLIC_APP");
-    expect(workflowText).not.toContain("STAGING_PUBLIC_PILOT");
-    const wait = job.steps.find(({ name }) => name === "Wait for staging ingress URLs");
+    expect(job.environment).toBe("staging");
+    expect(job.env).not.toHaveProperty("STAGING_PUBLIC_APP");
+    expect(job.outputs).not.toHaveProperty("public_app");
+    expect(workflowText).not.toMatch(/STAGING_PUBLIC_APP|STAGING_PUBLIC_PILOT/);
     const smoke = job.steps.find(({ name }) => name === "Smoke check");
-    for (const step of [wait, smoke]) {
-      expect(step.env.PUBLIC_APP).toBe("${{ steps.staging_kubernetes_deploy.outputs.public_app }}");
-      expect(step.run).toMatch(
-        /if \[ "\$PUBLIC_APP" != "public-web" \]; then\n[\s\S]*?https:\/\/public-corten\.staging\.chasesets\.com\/health\/ready[\s\S]*?\n\s*fi/,
-      );
-    }
     // The enforcing Smoke check walks the derived public routes on landing_domain (www.staging) in healthy mode.
     expect(smoke.run).toContain('landing_domain="$(terraform output -raw landing_domain)"');
     expect(smoke.run).toContain('"https://${landing_domain}"');
@@ -404,9 +364,8 @@ describe("Corten public staging, first slice", () => {
       'local.is_staging ? "www.${var.environment}.${var.root_domain}"',
     );
     const runbook = read("docs/runbooks/staging-public-app.md");
-    expect(runbook).toContain(
-      "gh variable set STAGING_PUBLIC_APP --repo chase-sets/chase-sets --env staging --body public-web",
-    );
-    expect(runbook).toContain("gh variable delete STAGING_PUBLIC_APP --repo chase-sets/chase-sets --env staging");
+    expect(runbook).toContain("public-corten serves www.staging on every staging deploy.");
+    expect(runbook).toContain("To roll back, deploy an earlier release_ref.");
+    expect(runbook).not.toContain("gh variable set STAGING_PUBLIC_APP");
   });
 });

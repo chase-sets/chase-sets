@@ -184,18 +184,6 @@ components:
         memory: "512Mi"
     podAnnotations: {}
     podLabels: {}
-  public-web:
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "256Mi"
-      limits:
-        cpu: "1"
-        memory: "1Gi"
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: "kubernetes.io/hostname"
-        whenUnsatisfiable: "ScheduleAnyway"
   platform-api:
     resources:
       requests:
@@ -220,5 +208,7 @@ components:
       - maxSkew: 1
         topologyKey: "kubernetes.io/hostname"
         whenUnsatisfiable: "ScheduleAnyway"
+  public-web:
+    enabled: false
   admin-web:
     enabled: false
