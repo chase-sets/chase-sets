@@ -55,7 +55,6 @@ export type CheckoutUcpListing = Readonly<{
   item_subtitle: string | null;
   product_summary: string | null;
   selected_options: unknown;
-  inventory_item_id: string;
   account_id: string;
   price_amount: string;
   price_currency_code: string | null;
