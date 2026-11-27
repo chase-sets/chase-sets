@@ -1,4 +1,5 @@
 import type { RealtimeProjectionPatch, RealtimeProjectionPatchChange } from "@chase-sets/platform-runtime/realtime";
+import { pickDiscoveryPublicListingFields } from "../market-support/public-listing";
 
 const DISCOVERY_MARKET_PROJECTION = "discovery-market-projection";
 
@@ -30,9 +31,8 @@ export function createDiscoveryListingPatch(
   }>,
   summary: unknown,
 ): RealtimeProjectionPatch {
-  const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicListing } = listing;
-  void supply_total_quantity;
-  void active_held_quantity;
+  const { product_measure_snapshot } = listing;
+  const publicListing = pickDiscoveryPublicListingFields(listing);
 
   // Structurally real -- the listing itself is live and in stock, independent
   // of seller availability/capacity. This is the direct single-listing page's

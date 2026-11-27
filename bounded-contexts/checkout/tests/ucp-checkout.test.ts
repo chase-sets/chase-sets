@@ -48,7 +48,6 @@ const listing: CheckoutUcpListing = {
   item_subtitle: null,
   product_summary: "Raw",
   selected_options: [],
-  inventory_item_id: "inv_1",
   account_id: "acc_seller",
   price_amount: "20.00",
   price_currency_code: "usd",

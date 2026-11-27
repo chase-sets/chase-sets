@@ -2,6 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
 import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
+import { pickDiscoveryPublicListingFields } from "../../../support/market-support/public-listing";
 import {
   buyerVisibleListingPredicateSql,
   buyerVisibleListingQuantitySql,
@@ -60,7 +61,6 @@ export type DiscoveryItemDetailRow = Readonly<{
     listing_slug: string;
     product_slug: string;
     account_id: string;
-    inventory_item_id: string;
     catalog_catalog_item_id: string;
     product_id: string;
     item_title: string | null;
@@ -68,13 +68,11 @@ export type DiscoveryItemDetailRow = Readonly<{
     selected_options: readonly { dimensionId: string; optionId: string }[];
     product_summary: string | null;
     graded_card: DiscoveryGradedCardDetails | null;
-    storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
     price_currency_code: string | null;
     listing_stream_version: number;
     shipping_allowance_percentage_bps: number;
-    quantity_cap: number;
     max_units_per_order: number | null;
     max_units_per_day: number | null;
     max_units_per_customer_account: number | null;
@@ -143,12 +141,8 @@ function safePriceNumericSql(alias: string): string {
 }
 
 function mapDiscoveryMarketListing(row: DiscoveryMarketListingDbRow) {
-  const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
-  void product_measure_snapshot;
-  void supply_total_quantity;
-  void active_held_quantity;
   return {
-    ...publicRow,
+    ...pickDiscoveryPublicListingFields(row),
     graded_card: row.graded_card ?? null,
     selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
   };
@@ -454,7 +448,6 @@ export async function getDiscoveryItemDetail(
          listing.listing_slug,
          listing.product_slug,
          listing.account_id,
-         listing.inventory_item_id,
          listing.catalog_catalog_item_id,
          listing.product_id,
          listing.item_title,
@@ -462,13 +455,11 @@ export async function getDiscoveryItemDetail(
          listing.selected_options,
          listing.product_summary,
          listing.graded_card,
-         listing.storage_location_name,
          listing.ship_from_code,
          listing.price_amount,
          listing.price_currency_code,
          listing.listing_stream_version,
          listing.shipping_allowance_percentage_bps,
-         listing.quantity_cap,
          listing.max_units_per_order,
          listing.max_units_per_day,
          listing.max_units_per_customer_account,
@@ -495,7 +486,6 @@ export async function getDiscoveryItemDetail(
        listing_slug,
        product_slug,
        account_id,
-       inventory_item_id,
        catalog_catalog_item_id,
        product_id,
        item_title,
@@ -503,13 +493,11 @@ export async function getDiscoveryItemDetail(
        selected_options,
        product_summary,
        graded_card,
-       storage_location_name,
        ship_from_code,
        price_amount,
        price_currency_code,
        listing_stream_version,
        shipping_allowance_percentage_bps,
-       quantity_cap,
        max_units_per_order,
        max_units_per_day,
        max_units_per_customer_account,
@@ -577,7 +565,6 @@ export async function getDiscoveryItemDetail(
          listing.listing_slug,
          listing.product_slug,
          listing.account_id,
-         listing.inventory_item_id,
          listing.catalog_catalog_item_id,
          listing.product_id,
          listing.item_title,
@@ -585,13 +572,11 @@ export async function getDiscoveryItemDetail(
          listing.selected_options,
          listing.product_summary,
          listing.graded_card,
-         listing.storage_location_name,
          listing.ship_from_code,
          listing.price_amount,
          listing.price_currency_code,
          listing.listing_stream_version,
          listing.shipping_allowance_percentage_bps,
-         listing.quantity_cap,
          listing.max_units_per_order,
          listing.max_units_per_day,
          listing.max_units_per_customer_account,
@@ -618,7 +603,6 @@ export async function getDiscoveryItemDetail(
        listing_slug,
        product_slug,
        account_id,
-       inventory_item_id,
        catalog_catalog_item_id,
        product_id,
        item_title,
@@ -626,13 +610,11 @@ export async function getDiscoveryItemDetail(
        selected_options,
        product_summary,
        graded_card,
-       storage_location_name,
        ship_from_code,
        price_amount,
        price_currency_code,
        listing_stream_version,
        shipping_allowance_percentage_bps,
-       quantity_cap,
        max_units_per_order,
        max_units_per_day,
        max_units_per_customer_account,
