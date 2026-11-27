@@ -1301,7 +1301,7 @@ describe("journey package workflow and boundaries", () => {
     expect(existsSync(path.join(repoRoot, journeyPackageTarget.file))).toBe(false);
     expect(config).not.toContain('testMatch: "deployables/marketplace/');
     expect(config).toContain(`name: "${journeyPackageTarget.project}"`);
-    expect(config).toContain('testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts"');
+    expect(config).toContain('testMatch: "deployables/corten-pilot/e2e/*.spec.ts"');
     expect(config).toContain(`outputDir: "${rawRoot}"`);
     expect(config.match(/\["\.\/scripts\/lib\/journey-package-reporter\.mjs"\]/g)).toHaveLength(1);
   });

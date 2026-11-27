@@ -161,8 +161,7 @@ const cortenAdminBrowserPaths = [
   /^deployables\/corten-pilot\/(?:admin|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/admin-web\/e2e\/(?!catalog-staging-provider-sync\.uat\.|rendered-copy-sweep\.|ink-foil-visual-identity\.)[^/]+\.spec\.ts$/,
-  /^deployables\/admin-web\/e2e\/support\/(?:admin-e2e|seed-contract-gap)\.ts$/,
+  /^deployables\/corten-pilot\/e2e\/admin\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
 

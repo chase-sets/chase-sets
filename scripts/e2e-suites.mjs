@@ -225,20 +225,30 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/corten-pilot\/e2e\/responsive-evidence-contract\.spec\.ts$/,
     suites: [marketplaceBrowser],
   },
-  { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
+  { pattern: /^deployables\/corten-pilot\/e2e\/admin\/access-/, suites: ["admin_access"] },
   {
-    pattern: /^deployables\/admin-web\/e2e\/admin-tablet-navigation\.spec\.ts$/,
+    pattern: /^deployables\/corten-pilot\/e2e\/admin\/admin-tablet-navigation\.spec\.ts$/,
     suites: ["catalog_admin_integrations", "admin_support"],
   },
-  { pattern: /^deployables\/admin-web\/e2e\/auth-shell-rbac\.spec\.ts$/, suites: ["admin_auth"] },
-  { pattern: /^deployables\/admin-web\/e2e\/catalog-integrations\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
-  { pattern: /^deployables\/admin-web\/e2e\/catalog-scopes\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
-  { pattern: /^deployables\/admin-web\/e2e\/catalog-modeling\.spec\.ts$/, suites: ["catalog_admin_modeling"] },
-  { pattern: /^deployables\/admin-web\/e2e\/commerce-/, suites: ["admin_commerce"] },
-  { pattern: /^deployables\/admin-web\/e2e\/growth-/, suites: ["admin_growth"] },
-  { pattern: /^deployables\/admin-web\/e2e\/support-/, suites: ["admin_support"] },
+  { pattern: /^deployables\/corten-pilot\/e2e\/admin\/auth-shell-rbac\.spec\.ts$/, suites: ["admin_auth"] },
   {
-    pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
+    pattern: /^deployables\/corten-pilot\/e2e\/admin\/catalog-integrations\.spec\.ts$/,
+    suites: ["catalog_admin_integrations"],
+  },
+  {
+    pattern: /^deployables\/corten-pilot\/e2e\/admin\/catalog-scopes\.spec\.ts$/,
+    suites: ["catalog_admin_integrations"],
+  },
+  {
+    pattern: /^deployables\/corten-pilot\/e2e\/admin\/catalog-modeling\.spec\.ts$/,
+    suites: ["catalog_admin_modeling"],
+  },
+  { pattern: /^deployables\/corten-pilot\/e2e\/admin\/commerce-/, suites: ["admin_commerce"] },
+  { pattern: /^deployables\/corten-pilot\/e2e\/admin\/growth-/, suites: ["admin_growth"] },
+  { pattern: /^deployables\/corten-pilot\/e2e\/admin\/support-/, suites: ["admin_support"] },
+  {
+    pattern:
+      /^deployables\/corten-pilot\/e2e\/admin\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
   },
   {

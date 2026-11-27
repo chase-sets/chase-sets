@@ -167,7 +167,7 @@ test.describe("commerce admin postage policies", () => {
             pr: identity.pr,
             head: identity.head,
             suite: "admin_commerce",
-            spec: "deployables/admin-web/e2e/commerce-postage-policies.spec.ts",
+            spec: "deployables/corten-pilot/e2e/admin/commerce-postage-policies.spec.ts",
             state: "postage-policy",
             theme,
             route: "/commerce/postage-policies?policy=:policyId",

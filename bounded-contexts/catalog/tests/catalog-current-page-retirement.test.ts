@@ -42,6 +42,7 @@ const scanRoots = [
   "contracts/localization/locales/en/catalog.ts",
   "contracts/localization/locales/en/catalog",
   "deployables/admin-web/e2e",
+  "deployables/corten-pilot/e2e/admin",
   "packages/design-system/DENSE_ADMIN_WORKBENCH.md",
   "packages/design-system/SECTION_NAVIGATION.md",
   "scripts/e2e-suites.mjs",

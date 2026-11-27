@@ -1,0 +1,78 @@
+{
+  "addedCaseCount": 0,
+  "families": {
+    "e2eSpecSuiteOwnership:6": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/access-/",
+      "path": "deployables/corten-pilot/e2e/admin/access-account-badges.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:7": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/admin-tablet-navigation\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/admin/admin-tablet-navigation.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:8": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/auth-shell-rbac\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/admin/auth-shell-rbac.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:9": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/catalog-integrations\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:10": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/catalog-scopes\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:11": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/catalog-modeling\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/admin/catalog-modeling.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:12": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/commerce-/",
+      "path": "deployables/corten-pilot/e2e/admin/commerce-commercial-terms.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:13": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/growth-/",
+      "path": "deployables/corten-pilot/e2e/admin/growth-google-shopping-waitlist.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:14": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/support-/",
+      "path": "deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:15": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/admin\\/(?:admin-cross-cutting-topology|platform-projection-operations)\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/admin/admin-cross-cutting-topology.spec.ts"
+    }
+  },
+  "movedSpecs": {
+    "legacyDirectory": "deployables/admin-web/e2e/",
+    "destinationDirectory": "deployables/corten-pilot/e2e/admin/",
+    "leftWorkspaces": ["@chase-sets/app-admin-web"],
+    "addedScope": {
+      "cortenAdminBrowserRequired": true
+    },
+    "files": [
+      "access-account-badges.spec.ts",
+      "access-api-keys.spec.ts",
+      "access-invitations.spec.ts",
+      "access-sessions.spec.ts",
+      "access-users-memberships.spec.ts",
+      "admin-cross-cutting-topology.spec.ts",
+      "admin-tablet-navigation.spec.ts",
+      "auth-shell-rbac.spec.ts",
+      "catalog-import-job-status-filter.spec.ts",
+      "catalog-integrations.spec.ts",
+      "catalog-modeling.spec.ts",
+      "catalog-provider-job-diagnostics.spec.ts",
+      "catalog-scopes.spec.ts",
+      "commerce-commercial-terms.spec.ts",
+      "commerce-postage-policies.spec.ts",
+      "commerce-wallet-adjustments.spec.ts",
+      "growth-google-shopping-waitlist.spec.ts",
+      "growth-promo-bar.spec.ts",
+      "platform-projection-operations.spec.ts",
+      "support-platform-feedback.spec.ts",
+      "support-requests.spec.ts",
+      "support/admin-e2e.ts",
+      "support/seed-contract-gap.ts"
+    ]
+  }
+}

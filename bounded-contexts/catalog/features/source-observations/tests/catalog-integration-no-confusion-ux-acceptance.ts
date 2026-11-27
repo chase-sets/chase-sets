@@ -438,7 +438,7 @@ const catalogNoConfusionUxNewIaProofTests = [
   // The grouped-navigation, mobile workflow combobox, and single per-surface return affordance.
   "ui/workbench-shell.test.tsx",
   // The daily happy-path E2E walked first across the new routes (tag @catalog-admin-integrations).
-  "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+  "deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts",
   // The alias-review workspace: candidate display, bulk accept/reject/revoke,
   // empty states, and generated/low-confidence warnings under the anti-confusion gate.
   "ui/admin-control-plane/alias-review/alias-review-workspace.test.tsx",

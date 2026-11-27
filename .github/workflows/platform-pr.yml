@@ -744,27 +744,27 @@ jobs:
         run: |
           set -euo pipefail
           pnpm exec playwright test \
-            deployables/admin-web/e2e/access-account-badges.spec.ts \
-            deployables/admin-web/e2e/access-api-keys.spec.ts \
-            deployables/admin-web/e2e/access-invitations.spec.ts \
-            deployables/admin-web/e2e/access-sessions.spec.ts \
-            deployables/admin-web/e2e/access-users-memberships.spec.ts \
-            deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts \
-            deployables/admin-web/e2e/admin-tablet-navigation.spec.ts \
-            deployables/admin-web/e2e/auth-shell-rbac.spec.ts \
-            deployables/admin-web/e2e/catalog-import-job-status-filter.spec.ts \
-            deployables/admin-web/e2e/catalog-integrations.spec.ts \
-            deployables/admin-web/e2e/catalog-modeling.spec.ts \
-            deployables/admin-web/e2e/catalog-provider-job-diagnostics.spec.ts \
-            deployables/admin-web/e2e/catalog-scopes.spec.ts \
-            deployables/admin-web/e2e/commerce-commercial-terms.spec.ts \
-            deployables/admin-web/e2e/commerce-postage-policies.spec.ts \
-            deployables/admin-web/e2e/commerce-wallet-adjustments.spec.ts \
-            deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts \
-            deployables/admin-web/e2e/growth-promo-bar.spec.ts \
-            deployables/admin-web/e2e/platform-projection-operations.spec.ts \
-            deployables/admin-web/e2e/support-platform-feedback.spec.ts \
-            deployables/admin-web/e2e/support-requests.spec.ts \
+            deployables/corten-pilot/e2e/admin/access-account-badges.spec.ts \
+            deployables/corten-pilot/e2e/admin/access-api-keys.spec.ts \
+            deployables/corten-pilot/e2e/admin/access-invitations.spec.ts \
+            deployables/corten-pilot/e2e/admin/access-sessions.spec.ts \
+            deployables/corten-pilot/e2e/admin/access-users-memberships.spec.ts \
+            deployables/corten-pilot/e2e/admin/admin-cross-cutting-topology.spec.ts \
+            deployables/corten-pilot/e2e/admin/admin-tablet-navigation.spec.ts \
+            deployables/corten-pilot/e2e/admin/auth-shell-rbac.spec.ts \
+            deployables/corten-pilot/e2e/admin/catalog-import-job-status-filter.spec.ts \
+            deployables/corten-pilot/e2e/admin/catalog-integrations.spec.ts \
+            deployables/corten-pilot/e2e/admin/catalog-modeling.spec.ts \
+            deployables/corten-pilot/e2e/admin/catalog-provider-job-diagnostics.spec.ts \
+            deployables/corten-pilot/e2e/admin/catalog-scopes.spec.ts \
+            deployables/corten-pilot/e2e/admin/commerce-commercial-terms.spec.ts \
+            deployables/corten-pilot/e2e/admin/commerce-postage-policies.spec.ts \
+            deployables/corten-pilot/e2e/admin/commerce-wallet-adjustments.spec.ts \
+            deployables/corten-pilot/e2e/admin/growth-google-shopping-waitlist.spec.ts \
+            deployables/corten-pilot/e2e/admin/growth-promo-bar.spec.ts \
+            deployables/corten-pilot/e2e/admin/platform-projection-operations.spec.ts \
+            deployables/corten-pilot/e2e/admin/support-platform-feedback.spec.ts \
+            deployables/corten-pilot/e2e/admin/support-requests.spec.ts \
             --project=admin-web-chromium --project=admin-web-tablet --shard=${{ matrix.shard }}/3
 
       # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a

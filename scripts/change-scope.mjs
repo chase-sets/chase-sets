@@ -160,19 +160,19 @@ const cortenMarketplaceBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/corten-pilot\/e2e\//,
+  /^deployables\/corten-pilot\/e2e\/(?!admin\/)/,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
-// The Corten admin browser tests run admin-web's kept browser specs against the Corten pilot's admin,
-// which serves production. A change to the pilot's admin or platform code, its build inputs, those specs
-// and their support modules or the dev-system target that boots it can turn them red. The staging
-// provider UAT, the rendered-copy sweep and the visual-identity evidence spec are not kept specs.
+// The Corten admin browser tests run the kept admin browser specs in deployables/corten-pilot/e2e/admin
+// against the Corten pilot's admin, which serves production. A change to the pilot's admin or platform
+// code, its build inputs, those specs and their support modules or the dev-system target that boots it can
+// turn them red. The staging provider UAT, the rendered-copy sweep and the visual-identity evidence spec stay
+// in admin-web and are not kept specs.
 const cortenAdminBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:admin|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/admin-web\/e2e\/(?!catalog-staging-provider-sync\.uat\.|rendered-copy-sweep\.|ink-foil-visual-identity\.)[^/]+\.spec\.ts$/,
-  /^deployables\/admin-web\/e2e\/support\/(?:admin-e2e|seed-contract-gap)\.ts$/,
+  /^deployables\/corten-pilot\/e2e\/admin\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
 // The Corten pilot check (corten check) is required for the pilot's admin, marketplace, platform and public

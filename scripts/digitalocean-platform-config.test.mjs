@@ -6571,10 +6571,12 @@ describe("DigitalOcean platform configuration", () => {
     // this pins is a spec answered by a host that does not serve its route: the
     // deployed run then asserts against another deployable's not-found shell.
     expect(playwrightConfig).toContain('name: "marketplace-chromium"');
-    expect(playwrightConfig).toContain('testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain('testMatch: "deployables/corten-pilot/e2e/*.spec.ts"');
     expect(playwrightConfig).toContain("baseURL: marketplaceBaseUrl");
     expect(playwrightConfig).toContain('name: "admin-web-chromium"');
-    expect(playwrightConfig).toContain('testMatch: "deployables/admin-web/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain(
+      'testMatch: ["deployables/corten-pilot/e2e/admin/**/*.spec.ts", "deployables/admin-web/e2e/**/*.spec.ts"]',
+    );
     expect(playwrightConfig).toContain("baseURL: adminWebBaseUrl");
     expect(playwrightConfig).toContain('name: "public-web-chromium"');
     expect(playwrightConfig).toContain('testMatch: "deployables/public-web/e2e/**/*.spec.ts"');
@@ -6591,8 +6593,8 @@ describe("DigitalOcean platform configuration", () => {
       JSON.parse(pattern),
     );
     expect(projectTestMatches).toEqual([
-      "deployables/corten-pilot/e2e/**/*.spec.ts",
-      "deployables/admin-web/e2e/**/*.spec.ts",
+      "deployables/corten-pilot/e2e/*.spec.ts",
+      ["deployables/corten-pilot/e2e/admin/**/*.spec.ts", "deployables/admin-web/e2e/**/*.spec.ts"],
       "deployables/public-web/e2e/**/*.spec.ts",
     ]);
     expect(playwrightConfig).not.toContain("deployables/*/e2e");

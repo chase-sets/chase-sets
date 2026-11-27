@@ -37,13 +37,15 @@ const browserE2eSystemReadyUrl =
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
 const marketplaceDesktop = {
   name: "marketplace-chromium",
-  // The kept specs that run against the Corten marketplace on the marketplace host.
-  testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts",
+  // The kept specs that run against the Corten marketplace on the marketplace host. The kept admin specs
+  // sit beneath them in admin/.
+  testMatch: "deployables/corten-pilot/e2e/*.spec.ts",
   use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
 };
 const adminWebDesktop = {
   name: "admin-web-chromium",
-  testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
+  // The kept admin specs, which run against the Corten admin, and the admin-web specs not yet retired.
+  testMatch: ["deployables/corten-pilot/e2e/admin/**/*.spec.ts", "deployables/admin-web/e2e/**/*.spec.ts"],
   use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
 };
 const projects = [
