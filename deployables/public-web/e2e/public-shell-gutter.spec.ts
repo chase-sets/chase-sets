@@ -11,6 +11,21 @@ import { expect, test, type Locator } from "@playwright/test";
 // the browser so the populated promo-bar state is always exercised; every
 // target must be present and visible, never conditionally skipped.
 
+// The Corten public app wraps each page in one block that carries the page gutter; its first
+// child is a full-bleed hero (the landing page below lg) or a 48rem text measure (the compare
+// header), so on it the gutter is measured on that wrapper. Its hero is a section with
+// `data-section="hero"` holding the image and one shown h1.
+const onCortenPublic = process.env.CHASE_SETS_BROWSER_E2E_SYSTEM === "corten-public";
+const firstSectionSelector = onCortenPublic
+  ? "main#main-content > :first-child"
+  : "main#main-content > :first-child > :first-child";
+const heroImageSelector = onCortenPublic
+  ? 'main section[data-section="hero"] > img'
+  : '[data-public-presence-section="hero"] > section > img';
+const heroHeadingSelector = onCortenPublic
+  ? 'main section[data-section="hero"] h1:visible'
+  : '[data-public-presence-section="hero"] h1';
+
 const edgeToleranceCssPx = 1;
 const shellContainerMaxWidthCssPx = 1280;
 const promoMessages = {
@@ -55,10 +70,7 @@ for (const route of routes) {
 
       const promo = await requireEdges(page.locator('section[aria-label="Marketplace announcements"]'), "promo bar");
       const nav = await requireEdges(page.locator("nav"), "nav");
-      const firstSection = await requireEdges(
-        page.locator("main#main-content > :first-child > :first-child"),
-        "first section inside main",
-      );
+      const firstSection = await requireEdges(page.locator(firstSectionSelector), "first section inside main");
 
       for (const [name, edges] of [
         ["promo bar", promo],
@@ -116,9 +128,9 @@ for (const viewport of heroViewports) {
 
     const promo = await requireEdges(page.locator('section[aria-label="Marketplace announcements"]'), "promo bar");
     const nav = await requireEdges(page.locator("nav"), "nav");
-    const heroImage = page.locator('[data-public-presence-section="hero"] > section > img');
+    const heroImage = page.locator(heroImageSelector);
     const image = await requireEdges(heroImage, "hero image");
-    const heading = await requireEdges(page.locator('[data-public-presence-section="hero"] h1'), "hero h1");
+    const heading = await requireEdges(page.locator(heroHeadingSelector), "hero h1");
     const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
 
     const expectedImageEdges = viewport.imageEdges === "viewport" ? { left: 0, right: clientWidth } : nav;
