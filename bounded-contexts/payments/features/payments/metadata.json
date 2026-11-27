@@ -123,7 +123,9 @@
         }
       },
       "proof": {
-        "tests": []
+        "tests": [
+          "deployables/corten-pilot/marketplace/src/tests.rs a_buyer_whose_wallet_awaits_the_terms_accepts_them_and_then_pays_from_the_wallet, a_buyer_who_has_accepted_the_terms_is_offered_no_terms_action, while_the_read_after_accepting_catches_up_the_wallet_stays_withheld_with_a_refresh, an_acceptance_identity_does_not_confirm_keeps_the_orders_and_the_wallet_withheld and keeps_withheld_credit_honest_when_terms_recovery_does_not_complete prove the Corten marketplace's Start payment records the acceptance once, redirects with Identity's receipt, reads Payments' status waiting on Identity before it offers the wallet, keeps the wallet withheld with a refresh while that read catches up, and keeps the orders and starts no payment when the acceptance is not confirmed or the quote still withholds."
+        ]
       }
     },
     {

@@ -105,19 +105,22 @@ pub fn PaymentStartPage<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl
 #[component(css = PaymentStartPage)]
 fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
     let f = StartForm::FIELDS;
-    let totals = &screen.totals;
     let chosen = &screen.chosen;
     let count = screen.orders.len();
     let label = if count == 1 { t.purchase_singular() } else { t.purchase_plural() };
     let wallet = screen.wallet.as_ref();
     let withheld = screen.wallet_withheld();
-    let credit_only_off = withheld || totals.external_after_max > 0;
-    // A withheld wallet pays nothing, whatever the form was drawn with.
-    let mode = if withheld { "none" } else { chosen.balance_credit_mode.as_str() };
+    // What Payments applies of the wallet's most and what that leaves, not the balance: a hold or
+    // withholding applies less (marketplace's `maxBalanceCreditAmount` and `externalAfterMax`).
+    let (max_credit, external_after_max) = screen.wallet_credit();
+    let usable = screen.wallet_usable();
+    let credit_only_off = withheld || external_after_max > 0;
+    // A wallet that may not pay pays nothing, whatever the form was drawn with.
+    let mode = if usable { chosen.balance_credit_mode.as_str() } else { "none" };
     let wallet_says = match wallet {
         _ if withheld => t.wallet_external_only().to_owned(),
-        Some(_) => t.maximum_leaves_external_payment(&money(t, &amount(totals.external_after_max))).to_string(),
-        None => t.no_wallet_balance_is_available_for().to_owned(),
+        Some(_) if usable => t.maximum_leaves_external_payment(&money(t, &amount(external_after_max))).to_string(),
+        _ => t.no_wallet_balance_is_available_for().to_owned(),
     };
     let withheld_says = screen.terms_reason().map_or(t.wallet_catching_up(), |reason| reason.message.as_str());
     // The page read after the write it carries, which its forms and Refresh wallet status keep.
@@ -162,8 +165,7 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                     }
                 </div>
             }
-            // What else Payments withholds from this quote: marketplace's page does not say, and the
-            // payment is then charged in full (chase-sets/chase-sets#10820).
+            // Anything else Payments withholds from this quote, in its words.
             for reason in screen.quote.unavailable_reason_details.iter().filter(|r| screen.terms_reason().is_none_or(|terms| terms.code != r.code)) {
                 <div class={Banner} data-tone="warning" role="status">
                     <p>{&reason.message}</p>
@@ -197,10 +199,10 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                     <span class={Label}>{t.wallet_balance()}</span>
                     <select name={f.balance_credit_mode} aria-describedby="start-wallet-says">
                         <option value="none" selected={mode == "none"}>{t.do_not_use_balance()}</option>
-                        <option value="max" disabled={withheld || totals.available <= 0} selected={mode == "max"}>
-                            {t.use_up_to_amount(&money(t, &amount(totals.max_credit)))}
+                        <option value="max" disabled={!usable} selected={mode == "max"}>
+                            {t.use_up_to_amount(&money(t, &amount(max_credit)))}
                         </option>
-                        <option value="custom" disabled={withheld} selected={mode == "custom"}>
+                        <option value="custom" disabled={!usable} selected={mode == "custom"}>
                             {t.use_a_custom_amount()}
                         </option>
                     </select>
@@ -213,7 +215,7 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                         value={&chosen.requested_balance_credit_amount}
                         placeholder="0.00"
                         inputmode="decimal"
-                        disabled={withheld}
+                        disabled={!usable}
                         aria-describedby="start-custom-says"
                     >
                     <span id="start-custom-says" class={Muted}>{&custom_says}</span>
@@ -260,6 +262,10 @@ fn Summary<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
                         <dd>{&wallet.available_balance_amount} " " {wallet.currency_code.to_ascii_uppercase()}</dd>
                     </div>
                 }
+                <div>
+                    <dt>{t.wallet_credit_applied()}</dt>
+                    <dd>{money(t, &amount(if screen.wallet_withheld() { 0 } else { screen.wallet_credit().0 }))}</dd>
+                </div>
                 <div>
                     <dt>{t.payment_method_charge(method(t, &fee.payment_method_category))}</dt>
                     <dd>{money(t, &fee.processor_amount)}</dd>

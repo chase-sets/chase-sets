@@ -14,6 +14,12 @@
 //! which the form carries; the pilot reads the orders and the wallet again when the form is posted,
 //! so the maximum is the one in effect. Payments checks the credit either way.
 //!
+//! What the page offers of the wallet is Payments' quote for the most of it, not the balance: the
+//! credit Payments applies (none while it withholds the wallet, less while a hold is on part of
+//! it) and what that leaves to pay outside the wallet. Platform credit only is offered only when
+//! that leaves nothing. A quote whose amounts are not money is not drawn, rather than falling back
+//! to the balance.
+//!
 //! When Payments withholds the wallet until the buyer accepts the current Terms of Service, the
 //! page says so beside Review Terms of Service and Accept Terms of Service, as marketplace's does.
 //! Accepting posts to the page: Identity records the acceptance, and the page is read again after
@@ -70,6 +76,12 @@ fn terms_reason(quote: &PaymentPreview) -> Option<&ReasonDetail> {
     quote.unavailable_reason_details.iter().find(|reason| reason.code == TERMS_NOT_ACCEPTED)
 }
 
+/// Whether `quote` gives the wallet nothing: Payments says why it withholds it, or applies none of
+/// it. A wallet request at such a quote would be charged in full outside the wallet.
+fn withholds_wallet(quote: &PaymentPreview) -> bool {
+    !quote.unavailable_reason_details.is_empty() || cents(&quote.wallet_credit.applied_amount) == Some(0)
+}
+
 /// Continue to payment's form: the orders, the payment method, and how much of the wallet to use
 /// (`none`, `max` or `custom` with its amount), in marketplace's names. Accept Terms of
 /// Service's sends the orders and its `intent` alone.
@@ -83,19 +95,18 @@ pub struct StartForm {
     pub requested_balance_credit_amount: String,
 }
 
-/// The orders' totals, in cents, and what the wallet can cover of them (`calculateBalanceCredit`).
+/// The orders' totals, in cents, and the most of the wallet to ask Payments for
+/// (`calculateBalanceCredit`). What Payments applies of it is its quote's to say
+/// (`StartScreen::wallet_credit`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Totals {
     pub total: i64,
     pub sales_fee: i64,
     pub payout: i64,
     pub tax: i64,
-    /// The wallet's available balance, which may be negative.
-    pub available: i64,
-    /// The most of the wallet the payment may use: the total or the balance, whichever is less.
+    /// The most of the wallet to ask for: the total or the balance, whichever is less, and never
+    /// below nothing.
     pub max_credit: i64,
-    /// What is left to pay outside the wallet after the most of it.
-    pub external_after_max: i64,
 }
 
 impl Totals {
@@ -103,16 +114,12 @@ impl Totals {
     pub fn of(orders: &[PaymentOrder], available: i64) -> Option<Self> {
         let sum = |amount: fn(&PaymentOrder) -> &str| orders.iter().try_fold(0_i64, |sum, o| Some(sum + cents(amount(o))?));
         let total = sum(|o| &o.total_amount)?;
-        let positive = total.max(0);
-        let max_credit = positive.min(available.max(0));
         Some(Totals {
             total,
             sales_fee: sum(|o| &o.marketplace_sales_fee_amount)?,
             payout: sum(|o| &o.seller_payout_amount)?,
             tax: sum(|o| o.sales_tax_amount.as_deref().unwrap_or("0.00"))?,
-            available,
-            max_credit,
-            external_after_max: positive - max_credit,
+            max_credit: total.max(0).min(available.max(0)),
         })
     }
 }
@@ -151,6 +158,38 @@ impl StartScreen {
     pub fn wallet_withheld(&self) -> bool {
         self.pending || self.terms_reason().is_some()
     }
+
+    /// What Payments applies of the wallet at the page's quote (the most of it) and what that
+    /// leaves to pay outside it, in cents (marketplace's `wallet_credit.applied_amount` and
+    /// `external_amount`). The page's quote is checked to be money when it is read.
+    pub fn wallet_credit(&self) -> (i64, i64) {
+        let credit = &self.quote.wallet_credit;
+        (cents(&credit.applied_amount).unwrap_or(0), cents(&credit.external_amount).unwrap_or(0))
+    }
+
+    /// Whether the wallet may pay this payment: Payments does not withhold it and applies some of
+    /// it (marketplace's `walletAvailable`).
+    pub fn wallet_usable(&self) -> bool {
+        !self.wallet_withheld() && self.wallet_credit().0 > 0
+    }
+}
+
+/// Whether every amount in `quote` is money and its wallet credit is not negative
+/// (marketplace's `validateCheckoutStatus`).
+fn quote_is_money(quote: &PaymentPreview) -> bool {
+    let credit = &quote.wallet_credit;
+    let fees = std::iter::once(&quote.marketplace_checkout_fee).chain(&quote.payment_method_quotes);
+    [&credit.requested_amount, &credit.applied_amount, &credit.external_amount].iter().all(|a| cents(a).is_some_and(|c| c >= 0))
+        && fees
+            .flat_map(|q| {
+                [
+                    &q.marketplace_checkout_fee_amount,
+                    &q.marketplace_checkout_fee_reduction_amount,
+                    &q.total_amount,
+                    &q.processor_amount,
+                ]
+            })
+            .all(|a| cents(a).is_some())
 }
 
 /// The order ids in `value`, comma separated (`parseOrderIds`).
@@ -187,7 +226,7 @@ fn read_answer(req: &Req, viewer: &Viewer, read: Read) -> HtmlResult {
         Read::Api(error) if error.status() == Some(StatusCode::NOT_FOUND) => not_found(req, viewer),
         Read::Api(error) => read_failed(req, Some(viewer), error, None),
         Read::NotMoney => {
-            tracing::warn!("an order's amount is not money");
+            tracing::warn!("an order's or the quote's amount is not money");
             Err(corten::Error::status(StatusCode::BAD_GATEWAY))
         }
     }
@@ -236,46 +275,50 @@ pub(crate) async fn page(
     };
     let (quote, pending) = match page_quote(&config, &headers, &ids, &totals, receipt.as_ref()).await {
         Ok(read) => read,
-        Err(error) => return read_answer(&req, &viewer, Read::Api(error)),
+        Err(read) => return read_answer(&req, &viewer, read),
     };
-    let chosen = StartForm {
-        order_ids: ids.join(","),
-        payment_method_category: "card".to_owned(),
-        balance_credit_mode: if totals.available > 0 { "max" } else { "none" }.to_owned(),
-        ..StartForm::default()
-    };
+    let chosen = StartForm { order_ids: ids.join(","), payment_method_category: "card".to_owned(), ..StartForm::default() };
     let after_write = receipt.as_ref().map(Receipt::param);
-    let screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: None, pending, after_write };
+    let mut screen = StartScreen { order_ids: ids, orders, wallet, quote, totals, chosen, error: None, pending, after_write };
+    screen.chosen.balance_credit_mode = if screen.wallet_usable() { "max" } else { "none" }.to_owned();
     draw(&req, &viewer, &screen, StatusCode::OK)
 }
 
 /// Payments' quote for the page (by card, with the most of the wallet), read after the write
 /// `receipt` names. A read that has not caught up with it is quoted without it and marked
-/// pending (marketplace's `onPending`): the page then does not say the wallet may pay.
+/// pending (marketplace's `onPending`): the page then does not say the wallet may pay. A quote
+/// whose amounts are not money is refused, as an order's is.
 async fn page_quote(
     config: &Shared,
     headers: &HeaderMap,
     ids: &[String],
     totals: &Totals,
     receipt: Option<&Receipt>,
-) -> Result<(PaymentPreview, bool), ApiError> {
+) -> Result<(PaymentPreview, bool), Read> {
     let credit = amount(totals.max_credit);
     let caller = config.platform.caller(headers, config.proto, receipt);
-    match caller.quote(ids, "usd", Some(&credit), "card").await {
-        Ok(quote) => Ok((quote, false)),
+    let (quote, pending) = match caller.quote(ids, "usd", Some(&credit), "card").await {
+        Ok(quote) => (quote, false),
         Err(error) if receipt.is_some() && error.catching_up() => {
             tracing::info!("the quote has not caught up with the Terms of Service acceptance: {error}");
             let caller = config.platform.caller(headers, config.proto, None);
-            Ok((caller.quote(ids, "usd", Some(&credit), "card").await?, true))
+            (caller.quote(ids, "usd", Some(&credit), "card").await.map_err(Read::Api)?, true)
         }
-        Err(error) => Err(error),
+        Err(error) => return Err(Read::Api(error)),
+    };
+    if !quote_is_money(&quote) {
+        tracing::warn!("Payments' quote for starting a payment has an amount that is not money");
+        return Err(Read::NotMoney);
     }
+    Ok((quote, pending))
 }
 
 /// Continue to payment: Payments' quote for the chosen method and wallet credit, then a payment at
 /// it, and the payment's page, read after it. A refusal is the page again with why. A quote that
-/// withholds the wallet the buyer chose to use starts nothing: the page again says why, as
-/// marketplace's action answers. Accept Terms of Service posts here too (`accept_terms`).
+/// withholds the wallet the buyer chose to use, for the terms or anything else, or applies none
+/// of it, starts nothing: the page again says why, so a wallet request is never charged in full
+/// outside the wallet without the buyer choosing that. Accept Terms of Service posts here too
+/// (`accept_terms`).
 pub(crate) async fn start(
     req: Req,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
@@ -308,21 +351,35 @@ pub(crate) async fn start(
     let method = Some(form.payment_method_category.trim()).filter(|m| !m.is_empty()).unwrap_or("card").to_owned();
     let uses_wallet = credit.as_deref().and_then(cents).is_some_and(|c| c > 0);
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
+    // A quote whose amounts are not money starts nothing (`Err`), as the page does not draw one.
     let started = async {
         let quote = caller.quote(&ids, "usd", credit.as_deref(), &method).await?;
+        if !quote_is_money(&quote) {
+            return Ok(Err(Read::NotMoney));
+        }
         if uses_wallet && terms_reason(&quote).is_some() {
-            return Ok(None);
+            return Ok(Ok(None));
+        }
+        if uses_wallet && withholds_wallet(&quote) {
+            return Ok(Ok(Some(None)));
         }
         let fingerprint = quote.marketplace_checkout_fee.quote_fingerprint.clone();
-        caller.start_payment(&ids, credit.as_deref(), &method, &fingerprint).await.map(Some)
+        caller.start_payment(&ids, credit.as_deref(), &method, &fingerprint).await.map(|started| Ok(Some(Some(started))))
     };
     let refusal = match started.await {
-        Ok(Some((payment, receipt))) => {
+        Ok(Err(read)) => {
+            tracing::warn!("Payments' quote for Continue to payment has an amount that is not money");
+            return read_answer(&req, &viewer, read);
+        }
+        Ok(Ok(Some(Some((payment, receipt))))) => {
             let place = Place { after_write: receipt.as_ref().map(Receipt::param) };
             return req.redirect(&url::BuyerPayment { id: &payment.payment_id, place });
         }
         // The page again says the wallet is withheld and why.
-        Ok(None) => None,
+        Ok(Ok(None)) => None,
+        // Withheld for another reason, or none of it applied: the page again shows Payments'
+        // reasons and says to continue without the wallet.
+        Ok(Ok(Some(None))) => Some(t.wallet_external_only().to_owned()),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
             return read_failed(&req, Some(&viewer), error, None);
         }
@@ -408,7 +465,7 @@ async fn again(
 ) -> HtmlResult {
     match page_quote(config, headers, &screen.order_ids, &screen.totals, receipt).await {
         Ok((quote, pending)) => (screen.quote, screen.pending) = (quote, pending),
-        Err(error) => return read_answer(req, viewer, Read::Api(error)),
+        Err(read) => return read_answer(req, viewer, read),
     }
     draw(req, viewer, &screen, StatusCode::UNPROCESSABLE_ENTITY)
 }
@@ -460,11 +517,9 @@ mod tests {
         let orders = [order("21.50", "1.08", "20.42", Some("1.60")), order("3.00", "0.15", "2.85", None)];
         let rich = Totals::of(&orders, 10_000).unwrap();
         assert_eq!((rich.total, rich.sales_fee, rich.payout, rich.tax), (2450, 123, 2327, 160));
-        assert_eq!((rich.max_credit, rich.external_after_max), (2450, 0));
-        let some = Totals::of(&orders, 1000).unwrap();
-        assert_eq!((some.max_credit, some.external_after_max), (1000, 1450));
-        let owing = Totals::of(&orders, -500).unwrap();
-        assert_eq!((owing.max_credit, owing.external_after_max), (0, 2450));
+        assert_eq!(rich.max_credit, 2450);
+        assert_eq!(Totals::of(&orders, 1000).unwrap().max_credit, 1000);
+        assert_eq!(Totals::of(&orders, -500).unwrap().max_credit, 0);
         assert_eq!(Totals::of(&[order("21.505", "0", "0", None)], 0), None);
     }
 
