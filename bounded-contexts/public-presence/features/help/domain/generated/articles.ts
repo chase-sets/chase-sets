@@ -6500,7 +6500,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Beta supports graded-card listings — PSA, BGS, CGC, and SGC certification numbers, validated, with slab photos required.",
+              "Beta supports graded-card listings. Each one needs a certification number, checked against the grading company's number format where the listing rules set one (PSA, BGS, CGC, and SGC at launch), plus slab, front, and back photos. Chase Sets does not look certificates up with the grading company.",
           },
         ],
       },

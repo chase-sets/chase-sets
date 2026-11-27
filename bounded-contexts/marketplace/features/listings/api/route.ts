@@ -222,6 +222,38 @@ function parseListingPhotoId<Prefix extends string>(value: string, prefix: Prefi
   }
 }
 
+function parseSnapshotTypedId<Prefix extends string>(value: unknown, prefix: Prefix, fieldName: string) {
+  try {
+    return parseTypedIdBoundary(value, prefix, fieldName);
+  } catch {
+    throw new MarketplaceListingRequestError(
+      "inventory-snapshot-invalid",
+      `Inventory snapshot ${fieldName} is invalid.`,
+    );
+  }
+}
+
+/** A Product id is its Catalog Item id, `::`, then the selection, so it must name the snapshot's own Catalog Item. */
+function parseSnapshotProductId(value: unknown, catalogItemId: string) {
+  if (typeof value !== "string" || !value.startsWith(`${catalogItemId}::`)) {
+    throw new MarketplaceListingRequestError("inventory-snapshot-invalid", "Inventory snapshot productId is invalid.");
+  }
+  return value;
+}
+
+/** A whole number of zero or more, sent as a number or as digits. */
+function parseSnapshotQuantity(value: unknown, fieldName: string) {
+  const quantity =
+    typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(quantity) || quantity < 0) {
+    throw new MarketplaceListingRequestError(
+      "inventory-snapshot-invalid",
+      `Inventory snapshot ${fieldName} is invalid.`,
+    );
+  }
+  return quantity;
+}
+
 function parseInventorySnapshot(body: Record<string, unknown>) {
   const snapshot =
     typeof body.inventorySnapshot === "string" ? parseJsonObject(body.inventorySnapshot) : body.inventorySnapshot;
@@ -270,18 +302,21 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     return null;
   }
 
+  const catalogItemId = parseSnapshotTypedId(source.catalogItemId, "cat", "catalogItemId");
+  const totalQuantity = parseSnapshotQuantity(source.totalQuantity ?? 0, "totalQuantity");
+
   return {
-    inventoryItemId: String(source.inventoryItemId ?? ""),
-    catalogItemId: String(source.catalogItemId ?? ""),
-    productId: String(source.productId ?? ""),
+    inventoryItemId: parseSnapshotTypedId(source.inventoryItemId, "inv", "inventoryItemId"),
+    catalogItemId,
+    productId: parseSnapshotProductId(source.productId, catalogItemId),
     selectedOptions: parseSelectedOptions(source.selectedOptions),
     gradedCard: parseListingGradedCardSnapshot(source.gradedCard),
-    storageLocationId: String(source.storageLocationId ?? ""),
+    storageLocationId: parseSnapshotTypedId(source.storageLocationId, "loc", "storageLocationId"),
     storageLocationName: String(source.storageLocationName ?? ""),
     shipFromCode: String(source.shipFromCode ?? ""),
     shipFromAddress,
-    totalQuantity: Number(source.totalQuantity ?? 0),
-    availableQuantity: Number(source.availableQuantity ?? source.totalQuantity ?? 0),
+    totalQuantity,
+    availableQuantity: parseSnapshotQuantity(source.availableQuantity ?? totalQuantity, "availableQuantity"),
     ...parseAcquisitionCostSnapshot(source.acquisitionCostAmount, source.acquisitionCostCurrencyCode),
   };
 }

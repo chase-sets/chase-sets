@@ -1,0 +1,18 @@
+{
+  "addedCaseCount": 0,
+  "families": {
+    "e2eNoSuiteExclusions:3": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/public\\/.*\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/public/landing-disclosure.spec.ts"
+    }
+  },
+  "movedSpecs": {
+    "legacyDirectory": "deployables/public-web/e2e/",
+    "destinationDirectory": "deployables/corten-pilot/e2e/public/",
+    "leftWorkspaces": ["@chase-sets/app-public-web"],
+    "addedScope": {
+      "cortenPublicBrowserRequired": true
+    },
+    "files": ["landing-disclosure.spec.ts", "privacy-policy.spec.ts", "public-shell-gutter.spec.ts"]
+  }
+}

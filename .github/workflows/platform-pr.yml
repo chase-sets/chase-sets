@@ -852,9 +852,9 @@ jobs:
         run: |
           set -euo pipefail
           pnpm exec playwright test \
-            deployables/public-web/e2e/landing-disclosure.spec.ts \
-            deployables/public-web/e2e/privacy-policy.spec.ts \
-            deployables/public-web/e2e/public-shell-gutter.spec.ts \
+            deployables/corten-pilot/e2e/public/landing-disclosure.spec.ts \
+            deployables/corten-pilot/e2e/public/privacy-policy.spec.ts \
+            deployables/corten-pilot/e2e/public/public-shell-gutter.spec.ts \
             --project=public-web-chromium
 
       # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a

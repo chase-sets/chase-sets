@@ -160,7 +160,7 @@ const cortenMarketplaceBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/corten-pilot\/e2e\/(?!admin\/)/,
+  /^deployables\/corten-pilot\/e2e\/(?!admin\/|public\/)/,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
 // The Corten admin browser tests run the kept admin browser specs in deployables/corten-pilot/e2e/admin
@@ -175,14 +175,14 @@ const cortenAdminBrowserPatterns = [
   /^deployables\/corten-pilot\/e2e\/admin\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
-// The Corten public browser tests run public-web's kept browser specs against the Corten pilot's public
-// app, which serves production. A change to the pilot's public or platform code, its build inputs, those
+// The Corten public browser tests run the kept public browser specs in deployables/corten-pilot/e2e/public
+// against the Corten pilot's public app, which serves production. A change to the pilot's public or platform code, its build inputs, those
 // specs or the dev-system target that boots it can turn them red. The specs import no support modules.
 const cortenPublicBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:public|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/public-web\/e2e\/[^/]+\.spec\.ts$/,
+  /^deployables\/corten-pilot\/e2e\/public\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
 // The Corten pilot check (corten check) is required for the pilot's admin, marketplace, platform and public

@@ -16,7 +16,6 @@ type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
 /** Every key a public Listing row may carry. Written out here so the production list cannot vouch for itself. */
 const publicListingKeys = [
   "listing_id",
-  "account_id",
   "catalog_catalog_item_id",
   "product_id",
   "item_title",
@@ -24,7 +23,6 @@ const publicListingKeys = [
   "selected_options",
   "product_summary",
   "graded_card",
-  "ship_from_code",
   "price_amount",
   "price_currency_code",
   "listing_stream_version",
@@ -264,7 +262,6 @@ describe("marketplace listing read-model queries", () => {
     expect(Object.keys(row ?? {}).sort()).toEqual([...publicListingKeys].sort());
     expect(row).toEqual({
       listing_id: "lst_air_balloon",
-      account_id: "acc_seller",
       catalog_catalog_item_id: "cat_air_balloon",
       product_id: "cat_air_balloon::form:raw|condition:damaged",
       item_title: "Air Balloon",
@@ -275,7 +272,6 @@ describe("marketplace listing read-model queries", () => {
       ],
       product_summary: "Form: Raw | Condition: Damaged",
       graded_card: null,
-      ship_from_code: "home",
       price_amount: "21.50",
       price_currency_code: "USD",
       listing_stream_version: 4,
@@ -475,7 +471,6 @@ describe("marketplace listing read-model queries", () => {
     expect(selected).toEqual(
       [
         "listing_id",
-        "account_id",
         "catalog_catalog_item_id",
         "product_id",
         "item_title",
@@ -483,7 +478,6 @@ describe("marketplace listing read-model queries", () => {
         "selected_options",
         "product_summary",
         "graded_card",
-        "ship_from_code",
         "price_amount",
         "price_currency_code",
         "listing_stream_version",

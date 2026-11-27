@@ -1522,6 +1522,7 @@ spec:
       [...Object.keys(expectedRequests), "admin-corten", "admin-web", "marketplace-corten", "public-corten"].sort(),
     );
     expect(production.components["admin-web"]).toEqual({ enabled: false });
+    expect(production.components).not.toHaveProperty("public-web");
     for (const pilot of ["admin-corten", "marketplace-corten", "public-corten"]) {
       expect(production.components[pilot].resources).toEqual({
         requests: { cpu: "100m", memory: "128Mi" },

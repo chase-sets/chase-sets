@@ -62,7 +62,7 @@ Rules: no "half of what major platforms take", no "$25 cap", no named-competitor
 
 ### Graded cards (Softened wording only)
 
-> Beta supports graded-card listings — PSA, BGS, CGC, and SGC certification numbers, validated, with slab photos required.
+> Beta supports graded-card listings. Each one needs a certification number, checked against the grading company's number format where the listing rules set one (PSA, BGS, CGC, and SGC at launch), plus slab, front, and back photos. Chase Sets does not look certificates up with the grading company.
 
 Rules: no "list your graded cards" self-serve call-to-action, and nothing about per-grade pricing or "PSA 10 market data" (neither exists).
 

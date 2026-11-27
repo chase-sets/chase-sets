@@ -275,9 +275,9 @@ export const e2eNoSuiteExclusions = Object.freeze([
       "Manual staging UAT spec; it is outside the CI grep suite catalog, and its synthetic tests run in the Catalog UAT Synthetic Tests gate instead.",
   },
   {
-    pattern: /^deployables\/public-web\/e2e\/.*\.spec\.ts$/,
+    pattern: /^deployables\/corten-pilot\/e2e\/public\/.*\.spec\.ts$/,
     reason:
-      "public-presence/public-web deployed-target spec: the public-web Playwright project only exists when PUBLIC_WEB_URL names a running public-web host, and the PR browser-e2e systems boot admin-web or the Corten marketplace only. It runs through test:e2e:deployed in the staging advisory evidence lane.",
+      "Kept public spec: the public-web-chromium Playwright project only exists when PUBLIC_WEB_URL names a running public host, so no named suite runs it. The required Corten Public Browser Tests job runs it by path against the Corten public app.",
   },
 ]);
 
