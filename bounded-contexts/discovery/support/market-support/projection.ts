@@ -233,7 +233,6 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     seller_at_capacity: boolean;
     seller_average_rating: string | null;
     seller_review_count: number;
-    inventory_item_id: string;
     catalog_catalog_item_id: string;
     catalog_item_slug: string | null;
     product_id: string;
@@ -242,13 +241,11 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     selected_options: unknown;
     product_summary: string | null;
     product_measure_snapshot: unknown | null;
-    storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
     price_currency_code: string | null;
     listing_stream_version: number;
     shipping_allowance_percentage_bps: number;
-    quantity_cap: number;
     max_units_per_order: number | null;
     max_units_per_day: number | null;
     max_units_per_customer_account: number | null;

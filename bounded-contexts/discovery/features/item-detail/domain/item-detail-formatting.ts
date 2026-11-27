@@ -44,15 +44,11 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-export function getListingAvailableQuantity(
-  listing: Pick<DiscoveryMarketListing, "visible_quantity" | "quantity_cap">,
-): number {
-  return toFiniteNumber(listing.visible_quantity) ?? toFiniteNumber(listing.quantity_cap) ?? 0;
+export function getListingAvailableQuantity(listing: Pick<DiscoveryMarketListing, "visible_quantity">): number {
+  return toFiniteNumber(listing.visible_quantity) ?? 0;
 }
 
-export function formatListingAvailability(
-  listing: Pick<DiscoveryMarketListing, "visible_quantity" | "quantity_cap">,
-): string {
+export function formatListingAvailability(listing: Pick<DiscoveryMarketListing, "visible_quantity">): string {
   const availableQuantity = getListingAvailableQuantity(listing);
 
   return availableQuantity > 0

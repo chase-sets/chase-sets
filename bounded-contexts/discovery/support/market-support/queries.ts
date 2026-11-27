@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoverySitemapEntityCounts, DiscoverySitemapEntityKind } from "../client-support/contracts";
 import { buyerVisibleListingPredicateSql, buyerVisibleListingQuantitySql } from "./listing-visibility";
+import { pickDiscoveryPublicListingFields } from "./public-listing";
 
 export type DiscoveryPublicListingRow = Readonly<{
   listing_id: string;
@@ -20,7 +21,6 @@ export type DiscoveryPublicListingRow = Readonly<{
   seller_badges: readonly string[];
   seller_founder_number: number | null;
   google_shopping_structured_data_payload: unknown | null;
-  inventory_item_id: string;
   catalog_catalog_item_id: string;
   catalog_item_slug: string | null;
   product_id: string;
@@ -28,13 +28,12 @@ export type DiscoveryPublicListingRow = Readonly<{
   item_subtitle: string | null;
   selected_options: unknown;
   product_summary: string | null;
-  storage_location_name: string | null;
+  graded_card: unknown | null;
   ship_from_code: string | null;
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number;
   shipping_allowance_percentage_bps: number;
-  quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
@@ -130,13 +129,8 @@ function normalizeBadgeArray(value: unknown): string[] {
 }
 
 function mapListing(row: DiscoveryPublicListingDbRow): DiscoveryPublicListingRow {
-  const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
-  void product_measure_snapshot;
-  void supply_total_quantity;
-  void active_held_quantity;
-
   return {
-    ...publicRow,
+    ...pickDiscoveryPublicListingFields(row),
     selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     google_shopping_structured_data_payload: objectValue(row.google_shopping_structured_data_payload),
     seller_badges: normalizeBadgeArray(row.seller_badges),
