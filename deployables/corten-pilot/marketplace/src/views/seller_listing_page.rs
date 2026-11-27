@@ -256,7 +256,8 @@ pub fn SellerListingPage<'a>(
                                 <dt>{t.page_grade()}</dt>
                                 <dd>{&graded.grade}</dd>
                             </div>
-                            if let Some(number) = graded.certification_number.as_deref().filter(|n| !n.is_empty()) {
+                            // A draft shows its number in the form below, where the seller can change it.
+                            if let Some(number) = graded.certification_number.as_deref().filter(|n| !n.is_empty() && l.status != "draft") {
                                 <div>
                                     <dt>{t.page_certification_number()}</dt>
                                     <dd>{number}</dd>
@@ -264,8 +265,10 @@ pub fn SellerListingPage<'a>(
                             }
                         </dl>
                     }
-                    if l.status == "draft" && l.requires_certification() {
-                        <Certification t={t} s={s} id={id} screen={screen} />
+                    // A Listing is a draft only until its first publish, which is when Marketplace stops
+                    // taking a new number (`SetListingCertificationNumber`), so every graded draft offers it.
+                    if l.status == "draft" && l.graded_card.is_some() {
+                        <Certification t={t} s={s} id={id} screen={screen} listing={l} />
                     }
                     <p class={Big}>{money(t, Some(&l.price_amount), l.price_currency_code.as_deref())}</p>
                     <p class={Hint}>
@@ -391,14 +394,23 @@ pub fn SellerListingPage<'a>(
     }
 }
 
-/// A graded draft's certification number, which it needs before it can be published: sent under
-/// the form's own attempt, and refused at its field with what was typed kept.
+/// A graded draft's certification number, which it needs before it can be published and may change
+/// until then: the saved number fills the field, sent under the form's own attempt, and refused at its
+/// field with what was typed kept.
 #[component(css = SellerListingPage)]
-fn Certification<'a>(t: SellerListingMsg, s: SellerListingsMsg, id: &'a str, screen: &'a ListingScreen) -> impl Render {
+fn Certification<'a>(
+    t: SellerListingMsg,
+    s: SellerListingsMsg,
+    id: &'a str,
+    screen: &'a ListingScreen,
+    listing: &'a SellerListing,
+) -> impl Render {
     let f = ListingForm::FIELDS;
     let e = &screen.edits;
     let ce = e.errors.within(CertificationFormId);
-    let number = e.certification_number.as_deref().unwrap_or_default();
+    let saved = listing.graded_card.as_ref().and_then(|g| g.certification_number.as_deref());
+    let number = e.certification_number.as_deref().or(saved).unwrap_or_default();
+    let missing = listing.requires_certification();
     html! {
         <form
             id={CertificationFormId}
@@ -412,7 +424,9 @@ fn Certification<'a>(t: SellerListingMsg, s: SellerListingsMsg, id: &'a str, scr
                 <span class={Label}>{t.page_certification_number()}</span>
                 <input type="text" name={f.certification_number} value={number} required {..ce.aria(f.certification_number)}>
             </label>
-            <p class={Hint}>{s.error_certification_number_required()}</p>
+            if missing {
+                <p class={Hint}>{s.error_certification_number_required()}</p>
+            }
             {ce.message(f.certification_number)}
             <button class={(Button, Secondary)} type="submit" disabled={screen.blocked()}>
                 {t.page_save_certification_number()}
