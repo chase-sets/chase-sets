@@ -44,7 +44,9 @@ function expectMarketplaceCliBinding(source) {
   expect(source).toContain("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),");
   expect(source).toContain('[browserE2eCortenMarketplaceTarget]: ["platform-api", "platform-worker", "marketplace"]');
   expect(source).toContain('"browser-e2e": ["platform-api", "platform-worker", "admin-web"]');
-  expect(source).toContain('all: processes.filter(({ name }) => name !== "marketplace").map(({ name }) => name)');
+  expect(source).toContain(
+    'all: processes.filter(({ name }) => !["marketplace", "public-web"].includes(name)).map(({ name }) => name)',
+  );
   expect(source).toContain("applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName))");
   expect(source).toContain("env: buildPlatformChildEnvironment(process.env, definition.env)");
 }

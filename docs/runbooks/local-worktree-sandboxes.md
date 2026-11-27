@@ -53,7 +53,6 @@ targets are also sandbox-aware:
 
 ```bash
 pnpm run dev:admin-web
-pnpm run dev:public-web
 pnpm run dev:platform-api
 pnpm run dev:platform-worker
 ```
@@ -181,8 +180,7 @@ To verify isolation manually:
 3. Run `pnpm run dev:bootstrap` in both worktrees.
 4. Run `pnpm run test:db` in both worktrees, either sequentially or at the same
    time.
-5. Start `pnpm run dev:admin-web` in one worktree and `pnpm run
-   dev:public-web` in the other.
+5. Start `pnpm run dev:admin-web` in both worktrees.
 6. Use each doctor output to target the correct local URLs.
 7. Run `pnpm run sandbox:clean` in one worktree and confirm the other worktree's
    Compose project and URLs continue working.
