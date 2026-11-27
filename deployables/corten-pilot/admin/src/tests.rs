@@ -12247,6 +12247,54 @@ async fn a_draft_that_does_not_validate_shows_why_and_activation_is_sent_in_the_
     );
 }
 
+/// Every write on the console is a `data-patch` form: the runtime sends it, marks it busy until its
+/// answer is drawn, and sends nothing for a second press of the same form while the first is on its
+/// way, so a double click makes one draft. Each still answers the runtime as it answers a browser:
+/// a write's redirect, or the page drawn again with what was typed.
+#[tokio::test]
+async fn every_listing_evidence_policy_form_is_sent_by_the_runtime_one_submit_at_a_time() {
+    let pilot = Pilot::new().await;
+    let page = "/platform/listing-evidence-policy";
+    let session = "evidence-manager; corten-zone=America/Chicago";
+    let plain = r#"method="post" action="/platform/listing-evidence-policy">"#;
+    let patched = r#"method="post" action="/platform/listing-evidence-policy" data-patch>"#;
+    let (_, _, html) = pilot.send(get(page, Some(session))).await;
+    assert_eq!(html.matches(plain).count(), 0, "no plain post: {html}");
+    // Validate and Reject for each of the three drafts or validated versions, the active version's
+    // rollback, and the guided draft.
+    assert_eq!(html.matches(patched).count(), 8, "{html}");
+
+    let (status, _, html) = pilot.send(post_as(session, page, "intent=validate&policyId=lep_3", true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Activate policy version"), "{html}");
+    assert_eq!((html.matches(plain).count(), html.matches(patched).count()), (0, 9), "the Activate form too: {html}");
+
+    let one = format!("policyName=Slabs&{EVIDENCE_RULE}&buyerAcknowledgment=0");
+    let (status, headers, _) = pilot.send(post_as(session, page, &format!("intent=create-draft&{one}"), true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with(page), "{headers:?}");
+    let drafts = || {
+        pilot
+            .calls_to_path("/api/marketplace/listing-evidence-policy/drafts")
+            .into_iter()
+            .filter(|c| c.path.ends_with("/drafts"))
+            .count()
+    };
+    assert_eq!(drafts(), 1, "one draft");
+
+    let refused = one.replace("policyName=Slabs", "policyName=refuse");
+    let (status, _, html) = pilot.send(post_as(session, page, &format!("intent=create-draft&{refused}"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The policy name is taken.") && html.contains(r#"value="refuse""#), "the draft as typed: {html}");
+    assert!(html.contains(patched) && !html.contains(plain), "drawn again as a data-patch form: {html}");
+
+    let activate = "intent=activate&policyId=lep_3&impactAcknowledgmentHash=impact_1&effectiveFrom=2026-12-01T00%3A00&effectiveUntil=&zone=America%2FChicago&impactAcknowledged=yes";
+    let (status, headers, _) = pilot.send(post_as(session, page, activate, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with(page), "{headers:?}");
+    assert_eq!(pilot.calls_to_path("/api/marketplace/listing-evidence-policy/drafts/lep_3/activate").len(), 1);
+}
+
 /// Platform Operations' ops dashboard: two days of GMV, one top item without a title, and a
 /// drift alarm with a ratio and an OK run without one. The summary echoes the window it was asked.
 fn ops_dashboard(rest: &str, query: &str) -> Response {

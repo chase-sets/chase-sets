@@ -6,6 +6,10 @@
 //! lists the form posts stay in step. A selector's values are drawn for the kind the form was
 //! drawn with: after choosing another kind, Show values draws the form again with its values. The
 //! Activate form's times are drawn in `zone`, named under each, and the form sends it back.
+//!
+//! Every form is `data-patch`, so the runtime sends it and marks it and its button busy until the
+//! answer is drawn, and a second press of the same form while it is on its way sends nothing: a
+//! double click makes one draft, not two. Each form is busy only for its own submit.
 use corten::{form::DrawZone, prelude::*};
 
 use super::{NONE, ids, kind, lifecycle, view_set, when};
@@ -33,7 +37,7 @@ fn Pair<'a>(term: &'a str, value: String) -> impl Render {
 fn VersionWrite<'a>(intent: &'a str, policy_id: &'a str, words: &'a str) -> impl Render {
     let f = Posted::FIELDS;
     html! {
-        <form method="post" action={url::Evidence::default()}>
+        <form method="post" action={url::Evidence::default()} data-patch>
             <input type="hidden" name={f.intent} value={intent}>
             <input type="hidden" name={f.policy_id} value={policy_id}>
             <button class={(Button, Small, Secondary)} type="submit">{words}</button>
@@ -263,7 +267,7 @@ pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, zone: &'a DrawZ
                         </ul>
                     }
                     if validation.valid && screen.can_activate {
-                        <form class={Form} method="post" action={url::Evidence::default()}>
+                        <form class={Form} method="post" action={url::Evidence::default()} data-patch>
                             <input type="hidden" name={f.intent} value="activate">
                             <input type="hidden" name={f.policy_id} value={&validation.document_id}>
                             <input
@@ -296,7 +300,7 @@ pub fn ListingEvidencePage<'a>(o: Ops, p: Pilot, here: &'a Here, zone: &'a DrawZ
             if screen.can_draft {
                 <section class={Card} aria-labelledby="lep-draft">
                     <h2 class={Heading} id="lep-draft">{o.lep_draft_title()}</h2>
-                    <form class={Form} method="post" action={url::Evidence::default()}>
+                    <form class={Form} method="post" action={url::Evidence::default()} data-patch>
                         <button class={Default} type="submit" tabindex="-1" aria-hidden="true">{o.lep_create_draft()}</button>
                         <input type="hidden" name={f.intent} value="create-draft">
                         <label class={Field}>
