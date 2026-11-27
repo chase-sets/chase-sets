@@ -1,3 +1,5 @@
+import type { DiscoveryPublicListing } from "../client-support/contracts";
+
 // The fields a public Listing serves, on the listing and account reads and on the realtime
 // listing patch. Rows are read with `listing.*`, so a stored column reaches buyers only when it
 // is named here.
@@ -38,9 +40,15 @@ export const DISCOVERY_PUBLIC_LISTING_FIELDS = [
   "visible_quantity",
   "created_at",
   "updated_at",
-] as const;
+] as const satisfies readonly (keyof DiscoveryPublicListing)[];
 
 export type DiscoveryPublicListingField = (typeof DISCOVERY_PUBLIC_LISTING_FIELDS)[number];
+
+// Fails to compile when the public contract gains a field this list does not name.
+const listsEveryPublicListingField: [Exclude<keyof DiscoveryPublicListing, DiscoveryPublicListingField>] extends [never]
+  ? true
+  : false = true;
+void listsEveryPublicListingField;
 
 /** Copies the public fields the row carries; a field it does not carry stays absent. */
 export function pickDiscoveryPublicListingFields<Row extends object>(

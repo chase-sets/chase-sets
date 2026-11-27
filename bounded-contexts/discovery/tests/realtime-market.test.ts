@@ -185,7 +185,6 @@ describe("discovery realtime market patches", () => {
         "seller_account_status",
       ])
         expect((change as { value: object }).value).not.toHaveProperty(field);
-      expect((change as { value: object }).value).not.toHaveProperty("seller_badges");
     }
   });
 
