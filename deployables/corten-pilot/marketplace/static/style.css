@@ -38,6 +38,21 @@ body {
 body {
   --shell-bottom-nav-height: 0px;
 }
+/* The top bar's painted height (views/market_nav.css), as `MarketplaceShell` sets it: 4rem from
+   48rem; below it 7.75rem with the search row open and 4rem with it folded away, as the shell's
+   script publishes the row's state on <body> (`data-search-row-state`, views/header_search.js).
+   Without the script the row stays open. */
+body {
+  --shell-header-height: 4rem;
+}
+@media (max-width: 47.99rem) {
+  body[data-shell] {
+    --shell-header-height: 7.75rem;
+  }
+  body[data-shell][data-search-row-state="collapsed"] {
+    --shell-header-height: 4rem;
+  }
+}
 @media (max-width: 47.99rem) {
   body[data-shell] {
     --shell-bottom-nav-height: 5.25rem;

@@ -90,7 +90,7 @@
 //   checkout.sellList.attempt.* as sell_attempt.*).
 // - marketplace/locales/search.en.json: marketplace search's English catalog (discovery.features.search.ui.searchPage.*,
 //   discovery.routes.search.*, the home page's discovery.features.home.ui.homeMerchandising.*, a set's page's
-//   discovery.routes.set.*, and the listing card's, language labels' and display identity's words).
+//   discovery.routes.set.*, the shell's header search's discovery.features.search.ui.headerSearch.*, and the listing card's, language labels' and display identity's words).
 // - marketplace/locales/listing.en.json: a listing's public page's English catalog (discovery.routes.publicListing.*,
 //   and the item page's words for a price without a currency).
 // - marketplace/locales/account.en.json: an account's public page's English catalog (discovery.routes.publicAccount.*,
@@ -1417,6 +1417,8 @@ const outputs = [
         ["discovery.features.home.ui.homeMerchandising.", "home"],
         // A set's page (`routes/set.tsx`), whose cards are search's.
         ["discovery.routes.set.", "set"],
+        // The shell's header search (`HeaderSearch`), on every page with the shell.
+        ["discovery.features.search.ui.headerSearch.", "header"],
       ])),
       // A result's language badge, its picture's words and its card (`ListingCard`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [

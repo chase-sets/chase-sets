@@ -8,10 +8,6 @@ test.describe("marketplace buyer purchase journey", () => {
   test("phone buyer searches, adds a product and reaches payment review @marketplace-checkout @mobile @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
-    );
     test.setTimeout(120_000);
 
     async function expectNoHorizontalOverflow(step: string) {

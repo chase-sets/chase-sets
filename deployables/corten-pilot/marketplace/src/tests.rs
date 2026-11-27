@@ -3093,19 +3093,20 @@ async fn an_error_page_is_drawn_for_who_is_asking() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/nowhere", Some("seller"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(html.contains("There is nothing at this address.") && html.contains("<header"), "with the member's nav: {html}");
+    let top_bar = r#"aria-label="Primary navigation""#;
+    assert!(html.contains("There is nothing at this address.") && html.contains(top_bar), "with the member's nav: {html}");
     let (status, _, html) = pilot.send(get("/account/nowhere", None)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     // A visitor has the shell too (marketplace's not-found page is inside its layout): no account
     // menu, and Sign in.
-    assert!(html.contains("<header") && !html.contains(r#"aria-label="Account menu""#), "a visitor's nav: {html}");
+    assert!(html.contains(top_bar) && !html.contains(r#"aria-label="Account menu""#), "a visitor's nav: {html}");
     let (status, _, html) = pilot.send(get(SCREEN, Some("other"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(html.contains("Your role cannot open this page.") && html.contains("<header"), "{html}");
+    assert!(html.contains("Your role cannot open this page.") && html.contains(top_bar), "{html}");
     // A session the API could not read is said so, not as a failed page.
     let (status, _, html) = pilot.send(get(SCREEN, Some("down"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(html.contains("We could not check who you are.") && !html.contains("<header"), "{html}");
+    assert!(html.contains("We could not check who you are.") && !html.contains("<nav"), "{html}");
 }
 
 #[tokio::test]
@@ -3607,10 +3608,24 @@ async fn any_account_has_a_cart_and_a_visitor_or_a_guest_has_the_guest_cart() {
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
+/// A page's shell, as drawn: everything outside `<main>` (the top bar before it, the phone's bar
+/// after it), or the whole page when it has no `<main>`.
+fn shell_of(html: &str) -> String {
+    let Some((before, rest)) = html.split_once("<main") else { return html.to_owned() };
+    let after = rest.split_once("</main>").map_or("", |(_, after)| after);
+    format!("{before}{after}")
+}
+
+/// A page's `<main>`'s content.
+fn main_content_of(html: &str) -> &str {
+    let rest = html.split_once("<main").expect("a <main>").1;
+    let rest = &rest[rest.find('>').unwrap() + 1..];
+    rest.split_once("</main>").map_or(rest, |(main, _)| main)
+}
+
 /// The cart's badges in a page's shell, as drawn: `(text, hidden)` for each.
 fn cart_badges(html: &str) -> Vec<(String, bool)> {
-    let shell = html.split_once("<main>").map_or(html, |(shell, _)| shell);
-    shell
+    shell_of(html)
         .split(r#"data-badge="checkout.cart-count""#)
         .skip(1)
         .map(|rest| {
@@ -3740,23 +3755,27 @@ async fn a_page_and_its_layout_ask_who_is_asking_once() {
 async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidden_until_counted() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(CART_SCREEN, Some("seller"))).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = &shell_of(&html);
     assert!(
         shell.contains(r#"<body class="page-canvas__canvas" data-shell>"#),
         "the page leaves room for the phone's bar: {shell}"
     );
     assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Sign Out"), "{shell}");
     assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
+    // The top bar is before <main> and the phone's after it, as `MarketplaceShell` orders them.
+    let (before, after) = html.split_once("</main>").unwrap();
+    assert_eq!(before.split_once("<main").unwrap().0.matches("<nav").count(), 1, "the top bar: {html}");
+    assert!(after.contains(r#"<nav class="market-nav__phone""#), "the phone's bar after <main>: {after}");
     assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
     assert!(!shell.contains("data-hide-empty"), "a member's cart entry is always shown: {shell}");
     // Every entry is a page the pilot serves, so every one stays on the pilot.
     assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
     let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = &shell_of(&html);
     assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
     assert!(shell.contains(r#"href="/account/sales/shipments""#), "Shipping's entry: {shell}");
     let (_, _, html) = pilot.send(get(CART_SCREEN, None)).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = &shell_of(&html);
     assert!(!shell.contains(r#"aria-label="Account menu""#) && !shell.contains("Sign Out"), "{shell}");
     // A visitor's cart entry is drawn in both bars with its badge hidden at 0, which the stylesheet
     // hides it by (`views/market_nav.css`); the cart page gives the count its own read found.
@@ -3764,9 +3783,107 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{shell}");
     let (_, _, html) = pilot.send(get("/offline", None)).await;
     assert!(
-        !html.contains("<nav") && html.contains(r#"<body class="page-canvas__canvas"><main>"#),
+        !html.contains("<nav") && html.contains(r#"<body class="page-canvas__canvas"><main id="main-content" tabindex="-1">"#),
         "the offline page has no shell, nor room for its bar: {html}"
     );
+}
+
+/// The header search, as marketplace-web's `MarketplaceShell` draws it: the skip link to
+/// `#main-content`, then the top bar named "Primary navigation" with the brand home and a GET form
+/// to /search whose box is the combobox the script drives, its list outside the folding row, and a
+/// search button that takes no Tab.
+#[tokio::test]
+async fn the_shell_has_the_skip_link_the_brand_and_the_header_search() {
+    let pilot = Pilot::new().await;
+    for session in [None, Some("buyer")] {
+        let (status, _, html) = pilot.send(get("/search?q=charizard", session)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        let shell = html.split_once("<main").unwrap().0;
+        let body = shell.split_once("<body").unwrap().1;
+        // The skip link is the body's first element, before the bar, and leads to <main>.
+        let skip = body.split_once('>').unwrap().1;
+        assert!(skip.starts_with(r##"<a class="market-nav__skip" href="#main-content">Skip to main content</a><nav"##), "{skip}");
+        assert!(html.contains(r#"<main id="main-content" tabindex="-1">"#), "{html}");
+        // One bar holds the search, and the script names its boxes.
+        let nav = shell.split_once("<nav").unwrap().1;
+        assert_eq!(shell.matches(r#"role="search""#).count(), 1, "{shell}");
+        assert!(
+            nav.starts_with(r#" class="market-nav__bar" aria-label="Primary navigation" data-shell-header-box="reserved""#),
+            "{nav}"
+        );
+        assert!(nav.contains(r#"data-shell-header-box="painted""#), "{nav}");
+        // The brand goes home, relative, named as marketplace-web names it.
+        assert!(nav.contains(r#"<a class="market-nav__brand" href="/" aria-label="Chase Sets">"#), "{nav}");
+        // The form sends only `q` to /search; its box is the combobox.
+        assert!(nav.contains(r#"data-search-row-slot"#), "{nav}");
+        assert!(nav.contains(r#"role="search" method="get" action="/search""#), "{nav}");
+        let input = nav.split_once(r#"name="q""#).unwrap().1.split_once('>').unwrap().0;
+        for attr in [
+            r#"role="combobox""#,
+            r#"aria-label="Search marketplace""#,
+            r#"aria-autocomplete="list""#,
+            r#"aria-expanded="false""#,
+            r#"aria-controls="header-search-list""#,
+            r#"autocomplete="off""#,
+        ] {
+            assert!(input.contains(attr), "{attr}: {input}");
+        }
+        assert!(!input.contains("tabindex") && !input.contains("inert"), "the box keeps its Tab while folded: {input}");
+        let button = nav.split_once(r#"<button type="submit" class="market-nav__go""#).expect("the search button").1;
+        assert!(button.starts_with(r#" tabindex="-1""#), "a pointer's, not a Tab stop: {button}");
+        // The list is the box's, hidden until the script opens it, outside the folding part.
+        let (fold, list) = nav.split_once(r#"<ul class="market-nav__choices" id="header-search-list""#).unwrap();
+        assert!(list.starts_with(r#" role="listbox" aria-label="Search marketplace" hidden>"#), "{list}");
+        assert!(fold.contains(r#"class="market-nav__fold""#) && fold.ends_with("</form></div>"), "{fold}");
+        // Its words are the script's, from the exported catalog.
+        assert!(html.contains("Search for &#39;{query}&#39;") || html.contains("Search for '{query}'"), "{html}");
+    }
+    // No shell, no search: the offline page.
+    let (_, _, html) = pilot.send(get("/offline", None)).await;
+    assert!(!html.contains(r#"role="search""#) && !html.contains("market-nav__skip"), "{html}");
+}
+
+/// The header search's suggestions (`/search/suggest`): Discovery's suggest read for the words,
+/// each with its item's page and a line under it (the subtitle, else the category, else "Catalog
+/// item"), none for no words, an item with no slug, or a read that failed.
+#[tokio::test]
+async fn the_header_search_suggests_items_with_their_pages_and_nothing_when_it_cannot() {
+    let pilot = Pilot::new().await;
+    let suggest_reads = |pilot: &Pilot| {
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path.starts_with("/api/marketplace/items/suggest")).count()
+    };
+    let (status, headers, body) = pilot.send(get("/search/suggest?q=%20charizard%20", None)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("application/json"), "{headers:?}");
+    let got: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        got,
+        json!({ "items": [
+            { "title": "Charizard", "description": "Base Set", "href": "/items/charizard" },
+            { "title": "Charizard Promo", "description": "promos", "href": "/items/charizard-promo" },
+            { "title": "Charizard Plain", "description": "Catalog item", "href": "/items/charizard-plain" },
+        ] }),
+        "the slug-less item has no page: {body}"
+    );
+    let read =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.starts_with("/api/marketplace/items/suggest")).cloned();
+    assert_eq!(read.unwrap().path, "/api/marketplace/items/suggest?q=charizard", "trimmed words");
+    // No words ask nothing.
+    let reads = suggest_reads(&pilot);
+    for uri in ["/search/suggest", "/search/suggest?q=", "/search/suggest?q=%20%20"] {
+        let (status, _, body) = pilot.send(get(uri, None)).await;
+        assert_eq!((status, serde_json::from_str::<Value>(&body).unwrap()), (StatusCode::OK, json!({ "items": [] })), "{uri}");
+    }
+    assert_eq!(suggest_reads(&pilot), reads, "no read without words");
+    // A failed read suggests nothing rather than failing the box.
+    let (status, _, body) = pilot.send(get("/search/suggest?q=broken", None)).await;
+    assert_eq!((status, serde_json::from_str::<Value>(&body).unwrap()), (StatusCode::OK, json!({ "items": [] })));
+    // The words sent are at most 80 characters, as Discovery bounds them.
+    let long = "a".repeat(100);
+    pilot.send(get(&format!("/search/suggest?q={long}"), None)).await;
+    let read =
+        pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.starts_with("/api/marketplace/items/suggest")).cloned();
+    assert_eq!(read.unwrap().path, format!("/api/marketplace/items/suggest?q={}", "a".repeat(80)));
 }
 
 #[tokio::test]
@@ -3801,7 +3918,7 @@ fn nav_links_to(shell: &str, href: &str) -> Vec<(bool, String)> {
 async fn the_nav_marks_the_deepest_entry_that_holds_the_page_in_each_bar() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = &shell_of(&html);
     assert!(!shell.contains("data-nav-path") && !shell.contains("data-nav-rule"), "Corten marks the nav: {shell}");
     let shipping = nav_links_to(shell, "/account/sales/shipments");
     assert!(!shipping.is_empty() && shipping.iter().all(|(current, _)| *current), "Shipping is current: {shipping:?} {shell}");
@@ -3809,12 +3926,12 @@ async fn the_nav_marks_the_deepest_entry_that_holds_the_page_in_each_bar() {
     assert!(sales.iter().all(|(current, _)| !current), "Sales holds the page but is not the deepest: {sales:?}");
     // Imports is under Inventory: on its page only Imports is current, on Inventory's only Inventory.
     let (_, _, html) = pilot.send(get("/account/inventory/imports", Some("seller"))).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = &shell_of(&html);
     let imports = nav_links_to(shell, "/account/inventory/imports");
     assert!(!imports.is_empty() && imports.iter().all(|(current, _)| *current), "{imports:?} {shell}");
     assert!(nav_links_to(shell, "/account/inventory").iter().all(|(current, _)| !current), "{shell}");
     let (_, _, html) = pilot.send(get("/account/inventory", Some("seller"))).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = &shell_of(&html);
     let inventory = nav_links_to(shell, "/account/inventory");
     assert!(!inventory.is_empty() && inventory.iter().all(|(current, _)| *current), "{inventory:?} {shell}");
     assert!(nav_links_to(shell, "/account/inventory/imports").iter().all(|(current, _)| !current), "{shell}");
@@ -4613,7 +4730,7 @@ async fn an_unknown_item_is_not_found_and_a_failed_read_a_bad_gateway() {
     let (status, headers, html) = pilot.send(get("/items/nope", None)).await;
     // The error page is in the layout, and Corten keeps it out of search engines.
     assert_eq!((status, &headers["x-robots-tag"]), (StatusCode::NOT_FOUND, &"noindex".parse().unwrap()));
-    assert!(html.starts_with("<!DOCTYPE html><html lang=\"en\">") && html.contains("<main><h1>"), "{html}");
+    assert!(html.starts_with("<!DOCTYPE html><html lang=\"en\">") && main_content_of(&html).starts_with("<h1>"), "{html}");
     assert_eq!(pilot.send(get("/items/down", None)).await.0, StatusCode::BAD_GATEWAY);
 }
 
@@ -11107,7 +11224,15 @@ fn listing_create(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
         }
         ("GET", "/api/marketplace/items/suggest") => Some(match query {
             q if q.contains("q=broken") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            q if q.contains("q=twilight") => Json(json!({ "items": [{ "catalogItemId": "cat_etb", "title": "Twilight Masquerade Elite Trainer Box", "subtitle": "Sealed", "category": "sealed" }] })).into_response(),
+            q if q.contains("q=twilight") => Json(json!({ "items": [{ "catalogItemId": "cat_etb", "title": "Twilight Masquerade Elite Trainer Box", "subtitle": "Sealed", "slug": "twilight-masquerade-etb", "category": "sealed" }], "count": 1 })).into_response(),
+            // The header's described choices: the subtitle, else the category, else "Catalog item";
+            // an item without a slug has no page to open.
+            q if q.contains("q=charizard") => Json(json!({ "items": [
+                { "catalogItemId": "cat_card", "title": "Charizard", "subtitle": "  Base Set  ", "slug": "charizard", "category": "singles" },
+                { "catalogItemId": "cat_promo", "title": "Charizard Promo", "subtitle": " ", "slug": "charizard-promo", "category": "promos" },
+                { "catalogItemId": "cat_plain", "title": "Charizard Plain", "subtitle": null, "slug": "charizard-plain", "category": null },
+                { "catalogItemId": "cat_none", "title": "Charizard Nowhere", "subtitle": "Lost", "category": "singles" },
+            ], "count": 4 })).into_response(),
             _ => Json(json!({ "items": [] })).into_response(),
         }),
         ("GET", "/api/inventory/catalog-items/cat_etb") => Some(
@@ -21427,7 +21552,7 @@ async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
 
     let (_, _, html) = pilot.send(get(PAYMENT_METHODS, Some("card_reader"))).await;
     assert!(
-        html.contains("Synthetic spm_card") && !html.split_once("<main>").unwrap().1.contains("<form"),
+        html.contains("Synthetic spm_card") && !main_content_of(&html).contains("<form"),
         "a reader without orders.manage has no writes: {html}"
     );
 
