@@ -23,7 +23,7 @@ export const contextManifest = {
   apiBasePath: "/api/public-presence",
   slices: ["waitlist", "promo-bar", "help", "developer-portal", "policies"],
   allowedSupportDirectories: ["request-support", "runtime-support"],
-  publicExports: [".", "./context", "./routes/*", "./server", "./web"],
+  publicExports: [".", "./context", "./routes/*", "./server"],
   allowedContextDependencies: [],
   seedRequirements: ["identity"],
   eventSubscriptions: [

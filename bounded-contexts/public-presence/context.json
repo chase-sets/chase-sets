@@ -33,8 +33,7 @@
     ".",
     "./context",
     "./routes/*",
-    "./server",
-    "./web"
+    "./server"
   ],
   "allowedContextDependencies": [],
   "seedRequirements": [
