@@ -25016,3 +25016,42 @@ async fn each_request_is_a_span_named_by_its_route_and_its_api_calls_carry_it() 
     assert!(!parents.is_empty());
     assert!(parents.iter().all(|(_, parent)| parent.starts_with(&format!("00-{trace}-"))), "{trace}: {parents:#?}");
 }
+
+/// Behind the ingress a write arrives in origin form with the public `Host` the ingress forwards.
+/// Without `Sec-Fetch-Site`, Corten holds a browser's `Origin` to the requested authority: the
+/// target's when the request line is a whole URL, otherwise that `Host`. The page's own origin is
+/// let through either way, and another site's is refused before anything is sent.
+#[tokio::test]
+async fn a_write_without_sec_fetch_site_is_held_to_the_requested_authority() {
+    let pilot = Pilot::new().await;
+    let puts = |pilot: &Pilot| shipping_setup_calls(pilot).iter().filter(|c| c.method == Method::PUT).count();
+    let with_origin = |uri: &str, origin: &str| {
+        let mut req = post(uri, "seller", SHIPPING_FORM, false);
+        req.headers_mut().insert(header::ORIGIN, origin.parse().unwrap());
+        req
+    };
+
+    let (status, _, html) = pilot.send(with_origin(SHIPPING_SETUP, "http://localhost:7791")).await;
+    assert_ne!(status, StatusCode::FORBIDDEN, "the page's own post: {html}");
+    assert_eq!(puts(&pilot), 1, "the page's own post is sent");
+
+    let (status, _, _) = pilot.send(with_origin(SHIPPING_SETUP, "https://evil.example")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "another site's post");
+    assert_eq!(puts(&pilot), 1, "another site's post is refused before it is sent");
+
+    let whole = format!("http://localhost:7791{SHIPPING_SETUP}");
+    let (status, _, html) = pilot.send(with_origin(&whole, "http://localhost:7791")).await;
+    assert_ne!(status, StatusCode::FORBIDDEN, "a whole URL on the page's own authority: {html}");
+    assert_eq!(puts(&pilot), 2);
+
+    let (status, _, _) = pilot.send(with_origin(&whole, "https://evil.example")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "another site's post to a whole URL");
+    assert_eq!(puts(&pilot), 2);
+
+    // A whole URL's own authority decides, not a `Host` line that names another.
+    let mut other_line = with_origin(&whole, "http://localhost:7791");
+    other_line.headers_mut().insert(header::HOST, "other.example".parse().unwrap());
+    let (status, _, html) = pilot.send(other_line).await;
+    assert_ne!(status, StatusCode::FORBIDDEN, "the target's authority is the page's: {html}");
+    assert_eq!(puts(&pilot), 3);
+}
