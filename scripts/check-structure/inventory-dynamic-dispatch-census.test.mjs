@@ -1003,8 +1003,9 @@ export type InventoryServices = Existing & { syntheticNew: Existing["holds"] };`
       unrelated: partition.callers.length - retained.length,
     });
     // marketplace-web's route modules held 21 retained callers; they left with that deployable.
+    // The Corten marketplace's header search reads its recent searches with localStorage.getItem (unrelated).
     expect([partition.callers.length, retained.length, partition.callers.length - retained.length]).toEqual([
-      134, 116, 18,
+      135, 116, 19,
     ]);
     expect(built.diagnostics).toEqual(result.diagnostics);
     expect(built.scanned).toEqual(result.scanned);
