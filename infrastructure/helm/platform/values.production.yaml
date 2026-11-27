@@ -208,7 +208,5 @@ components:
       - maxSkew: 1
         topologyKey: "kubernetes.io/hostname"
         whenUnsatisfiable: "ScheduleAnyway"
-  public-web:
-    enabled: false
   admin-web:
     enabled: false

@@ -2,13 +2,6 @@
 global:
   previewStackIsolation: true
 components:
-  public-web:
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "1216Mi"
-      limits:
-        memory: "1216Mi"
   admin-web:
     resources:
       requests:

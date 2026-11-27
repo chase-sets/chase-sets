@@ -21,7 +21,7 @@ The renderer must not read Terraform application configuration. Database endpoin
 
 ## Ingress And TLS
 
-DOKS ingress always serves the live environment hostnames when `doksIngress.enabled=true`. The apex and `www` route to `public-web`, `admin` routes to `admin-web`, and marketplace hosts are rendered only when marketplace public exposure is enabled. Provider webhooks, MCP, UCP, well-known, `/channel-connector`, and `/api` paths route to `platform-api` before web catch-alls.
+DOKS ingress always serves the live environment hostnames when `doksIngress.enabled=true`. In production the apex and `www` route to `public-corten`; on staging `www` routes to `public-corten` and the apex to `marketplace-corten`. `admin` routes to `admin-corten`, and marketplace hosts route to `marketplace-corten` (in production only when marketplace public exposure is enabled). A preview's `pr-<n>` and `pr-<n>-marketplace` hosts route wholly to `platform-api`, since no public or marketplace app runs in a preview. Provider webhooks, MCP, UCP, well-known, `/channel-connector`, and `/api` paths route to `platform-api` before web catch-alls.
 
 Staging uses cert-manager HTTP-01 for its live host certificate. Production uses the environment DNS-01 issuer for the live host set. Diagnostic `doks.*` hostnames are deliberately not routed or added to runtime certificates.
 

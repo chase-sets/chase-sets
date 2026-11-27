@@ -176,8 +176,6 @@ components:
         memory: "512Mi"
     podAnnotations: {}
     podLabels: {}
-  public-web:
-    enabled: false
   admin-web:
     enabled: false
   platform-api:

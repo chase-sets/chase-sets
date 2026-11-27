@@ -163,7 +163,7 @@ const authorityAnchors = [
         "  return [\n" +
         "    {\n" +
         "      host: `${previewIdentifier}.${previewEnvironmentZone}`,\n" +
-        '      paths: doksIngressPaths("public-web"),\n' +
+        '      paths: doksIngressPaths("platform-api"),\n' +
         "    },\n" +
         "    {\n" +
         "      host: `${previewIdentifier}-marketplace.${previewEnvironmentZone}`,\n" +
