@@ -6,8 +6,11 @@ import {
   validateBrowserUsabilityGoalModules,
 } from "./browser-usability-goals.mjs";
 
-const excludedRoute = "deployables/public-web/app/routes/not-found.tsx";
-const publicWebScope = "^deployables/public-web/app/routes/";
+// The Corten apps serve the guest, buyer and seller pages, so the controls use an admin surface that still has
+// route modules.
+const excludedRoute = "deployables/admin-web/app/routes/catalog-home.tsx";
+const catalogAdminScope = "^deployables/admin-web/app/routes/catalog-";
+const controlSurface = "operator-catalog";
 
 const trackedFiles = execFileSync("git", ["ls-files", "-z"], {
   cwd: new URL("../", import.meta.url),
@@ -36,10 +39,10 @@ function assertRouteCoverage(files) {
 }
 
 describe("browser usability route coverage", () => {
-  it("omitting the public-web scope exposes the real unscoped route and out-of-scope exclusion", () => {
+  it("omitting the admin catalog scope exposes the real unscoped route and out-of-scope exclusion", () => {
     const modules = browserUsabilityGoalModules.map((surface) =>
-      surface.id === "guest"
-        ? { ...surface, routeScope: surface.routeScope.filter((pattern) => pattern !== publicWebScope) }
+      surface.id === controlSurface
+        ? { ...surface, routeScope: surface.routeScope.filter((pattern) => pattern !== catalogAdminScope) }
         : surface,
     );
     expect(trackedFiles).toContain(excludedRoute);
@@ -49,7 +52,7 @@ describe("browser usability route coverage", () => {
 
   it("omitting an exclusion exposes the real unclaimed route without changing its scope", () => {
     const modules = browserUsabilityGoalModules.map((surface) =>
-      surface.id === "guest"
+      surface.id === controlSurface
         ? { ...surface, excludedRoutes: surface.excludedRoutes.filter(({ path }) => path !== excludedRoute) }
         : surface,
     );
@@ -57,7 +60,7 @@ describe("browser usability route coverage", () => {
     expect(auditBrowserUsabilityRoutes([excludedRoute], modules).coverage).toMatchObject({
       unscoped: [],
       invalid: [],
-      surfaces: { guest: { inScope: 1, excluded: 0, unclaimed: [excludedRoute] } },
+      surfaces: { [controlSurface]: { inScope: 1, excluded: 0, unclaimed: [excludedRoute] } },
     });
   });
 
@@ -74,10 +77,10 @@ describe("browser usability route coverage", () => {
   });
 
   it("rejects a synthetic unclaimed route with its surface and both fixes", () => {
-    const route = "bounded-contexts/public-presence/routes/marketplace/synthetic-unclaimed-coverage.tsx";
+    const route = "bounded-contexts/catalog/routes/admin/synthetic-unclaimed-coverage.tsx";
     expect(trackedFiles).not.toContain(route);
     expect(() => assertRouteCoverage([...trackedFiles, route])).toThrow(
-      `Browser usability route coverage failed:\n${route} (surface: guest): unclaimed\n` +
+      `Browser usability route coverage failed:\n${route} (surface: ${controlSurface}): unclaimed\n` +
         "Claim each route in a goal's routes map or record an exclusion in excludedRoutes with a reason. " +
         "See docs/contributing/browser-usability.md.",
     );

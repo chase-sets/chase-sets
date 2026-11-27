@@ -210,7 +210,7 @@ function violationsFor(rootDir, options = {}) {
 }
 
 describe("context registry guard on the real tree", () => {
-  it("binds every registry to admitted discovery and keeps the metadata-only host registry-free", () => {
+  it("binds every registry to admitted discovery and keeps the metadata-only hosts registry-free", () => {
     const result = validateContextRegistries();
 
     expect(result.violations).toEqual([]);
@@ -224,7 +224,7 @@ describe("context registry guard on the real tree", () => {
     for (const registry of result.registries) {
       expect(registry.expected.length, registry.path).toBeGreaterThan(0);
       if (registry.metadataOnly) {
-        expect(registry.hostName, registry.path).toBe("marketplace-web");
+        expect(["marketplace-web", "public-web"], registry.path).toContain(registry.hostName);
         expect(registry.actual, registry.path).toBeNull();
       } else {
         expect(registry.actual, registry.path).toEqual(registry.expected);
@@ -444,7 +444,7 @@ describe("structural mutants of the real registries", () => {
     ],
     [
       "web without as const",
-      publicPath,
+      adminPath,
       "] as const satisfies WebContextRegistry;",
       "] satisfies WebContextRegistry;",
       "export const webContextRegistry = [...] as const satisfies WebContextRegistry;",
@@ -464,20 +464,20 @@ describe("structural mutants of the real registries", () => {
   });
 
   it.each([
-    ["root", "@chase-sets/pricing"],
-    ["server", "@chase-sets/pricing/server"],
+    ["root", "@chase-sets/settlement"],
+    ["server", "@chase-sets/settlement/server"],
   ])("S5 rejects a %s web import", (_label, specifier) => {
     const rootDir = copyRealTree();
     replaceOnce(
       rootDir,
-      publicPath,
-      'import pricingManifest from "@chase-sets/pricing/context";',
-      `import pricingManifest from "${specifier}";`,
+      adminPath,
+      'import settlementManifest from "@chase-sets/settlement/context";',
+      `import settlementManifest from "${specifier}";`,
     );
 
     expect(violationsFor(rootDir)).toEqual([
-      `${publicPath}: web registries import only "<package>/context" manifests; "${specifier}" is forbidden`,
-      `${publicPath}: "pricing" manifest pricingManifest is not an imported binding`,
+      `${adminPath}: web registries import only "<package>/context" manifests; "${specifier}" is forbidden`,
+      `${adminPath}: "settlement" manifest settlementManifest is not an imported binding`,
     ]);
   });
 
@@ -485,15 +485,15 @@ describe("structural mutants of the real registries", () => {
     const rootDir = copyRealTree();
     replaceOnce(
       rootDir,
-      publicPath,
-      'import pricingManifest from "@chase-sets/pricing/context";',
-      'const pricingManifest = (await import("@chase-sets/pricing/context")).default;',
+      adminPath,
+      'import settlementManifest from "@chase-sets/settlement/context";',
+      'const settlementManifest = (await import("@chase-sets/settlement/context")).default;',
     );
 
     expect(violationsFor(rootDir)).toEqual([
-      `${publicPath}: dynamic import of "@chase-sets/pricing/context" is forbidden`,
-      `${publicPath}: unsupported top-level statement \`const pricingManifest = (await import("@chase-sets/pricing/context")).default;\``,
-      `${publicPath}: "pricing" manifest pricingManifest is not an imported binding`,
+      `${adminPath}: dynamic import of "@chase-sets/settlement/context" is forbidden`,
+      `${adminPath}: unsupported top-level statement \`const settlementManifest = (await import("@chase-sets/settlement/context")).default;\``,
+      `${adminPath}: "settlement" manifest settlementManifest is not an imported binding`,
     ]);
   });
 
@@ -567,11 +567,11 @@ describe("retired registry paths", () => {
   it("reports every surviving retired path and a missing new module", () => {
     const rootDir = copyRealTree();
     writeFiles(rootDir, Object.fromEntries(RETIRED_CONTEXT_REGISTRY_PATHS.map((file) => [file, "// legacy\n"])));
-    rmSync(path.join(rootDir, publicPath));
+    rmSync(path.join(rootDir, adminPath));
 
     expect(violationsFor(rootDir)).toEqual([
       ...RETIRED_CONTEXT_REGISTRY_PATHS.map((file) => `${file}: ${retiredMessage}`),
-      `${publicPath}: context registry is missing`,
+      `${adminPath}: context registry is missing`,
     ]);
   });
 });
@@ -593,17 +593,18 @@ describe("metadata-only web hosts", () => {
     };
     expect(findRoutesExportViolation(both)).toBe("contexts with route contributions must export ./routes/* publicly");
   });
-  it("names marketplace-web as the only metadata-only host, matching the runtime list", () => {
-    expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web"]);
+  it("names marketplace-web and public-web as the metadata-only hosts, matching the runtime list", () => {
+    expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web", "public-web"]);
     const runtimeSource = readFileSync(path.join(repoRoot, "infrastructure/platform-runtime/web.ts"), "utf8");
+    const runtimeList = METADATA_ONLY_WEB_HOSTS.map((host) => JSON.stringify(host)).join(", ");
     expect(runtimeSource).toContain(
-      `export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze(${JSON.stringify(METADATA_ONLY_WEB_HOSTS)});`,
+      `export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze([${runtimeList}]);`,
     );
   });
 
   it("rejects a context registry written for a metadata-only host", () => {
     const rootDir = copyRealTree();
-    writeFiles(rootDir, { [marketplacePath]: readFileSync(path.join(repoRoot, publicPath), "utf8") });
+    writeFiles(rootDir, { [marketplacePath]: readFileSync(path.join(repoRoot, adminPath), "utf8") });
 
     expect(violationsFor(rootDir)).toEqual([
       `${marketplacePath}: marketplace-web is a metadata-only host; its contributions name no route module, so it must have no context registry`,
@@ -617,6 +618,7 @@ describe("metadata-only web hosts", () => {
 
     expect(violationsFor(copyRealTree(), { metadataOnlyHosts: [] })).toEqual([
       `${marketplacePath}: context registry is missing`,
+      `${publicPath}: context registry is missing`,
     ]);
   });
 });

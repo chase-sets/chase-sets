@@ -126,7 +126,6 @@ const frozenMutationConsistencyBaselineSurfaces = new Set([
   "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
   "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
   "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx",
-  "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx",
 ]);
 
 function normalizeRelative(filePath, repoRoot) {

@@ -58,6 +58,23 @@ describe("canonical link intents", () => {
     );
   });
 
+  it("keeps the public-web link catalog the Corten public app serves", async () => {
+    const { composeLinkIntents } = await import("./link-intents");
+    const catalog = composeLinkIntents(contexts);
+    const publicWeb = {
+      intents: catalog.intents.filter((intent) => intent.host === "public-web"),
+      partition: catalog.partition.filter((row) => row.host === "public-web"),
+    };
+    // The sitemap and published links keep resolving to the pages the Corten
+    // public app serves from these metadata-only records. The hash is the
+    // catalog main composed while public-web still had route modules.
+    expect(publicWeb.partition).toHaveLength(25);
+    expect(publicWeb.intents).toHaveLength(0);
+    expect(createHash("sha256").update(JSON.stringify(publicWeb)).digest("hex")).toBe(
+      "0a2281a84675e3709ed0965bc2b0e5d0c0cb762ec3876a11aad9a81daa94d475",
+    );
+  });
+
   it("link-intent-build-parse-closed-matrix", async () => {
     const { composeLinkIntents, buildCanonicalLink, parseCanonicalLink, linkIntentFixtures } =
       await import("./link-intents");

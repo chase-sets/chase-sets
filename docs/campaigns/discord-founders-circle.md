@@ -83,7 +83,7 @@ Scheduling and facilitation are TODD-owned per the calendar; this blueprint only
 - **Secret**: `CHASE_SETS_DISCORD_INVITE_URL`, a permanent non-expiring Discord invite URL.
 - **Stores**: the GitHub Actions secret store consumed by the platform workflows (staging + production), and the local env store via `pnpm run env:push`.
 - **Threading**: `infrastructure/helm/platform/values.yaml:94-96` / `runtime-values.json:134-136`, rendered by `scripts/render-platform-helm-values.mjs` into all six platform workflows (`.github/workflows/platform-pr.yml`, `.github/workflows/platform-production.yml`, `.github/workflows/platform-staging-reset.yml`, `.github/workflows/platform-ephemeral-verification.yml`, `.github/workflows/platform-preview-cleanup.yml`, `.github/workflows/platform-merge-gate-verification.yml`), and required by `scripts/marketplace-production-launch-readiness.mjs:29`.
-- **Render sites once set**: home page CTA (`bounded-contexts/public-presence/routes/marketplace/home.tsx:51-59`), welcome page CTA (`bounded-contexts/public-presence/routes/marketplace/welcome.tsx:31-38`), welcome page share button (`bounded-contexts/public-presence/features/waitlist/ui/success-page.tsx:403-414`), welcome email invite line (`deployables/platform-worker/src/email-template-renderer.ts:197`).
+- **Render sites once set**: home page CTA (`deployables/corten-pilot/public/src/views/home_page.rs:521-533`), welcome page share button (`deployables/corten-pilot/public/src/views/welcome_page.rs:150-162`; the Corten welcome page has no separate Discord CTA), welcome email invite line (`deployables/platform-worker/src/email-template-renderer.ts:197`).
 - Unset is a startup-config gap, not a feature flag — see the loud non-prod warning at `home.tsx:52-58`.
 
 ## Measurement
@@ -106,7 +106,7 @@ The following is enumerated here for completeness and blueprint traceability onl
 3. Upload avatar + 960×540 banner (brand-kit "not-code" list; an OG-derived export is acceptable at go).
 4. Create a permanent, non-expiring invite; record the URL.
 5. Set `CHASE_SETS_DISCORD_INVITE_URL` in the GitHub Actions secret store (staging + production) and the local env store (`pnpm run env:push`); redeploy.
-6. Verify in production with one real signup end-to-end (admin visibility, confirmation email, welcome email Discord line, welcome page CTA, home CTA) via `pnpm run ops campaign:start-gate --operator-evidence`.
+6. Verify in production with one real signup end-to-end (admin visibility, confirmation email, welcome email Discord line, welcome page share button, home CTA) via `pnpm run ops campaign:start-gate --operator-evidence`.
 7. Schedule the first two weeks of Discord events per the calendar rows above, anchored to the #4060 go date.
 8. OG spot-check: paste `/`, `/?game=pokemon`, `/founders`, `/press` into a Discord channel (brand-kit `:85`).
 9. Post-go: confirm Grafana `discord_cta_clicked` > 0.

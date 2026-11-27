@@ -1946,7 +1946,7 @@ export const defaultConsumerDeployables = ["marketplace-web", "public-web"];
 // Consumer hosts whose route records are metadata only (no route module); the
 // Corten pilot serves their pages. Mirrors metadataOnlyWebHosts in
 // infrastructure/platform-runtime/web.ts, which the inventory test pins.
-export const defaultMetadataOnlyConsumerDeployables = ["marketplace-web"];
+export const defaultMetadataOnlyConsumerDeployables = ["marketplace-web", "public-web"];
 
 /**
  * Derives every fact family from an already-loaded set of source records. Pure

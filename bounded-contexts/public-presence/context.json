@@ -251,8 +251,7 @@
       "surfaces": [
         "api-client:bounded-contexts/public-presence/client.ts:POST H405b3cbdf275#1",
         "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
-        "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx"
+        "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "welcome",
@@ -397,7 +396,6 @@
         {
           "routeId": "home",
           "routePath": "",
-          "fileExport": "./routes/marketplace/home",
           "routeType": "index",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -405,7 +403,6 @@
         {
           "routeId": "welcome",
           "routePath": "welcome",
-          "fileExport": "./routes/marketplace/welcome",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -413,7 +410,6 @@
         {
           "routeId": "help",
           "routePath": "help",
-          "fileExport": "./routes/marketplace/help",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -421,7 +417,6 @@
         {
           "routeId": "help-category",
           "routePath": "help/:category",
-          "fileExport": "./routes/marketplace/help-category",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -429,7 +424,6 @@
         {
           "routeId": "help-article",
           "routePath": "help/:category/:slug",
-          "fileExport": "./routes/marketplace/help-article",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -437,7 +431,6 @@
         {
           "routeId": "developer-portal",
           "routePath": "developers",
-          "fileExport": "./routes/developers/portal",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -445,7 +438,6 @@
         {
           "routeId": "developer-article",
           "routePath": "developers/:slug",
-          "fileExport": "./routes/developers/article",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -453,7 +445,6 @@
         {
           "routeId": "developer-manifest",
           "routePath": "developers/manifest.json",
-          "fileExport": "./routes/developers/manifest",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -461,7 +452,6 @@
         {
           "routeId": "developer-llms",
           "routePath": "llms.txt",
-          "fileExport": "./routes/developers/llms",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -469,7 +459,6 @@
         {
           "routeId": "faq",
           "routePath": "faq",
-          "fileExport": "./routes/marketplace/faq",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -477,7 +466,6 @@
         {
           "routeId": "contact",
           "routePath": "contact",
-          "fileExport": "./routes/marketplace/contact",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -485,7 +473,6 @@
         {
           "routeId": "terms",
           "routePath": "terms",
-          "fileExport": "./routes/marketplace/terms",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -493,7 +480,6 @@
         {
           "routeId": "privacy",
           "routePath": "privacy",
-          "fileExport": "./routes/marketplace/privacy",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -501,7 +487,6 @@
         {
           "routeId": "refunds-and-returns",
           "routePath": "refunds-and-returns",
-          "fileExport": "./routes/marketplace/refunds-and-returns",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -509,7 +494,6 @@
         {
           "routeId": "order-protection",
           "routePath": "order-protection",
-          "fileExport": "./routes/marketplace/order-protection",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -517,7 +501,6 @@
         {
           "routeId": "founders",
           "routePath": "founders",
-          "fileExport": "./routes/marketplace/founders",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -525,7 +508,6 @@
         {
           "routeId": "seller-agreement",
           "routePath": "seller-agreement",
-          "fileExport": "./routes/marketplace/seller-agreement",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -533,7 +515,6 @@
         {
           "routeId": "payments-terms",
           "routePath": "payments-terms",
-          "fileExport": "./routes/marketplace/payments-terms",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -541,7 +522,6 @@
         {
           "routeId": "agent-terms",
           "routePath": "agent-terms",
-          "fileExport": "./routes/marketplace/agent-terms",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -549,7 +529,6 @@
         {
           "routeId": "authenticity-terms",
           "routePath": "authenticity-terms",
-          "fileExport": "./routes/marketplace/authenticity-terms",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -557,7 +536,6 @@
         {
           "routeId": "compare-tcgplayer",
           "routePath": "compare/tcgplayer",
-          "fileExport": "./routes/marketplace/compare-tcgplayer",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -565,7 +543,6 @@
         {
           "routeId": "compare-ebay",
           "routePath": "compare/ebay",
-          "fileExport": "./routes/marketplace/compare-ebay",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
@@ -573,7 +550,6 @@
         {
           "routeId": "press",
           "routePath": "press",
-          "fileExport": "./routes/marketplace/press",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"

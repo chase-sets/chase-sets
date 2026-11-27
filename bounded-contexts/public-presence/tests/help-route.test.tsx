@@ -1,11 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loader as articleLoader } from "../routes/marketplace/help-article";
-import { loader as categoryLoader } from "../routes/marketplace/help-category";
-import { loader as faqRedirectLoader } from "../routes/marketplace/faq";
-import { loader as protectionRedirectLoader } from "../routes/marketplace/order-protection";
-import { loader as refundsRedirectLoader } from "../routes/marketplace/refunds-and-returns";
 import { resolvePublicPolicyArticle } from "../features/help/integrations/resolve-public-policy-article";
 import { helpCategories, publicHelpArticles } from "../features/help/domain/article-catalog";
 import type { HelpArticle } from "../features/help/domain/article-model";
@@ -36,6 +31,20 @@ function renderedUnresolvedKeys(article: HelpArticle) {
 }
 
 const request = new Request("https://chasesets.com/help");
+
+// Reads an article the way the retired React help page did: token-bearing
+// articles resolve their whitelisted live policy values, token-free ones stay
+// read-free. The Corten public app serves the page itself.
+async function articleLoader({
+  params,
+  request: articleRequest,
+}: Readonly<{ params: Readonly<{ category?: string; slug?: string }>; request: Request }>) {
+  const source = helpRouteData.findHelpArticle(params.category, params.slug);
+  if (!source) throw new Error(`unknown help article ${params.category}/${params.slug}`);
+  const article =
+    source.policyValueKeys.length > 0 ? await resolvePublicPolicyArticle(articleRequest, source, source.href) : source;
+  return { article, related: helpRouteData.listRelatedHelpArticles(source) };
+}
 
 afterEach(() => {
   cleanup();
@@ -145,40 +154,6 @@ function stubPolicyResponse(response: unknown) {
 }
 
 describe("public help routes", () => {
-  it.each([undefined, "", "   ", " https://marketplace.chasesets.test/ "])(
-    "supplies only the configured marketplace origin (%s), never the request origin",
-    async (origin) => {
-      vi.stubEnv("CHASE_SETS_MARKETPLACE_ORIGIN", origin);
-      const data = await articleLoader({
-        request,
-        params: { category: "selling", slug: "seller-migration-tcgplayer-ebay" },
-        context: {},
-      } as never);
-      expect(data.marketplaceOrigin).toBe(origin?.trim() || undefined);
-    },
-  );
-  it("serializes every category member as exactly the ordered card projection", () => {
-    let examinedMembers = 0;
-
-    for (const category of helpCategories) {
-      const data = categoryLoader({ request, params: { category }, context: {} } as never);
-      const canonicalArticles = publicHelpArticles.filter((article) => article.category === category);
-
-      expect(Object.keys(data).sort()).toEqual(["articles", "category"]);
-      expect(data.category).toBe(category);
-      expect(data.articles).toHaveLength(canonicalArticles.length);
-      expect(data.articles).toEqual(
-        canonicalArticles.map(({ audience, title, description, href }) => ({ audience, title, description, href })),
-      );
-      for (const article of data.articles) {
-        expect(Object.keys(article).sort()).toEqual(["audience", "description", "href", "title"]);
-      }
-      examinedMembers += data.articles.length;
-    }
-
-    expect(examinedMembers).toBeGreaterThan(0);
-  });
-
   it("keeps canonically complete primary and related records for every token-free article", async () => {
     const tokenFreeArticles = publicHelpArticles.filter((article) => article.policyValueKeys.length === 0);
     expect(tokenFreeArticles.length).toBeGreaterThan(0);
@@ -221,8 +196,11 @@ describe("public help routes", () => {
       article: { slug, category, locale: "en", title, href: `/help/${category}/${slug}` },
     });
 
-    const categoryData = categoryLoader({ request, params: { category }, context: {} } as never);
-    expect(categoryData.articles.map((article) => article.href)).toContain(`/help/${category}/${slug}`);
+    expect(helpRouteData.isHelpCategory(category)).toBe(true);
+    const categoryArticles = helpRouteData.isHelpCategory(category)
+      ? helpRouteData.listHelpArticlesByCategory(category)
+      : [];
+    expect(categoryArticles.map((article) => article.href)).toContain(`/help/${category}/${slug}`);
   });
 
   it("resolves token-bearing articles from the public whitelisted policy read", async () => {
@@ -747,39 +725,5 @@ describe("public help routes", () => {
       "[public-presence] Public policy values are unavailable.",
       expect.objectContaining({ classification: "non-ok", status: 503 }),
     );
-  });
-
-  it("returns exact 404 responses for unknown and empty categories and unknown articles", async () => {
-    const captureCategoryResponse = (category: string) => {
-      try {
-        categoryLoader({ request, params: { category }, context: {} } as never);
-      } catch (error) {
-        return error;
-      }
-      throw new Error(`Expected category '${category}' to return a 404 Response.`);
-    };
-
-    const unknownCategory = captureCategoryResponse("missing");
-    expect(unknownCategory).toBeInstanceOf(Response);
-    expect((unknownCategory as Response).status).toBe(404);
-
-    vi.spyOn(helpRouteData, "listHelpArticlesByCategory").mockReturnValueOnce([]);
-    const emptyCategory = captureCategoryResponse("buying");
-    expect(emptyCategory).toBeInstanceOf(Response);
-    expect((emptyCategory as Response).status).toBe(404);
-
-    await expect(
-      articleLoader({ request, params: { category: "buying", slug: "missing" }, context: {} } as never),
-    ).rejects.toBeInstanceOf(Response);
-  });
-
-  it.each([
-    [faqRedirectLoader, "/help/getting-started/frequently-asked-questions"],
-    [protectionRedirectLoader, "/help/buying/order-protection"],
-    [refundsRedirectLoader, "/help/buying/refunds-and-returns"],
-  ])("permanently redirects a migrated public route", (loader, location) => {
-    const response = loader();
-    expect(response.status).toBe(301);
-    expect(response.headers.get("Location")).toBe(location);
   });
 });

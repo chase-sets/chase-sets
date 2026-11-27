@@ -27,8 +27,10 @@ export const CAMPAIGN_CONTENT_CALENDAR_PATH = "docs/campaigns/30-day-content-cal
 
 export const LAUNCH_CONFIG_PATH = "bounded-contexts/public-presence/features/waitlist/ui/launch-config.ts";
 
-export const PRIVACY_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/privacy.tsx";
-export const TERMS_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/terms.tsx";
+// The Corten public app serves the policy pages, so the gate reads its route table and requires a
+// route declaration for each page rather than the existence of a file.
+export const PUBLIC_APP_ROUTES_PATH = "deployables/corten-pilot/public/src/app.rs";
+export const REQUIRED_PUBLIC_POLICY_ROUTES = ["/privacy", "/terms"];
 
 // The canonical Privacy disclosure now lives in the Public Policy Artifact,
 // not in a route-local locale string. This gate reads the artifact's
@@ -54,7 +56,7 @@ export const LANDING_CONVERSION_SURFACE_FILES = [
   "bounded-contexts/public-presence/features/waitlist/ui/admin-pages.tsx",
   "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts",
   "bounded-contexts/public-presence/features/waitlist/ui/success-page.tsx",
-  "bounded-contexts/public-presence/routes/marketplace/welcome.tsx",
+  "deployables/corten-pilot/public/src/welcome.rs",
 ];
 
 export const ANALYTICS_CAPTURE_FILES = [
@@ -228,8 +230,10 @@ function concatenatedStringLiteral(expression) {
 }
 
 function buildLegalPrivacyRow(repoRootPath) {
-  const missingRoutes = [PRIVACY_ROUTE_PATH, TERMS_ROUTE_PATH].filter(
-    (relativePath) => !existsSync(path.join(repoRootPath, relativePath)),
+  const routesPath = path.join(repoRootPath, PUBLIC_APP_ROUTES_PATH);
+  const routeTable = existsSync(routesPath) ? readFileSync(routesPath, "utf8") : "";
+  const missingRoutes = REQUIRED_PUBLIC_POLICY_ROUTES.filter(
+    (routePath) => !routeTable.includes(`#[route("${routePath}"`),
   );
   const privacySourcePath = path.join(repoRootPath, PRIVACY_POLICY_SOURCE_PATH);
   const privacySourceExists = existsSync(privacySourcePath);
@@ -252,6 +256,7 @@ function buildLegalPrivacyRow(repoRootPath) {
     automated: true,
     status,
     evidence: {
+      publicAppRoutesPath: PUBLIC_APP_ROUTES_PATH,
       missingRoutes,
       canonicalPrivacySourcePath: PRIVACY_POLICY_SOURCE_PATH,
       canonicalPrivacySubjectId: PRIVACY_CAMPAIGN_DISCLOSURE_SUBJECT_ID,

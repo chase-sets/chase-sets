@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { meta } from "../routes/marketplace/terms";
+import { meta } from "../features/policies/ui/routes/terms";
 
 describe("Terms of Service route metadata", () => {
   it("publishes consent and effective-version metadata for machine consumers", () => {

@@ -2263,9 +2263,10 @@ describe("platform host web registry", () => {
     const sharedModuleRoute = (routeId: string, routePath: string) => ({
       routeId,
       routePath,
-      fileExport: "./routes/public/help",
+      fileExport: "./routes/admin/help",
       routeType: "route" as const,
       sourceContext: "public-presence",
+      section: "support" as const,
     });
     const registry = [
       {
@@ -2275,14 +2276,14 @@ describe("platform host web registry", () => {
           contextName: "public-presence",
           deployableContributions: [
             {
-              deployable: "public-web",
+              deployable: "admin-web",
               routes: [sharedModuleRoute("help", "help"), sharedModuleRoute("help-category", "help/:categorySlug")],
             },
           ],
         },
       },
     ] satisfies WebContextRegistry;
-    const routeConfig = resolveWebHostRouteConfigRecords(registry, "public-web").map((routeRecord) =>
+    const routeConfig = resolveWebHostRouteConfigRecords(registry, "admin-web").map((routeRecord) =>
       toRouteConfigEntry(routeRecord, {
         index: (file, options) => ({ file, index: true, ...options }),
         route: (path, file, options) => ({ path: path ?? undefined, file, ...options }),
@@ -2291,20 +2292,42 @@ describe("platform host web registry", () => {
 
     expect(routeConfig).toEqual([
       expect.objectContaining({
-        id: "public-presence/help",
-        path: "help",
-        file: "../../../bounded-contexts/public-presence/routes/public/help.tsx",
+        id: "public-presence/support/help",
+        path: "support/help",
+        file: "../../../bounded-contexts/public-presence/routes/admin/help.tsx",
       }),
       expect.objectContaining({
-        id: "public-presence/help-category",
-        path: "help/:categorySlug",
-        file: "../../../bounded-contexts/public-presence/routes/public/help.tsx",
+        id: "public-presence/support/help-category",
+        path: "support/help/:categorySlug",
+        file: "../../../bounded-contexts/public-presence/routes/admin/help.tsx",
       }),
     ]);
   });
 
+  it("keeps public-web route contributions metadata only", () => {
+    const publicRegistry = [
+      {
+        contextName: "public-presence",
+        packageName: "@test/public-presence",
+        manifest: {
+          contextName: "public-presence",
+          deployableContributions: [
+            {
+              deployable: "public-web",
+              routes: [{ routeId: "faq", routePath: "faq", routeType: "route", sourceContext: "public-presence" }],
+            },
+          ],
+        },
+      },
+    ] satisfies WebContextRegistry;
+    expect(resolveWebHostRouteRecords(publicRegistry, "public-web").map((route) => route.routeId)).toEqual(["faq"]);
+    expect(() => resolveWebHostRouteConfigRecords(publicRegistry, "public-web")).toThrow(
+      /public-web contributes route metadata only/,
+    );
+  });
+
   it("keeps marketplace-web route contributions metadata only", () => {
-    expect(metadataOnlyWebHosts).toEqual(["marketplace-web"]);
+    expect(metadataOnlyWebHosts).toEqual(["marketplace-web", "public-web"]);
     expect(resolveWebHostRouteRecords(webRegistry, "marketplace-web").map((route) => route.routeId)).toEqual([
       "category",
       "search",
@@ -2336,7 +2359,7 @@ describe("platform host web registry", () => {
   });
 
   it("requires a route module on every host that is not metadata only", () => {
-    const withoutModule = (deployable: "admin-web" | "public-web") =>
+    const withoutModule = (deployable: "admin-web") =>
       [
         {
           contextName: "test-context",
@@ -2360,7 +2383,7 @@ describe("platform host web registry", () => {
           },
         },
       ] satisfies WebContextRegistry;
-    for (const host of ["admin-web", "public-web"] as const) {
+    for (const host of ["admin-web"] as const) {
       expect(() => resolveWebHostRouteRecords(withoutModule(host), host)).toThrow(
         new RegExp(`'test-context/no-module' contributed to ${host} must name its route module`),
       );

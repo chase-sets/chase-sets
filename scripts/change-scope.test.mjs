@@ -1303,8 +1303,14 @@ describe("shared E2E setup selection", () => {
       ["boundedContextRouteSuiteOwnership:47", 0],
       ["boundedContextRouteSuiteOwnership:51", 0],
       ["boundedContextRouteSuiteOwnership:52", 0],
+      // Deleting public-web's route modules does the same to four more; the public-presence and Commercial
+      // Terms policy and sales-fee pages keep their feature route modules.
+      ["marketplaceContextRouteSuiteOwnership:public-presence", 0],
+      ["boundedContextRouteSuiteOwnership:11", 2],
+      ["boundedContextRouteSuiteOwnership:48", 7],
+      ["boundedContextRouteSuiteOwnership:49", 0],
     ]);
-    expect(deletedRouteModuleFamilies.size).toBe(28);
+    expect(deletedRouteModuleFamilies.size).toBe(32);
     const expectedFamiliesAfterRouteDeletion = expectedRetiredFamilies.map((family) => {
       if (!deletedRouteModuleFamilies.has(family.family)) return family;
       expect(family.synthetic, family.family).toBe(false);
@@ -1750,12 +1756,12 @@ const schedulerVocabularyLookalikePaths = [
 // Accepted inventory delta adds @chase-sets/app-agent-apps.
 // Accepted inventory delta removes the unused Review Eligibility contract workspace.
 // Accepted inventory delta removes @chase-sets/app-marketplace-web with the deleted marketplace-web deployable.
+// Accepted inventory delta removes @chase-sets/app-public-web with the deleted public-web deployable.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-agent-apps",
   "@chase-sets/app-platform-api",
   "@chase-sets/app-platform-worker",
-  "@chase-sets/app-public-web",
   "@chase-sets/app-tcgplayer-connector-extension",
   "@chase-sets/app-tcgplayer-operator-extension",
   "@chase-sets/auth",
@@ -3656,7 +3662,8 @@ describe("change-scope", () => {
         // Making Auth -> Payments test-only stops Ordering's runtime fan-out at
         // Auth, before Channels, Pricing, public-web and the connector extension. Preserve the frozen
         // baseline above and enumerate only the affected-workspace delta here. The expected set is filtered
-        // through the live workspace list, so marketplace-web's deleted workspace drops out of both.
+        // through the live workspace list, so the deleted marketplace-web and public-web workspaces drop out
+        // of both.
         const affected = [
           "@chase-sets/app-admin-web",
           "@chase-sets/app-agent-apps",
@@ -3675,7 +3682,6 @@ describe("change-scope", () => {
           "@chase-sets/settlement",
         ];
         expect(JSON.parse(expected.affected_workspaces_json).filter((name) => !affected.includes(name))).toEqual([
-          "@chase-sets/app-public-web",
           "@chase-sets/app-tcgplayer-connector-extension",
           "@chase-sets/channels",
           "@chase-sets/marketplace",

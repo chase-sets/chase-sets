@@ -271,10 +271,14 @@ describe("goal selection and preflight", () => {
 
 describe("surface contracts and coverage", () => {
   const modules = () => structuredClone(browserUsabilityGoalModules);
-  // Synthetic guest-scoped route that no shipped module claims or excludes; every real
+  // The Corten apps serve the guest, buyer and seller pages, so route-map cases use the operator
+  // workspaces surface, whose admin route modules still exist.
+  const scoped = (m) => m.find((s) => s.id === "operator-workspaces");
+  const claimedRoute = "bounded-contexts/auth/routes/access-admin/sign-in.tsx";
+  // Synthetic operator-workspaces route that no shipped module claims or excludes; every real
   // in-scope route is claimed or excluded once its surface goals land, so an unclaimed
   // fixture cannot be a tracked file.
-  const unclaimedRoute = "bounded-contexts/public-presence/routes/marketplace/synthetic-unclaimed-fixture.tsx";
+  const unclaimedRoute = "bounded-contexts/auth/routes/access-admin/synthetic-unclaimed-fixture.tsx";
   it("validates all five shipped modules and defaults moderator authentication by role", () => {
     expect(() => validateBrowserUsabilityGoalModules(modules())).not.toThrow();
     expect(browserUsabilityGoal("condition-policy").startSignedIn).toBe(false);
@@ -328,7 +332,7 @@ describe("surface contracts and coverage", () => {
     [
       "Route maps to unknown check",
       (m) => {
-        m[0].goals[0].routes["bounded-contexts/public-presence/routes/marketplace/help.tsx"] = "extra";
+        scoped(m).goals[0].routes[claimedRoute] = "extra";
       },
     ],
     [
@@ -366,25 +370,19 @@ describe("surface contracts and coverage", () => {
     [
       "Invalid exclusion reason",
       (m) => {
-        m[0].excludedRoutes = [
-          { path: "bounded-contexts/public-presence/routes/marketplace/home.tsx", reason: "not-needed" },
-        ];
+        scoped(m).excludedRoutes = [{ path: unclaimedRoute, reason: "not-needed" }];
       },
     ],
     [
       "Invalid exclusion reason",
       (m) => {
-        m[0].excludedRoutes = [
-          { path: "bounded-contexts/public-presence/routes/marketplace/home.tsx", reason: "fixture-gap: " },
-        ];
+        scoped(m).excludedRoutes = [{ path: unclaimedRoute, reason: "fixture-gap: " }];
       },
     ],
     [
       "Route both claimed and excluded",
       (m) => {
-        m[0].excludedRoutes = [
-          { path: "bounded-contexts/public-presence/routes/marketplace/help.tsx", reason: "layout-only" },
-        ];
+        scoped(m).excludedRoutes = [{ path: claimedRoute, reason: "layout-only" }];
       },
     ],
   ])("rejects %s with a named message (%#)", (message, mutate) => {
@@ -396,7 +394,7 @@ describe("surface contracts and coverage", () => {
     "accepts exclusion reason %s",
     (reason) => {
       const candidate = modules();
-      candidate[0].excludedRoutes = [{ path: unclaimedRoute, reason }];
+      scoped(candidate).excludedRoutes = [{ path: unclaimedRoute, reason }];
       expect(() => validateBrowserUsabilityGoalModules(candidate)).not.toThrow();
     },
   );
@@ -410,7 +408,7 @@ describe("surface contracts and coverage", () => {
   it("reports unscoped and doubly scoped route fixtures and ignores tests and non-routes", () => {
     const candidate = modules();
     const route = unclaimedRoute;
-    candidate[1].routeScope.push(candidate[0].routeScope[0]);
+    candidate[1].routeScope.push(scoped(candidate).routeScope[0]);
     const result = auditBrowserUsabilityRoutes(
       [
         route,
@@ -421,15 +419,19 @@ describe("surface contracts and coverage", () => {
       candidate,
     ).coverage;
     expect(result.unscoped).toEqual(["bounded-contexts/unknown/routes/page.tsx"]);
-    expect(result.invalid).toEqual([{ path: route, reason: "multiple scopes", surfaces: ["guest", "buyer"] }]);
-    expect(result.surfaces.guest.unclaimed).toContain(route);
+    expect(result.invalid).toEqual([
+      { path: route, reason: "multiple scopes", surfaces: ["buyer", "operator-workspaces"] },
+    ]);
+    expect(result.surfaces["operator-workspaces"].unclaimed).toContain(route);
   });
   it("counts claimed and excluded routes once per surface", () => {
     const candidate = modules();
-    const claimed = "bounded-contexts/public-presence/routes/marketplace/help.tsx";
+    const claimed = claimedRoute;
     const excluded = unclaimedRoute;
-    candidate[0].excludedRoutes.push({ path: excluded, reason: "layout-only" });
-    expect(auditBrowserUsabilityRoutes([claimed, excluded], candidate).coverage.surfaces.guest).toEqual({
+    scoped(candidate).excludedRoutes.push({ path: excluded, reason: "layout-only" });
+    expect(
+      auditBrowserUsabilityRoutes([claimed, excluded], candidate).coverage.surfaces["operator-workspaces"],
+    ).toEqual({
       inScope: 2,
       claimed: 1,
       excluded: 1,
@@ -437,19 +439,20 @@ describe("surface contracts and coverage", () => {
     });
   });
   it("partitions representative route fixtures across the surfaces that still have route modules", () => {
-    // The Corten marketplace serves the buyer and seller surfaces, so they have no React route modules to scope.
+    // The Corten marketplace and public apps serve the guest, buyer and seller surfaces, so they have no React
+    // route modules to scope.
     expect(browserUsabilityGoalModules.filter((s) => !s.routeScope.length).map((s) => s.id)).toEqual([
+      "guest",
       "buyer",
       "seller",
     ]);
     const result = auditBrowserUsabilityRoutes([
-      "bounded-contexts/public-presence/routes/marketplace/home.tsx",
       "bounded-contexts/catalog/routes/scopes.tsx",
       "deployables/admin-web/app/routes/layout.tsx",
     ]).coverage;
     expect(result.unscoped).toEqual([]);
     expect(result.invalid).toEqual([]);
-    expect(Object.values(result.surfaces).map((surface) => surface.inScope)).toEqual([1, 0, 0, 1, 1]);
+    expect(Object.values(result.surfaces).map((surface) => surface.inScope)).toEqual([0, 0, 0, 1, 1]);
   });
   it("supports advisory surface filtering without gating production coverage", () => {
     const result = main(["audit"]).coverage;
@@ -655,9 +658,11 @@ describe("moderator findings", () => {
     expect(main(["compare", "--candidate", run.directory]).status).toBe("insufficient-baseline");
   });
   const route = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
+  // A real route module that belongs to the operator workspaces surface, not the buyer surface under judgment.
+  const claimedOperatorRoute = "bounded-contexts/auth/routes/access-admin/sign-in.tsx";
   it.each([
     ["unknown route", { route: "bounded-contexts/fulfillment/routes/marketplace/nonexistent.tsx" }],
-    ["wrong surface", { route: "bounded-contexts/public-presence/routes/marketplace/help.tsx" }],
+    ["wrong surface", { route: claimedOperatorRoute }],
     ["missing step", { step: undefined }],
     ["invalid step", { step: 1 }],
     ["missing evidence", { evidence: undefined }],
@@ -682,10 +687,11 @@ describe("read-only sweep summaries", () => {
     return root;
   }
   const audit = (root, extra = {}) => auditProbeSweep({ root, surfaceId: "buyer", ...extra });
-  // Route coverage needs a surface that still has route modules; the guest help pages are claimed by condition-policy.
-  const guestAudit = (root, extra = {}) => auditProbeSweep({ root, surfaceId: "guest", ...extra });
-  const guestGoal = "condition-policy";
-  const helpRoute = (name) => `bounded-contexts/public-presence/routes/marketplace/${name}.tsx`;
+  // Route coverage needs a surface that still has route modules; the Corten apps serve the buyer, seller and guest
+  // pages, so these use the operator session pages operator-session-review claims and the sign-in page beside them.
+  const routeAudit = (root, extra = {}) => auditProbeSweep({ root, surfaceId: "operator-workspaces", ...extra });
+  const routeGoal = "operator-session-review";
+  const accessRoute = (name) => `bounded-contexts/auth/routes/access-admin/${name}.tsx`;
   it.each(["finished", "timed-out"])("summarizes a clean or %s terminal attempt", (status) => {
     const root = sweep();
     const f = sweepRun(root, "attempt", { status });
@@ -798,37 +804,37 @@ describe("read-only sweep summaries", () => {
   });
   it("does not exercise a blocked navigation target; a reached broken page is exercised", () => {
     const root = sweep();
-    const target = helpRoute("help");
-    const f = sweepRun(root, "blocked", { goalId: guestGoal });
+    const target = accessRoute("sessions");
+    const f = sweepRun(root, "blocked", { goalId: routeGoal });
     judge(f, { findings: [finding()] }, "blocked");
-    const before = guestAudit(root);
+    const before = routeAudit(root);
     expect(before.coverage.exercised).not.toContain(target);
     expect(before.coverage.unexercised).toContainEqual({
-      key: `guest/unexercised/${target}`,
+      key: `operator-workspaces/unexercised/${target}`,
       route: target,
-      goalId: guestGoal,
+      goalId: routeGoal,
       status: "blocked",
     });
-    const broken = sweepRun(root, "broken", { goalId: guestGoal, preparedAt: "2026-10-03T15:00:00Z" });
+    const broken = sweepRun(root, "broken", { goalId: routeGoal, preparedAt: "2026-10-03T15:00:00Z" });
     const receipt = judge(broken, { reachedRoutes: [{ route: target, step: 0, evidence: "proof.txt" }] }, "incorrect");
     expect(receipt.reachedRoutes[0].evidence.sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(guestAudit(root).coverage.exercised).toContain(target);
+    expect(routeAudit(root).coverage.exercised).toContain(target);
   });
   it("uses only selected reachedRoutes, gives exclusions precedence, and partitions the route universe", () => {
     const root = sweep();
-    const surface = browserUsabilityGoalModules.find((s) => s.id === "guest");
-    const excluded = helpRoute("help-category");
-    const reached = helpRoute("help");
-    const old = helpRoute("help-article");
-    judge(sweepRun(root, "older", { goalId: guestGoal }), {
+    const surface = browserUsabilityGoalModules.find((s) => s.id === "operator-workspaces");
+    const excluded = accessRoute("sign-in");
+    const reached = accessRoute("sessions");
+    const old = accessRoute("sessions-detail");
+    judge(sweepRun(root, "older", { goalId: routeGoal }), {
       reachedRoutes: [{ route: old, step: 0, evidence: "proof.txt" }],
     });
-    judge(sweepRun(root, "selected", { goalId: guestGoal, preparedAt: "2026-10-03T15:00:00Z" }), {
+    judge(sweepRun(root, "selected", { goalId: routeGoal, preparedAt: "2026-10-03T15:00:00Z" }), {
       reachedRoutes: [excluded, reached].map((route) => ({ route, step: 0, evidence: "proof.txt" })),
     });
     surface.excludedRoutes.push({ path: excluded, reason: "provider-step-only" });
     try {
-      const coverage = guestAudit(root, { files: [excluded, reached, old] }).coverage;
+      const coverage = routeAudit(root, { files: [excluded, reached, old] }).coverage;
       expect(coverage.exercised).toEqual([reached]);
       expect(coverage.unexercised.map((entry) => entry.route)).toEqual([old]);
       expect(coverage.excluded).toEqual([{ path: excluded, reason: "provider-step-only" }]);
@@ -845,10 +851,10 @@ describe("read-only sweep summaries", () => {
   });
   it.each([false, true])("scopes exclusions to the audited route universe (empty: %s)", (empty) => {
     const root = sweep();
-    const surface = browserUsabilityGoalModules.find((s) => s.id === "guest");
-    const excluded = helpRoute("help-category");
-    const outside = helpRoute("help");
-    const unexercised = helpRoute("help-article");
+    const surface = browserUsabilityGoalModules.find((s) => s.id === "operator-workspaces");
+    const excluded = accessRoute("sign-in");
+    const outside = accessRoute("sessions");
+    const unexercised = accessRoute("sessions-detail");
     const files = empty ? [] : [excluded, unexercised];
     const exclusions = [
       { path: excluded, reason: "provider-step-only" },
@@ -856,8 +862,8 @@ describe("read-only sweep summaries", () => {
     ];
     surface.excludedRoutes.push(...exclusions);
     try {
-      expect(guestAudit(root).coverage.excluded).toEqual(surface.excludedRoutes);
-      const coverage = guestAudit(root, { files }).coverage;
+      expect(routeAudit(root).coverage.excluded).toEqual(surface.excludedRoutes);
+      const coverage = routeAudit(root, { files }).coverage;
       expect(coverage.exercised).toEqual([]);
       expect(coverage.unexercised.map((entry) => entry.route)).toEqual(empty ? [] : [unexercised]);
       expect(coverage.excluded).toEqual(empty ? [] : [exclusions[0]]);

@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { englishTranslations } from "@chase-sets/localization/locales/en";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as article from "../../../../routes/developers/article";
-import * as llms from "../../../../routes/developers/llms";
-import * as manifest from "../../../../routes/developers/manifest";
-import * as portal from "../../../../routes/developers/portal";
+import * as article from "./article";
+import * as llms from "./llms";
+import * as manifest from "./manifest";
+import * as portal from "./portal";
 import {
   buildDeveloperLlmsTxt,
   buildDeveloperManifest,

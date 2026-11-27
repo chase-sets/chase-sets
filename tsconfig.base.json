@@ -984,9 +984,6 @@
       "@chase-sets/pricing/integration/link-intents": [
         "./bounded-contexts/pricing/support/runtime-support/link-intents.ts"
       ],
-      "@chase-sets/pricing/routes/*": [
-        "./bounded-contexts/pricing/routes/*.tsx"
-      ],
       "@chase-sets/pricing/server": [
         "./bounded-contexts/pricing/server.ts"
       ],

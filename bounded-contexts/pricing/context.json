@@ -156,7 +156,7 @@
     "pricing-health"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./test-support", "./integration/link-intents"],
+  "publicExports": [".", "./context", "./server", "./test-support", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/channels",
     "@chase-sets/commercial-terms",
@@ -915,7 +915,6 @@
         {
           "routeId": "market-price-history",
           "routePath": "market/:slug",
-          "fileExport": "./routes/marketplace/market-price-history",
           "routeType": "route",
           "sourceContext": "pricing"
         }

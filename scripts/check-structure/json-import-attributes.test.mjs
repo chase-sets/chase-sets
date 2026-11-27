@@ -646,10 +646,12 @@ describe("real repository execution membership", () => {
       expect(result.inventory.parserVersion).toBe("6.0.3");
       // marketplace-web's deletion removed 34 declarations, all in deleted route
       // and test files (30 vite-excluded, 4 vitest-excluded); none were added.
-      expect(result.inventory.declarations).toHaveLength(103);
+      // public-web's deletion removed the three vite-excluded manifest imports
+      // in its context registry.
+      expect(result.inventory.declarations).toHaveLength(100);
       expect(result.inventory.partition).toEqual({
         "node-enforced": 58,
-        "vite-excluded": 21,
+        "vite-excluded": 18,
         "vitest-excluded": 24,
         "manifest-only": 0,
         indeterminate: 0,
@@ -698,7 +700,7 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "44aca81126afdab901bde3dcc449b788601afb75bba08c8c568007b4f99457e6",
+        "0f99b587f7ada821d1c16f0a93a43d08c8709afd79eb04718d8c1862e26e482f",
       );
       expect(
         normalized.find(
@@ -772,11 +774,6 @@ describe("real repository execution membership", () => {
           disposition: "node-enforced",
         },
       ]);
-      expect(
-        result.inventory.declarations.find(
-          (entry) => entry.relativeFile === "deployables/public-web/app/context-registry.ts",
-        ),
-      ).toMatchObject({ disposition: "vite-excluded" });
       expect(
         result.inventory.declarations.find(
           (entry) => entry.relativeFile === "deployables/admin-web/app/context-registry.ts",

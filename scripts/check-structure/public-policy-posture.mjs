@@ -2,10 +2,9 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 
-const productionSurfaceRoots = [
-  "bounded-contexts/public-presence/features/policies/ui",
-  "bounded-contexts/public-presence/routes/marketplace",
-];
+// The policy pages' route modules live under the feature's ui/routes; the Corten
+// public app serves them, and the old marketplace route tree is gone.
+const productionSurfaceRoots = ["bounded-contexts/public-presence/features/policies/ui"];
 
 const canonicalFunctionNames = new Set([
   "resolvePolicyArtifactPublicationPosture",

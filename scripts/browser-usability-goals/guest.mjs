@@ -1,11 +1,6 @@
 export default {
   id: "guest",
-  routeScope: [
-    "^bounded-contexts/public-presence/routes/(marketplace|developers)/",
-    "^bounded-contexts/commercial-terms/routes/public/",
-    "^bounded-contexts/pricing/routes/marketplace/market-price-history\\.tsx$",
-    "^deployables/public-web/app/routes/",
-  ],
+  routeScope: [],
   goals: [
     {
       id: "condition-policy",
@@ -23,10 +18,7 @@ export default {
         "return-shipping":
           "Compare return shipping responsibility against the authoritative policy, not just the participant's first page.",
       },
-      routes: {
-        "bounded-contexts/public-presence/routes/marketplace/help.tsx": "report-location",
-        "bounded-contexts/public-presence/routes/marketplace/help-article.tsx": "deadline",
-      },
+      routes: {},
       paths: ["bounded-contexts/public-presence/", "bounded-contexts/settlement/"],
       selectOnSharedChange: true,
     },
@@ -46,10 +38,7 @@ export default {
         "signup-restored":
           "Confirm the synthetic signup is withdrawn or the isolated sandbox is reset before the next run so the address can be reused.",
       },
-      routes: {
-        "bounded-contexts/public-presence/routes/marketplace/home.tsx": "seller-cost",
-        "bounded-contexts/public-presence/routes/marketplace/welcome.tsx": "early-access-confirmation",
-      },
+      routes: {},
       paths: ["bounded-contexts/public-presence/features/waitlist/"],
       permits: "You may request early access once, using only the email address in your task context.",
     },
@@ -69,11 +58,7 @@ export default {
         "seller-answers":
           "Compare the reported payout timing and shipping obligations against the published Getting paid and Shipping requirements help articles, not the participant's first page.",
       },
-      routes: {
-        "bounded-contexts/public-presence/routes/marketplace/help.tsx": "help-home",
-        "bounded-contexts/public-presence/routes/marketplace/help-category.tsx": "selling-category",
-        "bounded-contexts/public-presence/routes/marketplace/help-article.tsx": "seller-answers",
-      },
+      routes: {},
       paths: ["bounded-contexts/public-presence/features/help/"],
     },
     {
@@ -93,12 +78,7 @@ export default {
           "Compare the reported status against the payments terms policy artifact's publication state, not the participant's paraphrase.",
         "authenticity-scope": "Compare the reported coverage against the authenticity service terms artifact text.",
       },
-      routes: {
-        "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx": "sale-fee",
-        "bounded-contexts/public-presence/routes/marketplace/seller-agreement.tsx": "seller-agreement-status",
-        "bounded-contexts/public-presence/routes/marketplace/payments-terms.tsx": "payments-terms-status",
-        "bounded-contexts/public-presence/routes/marketplace/authenticity-terms.tsx": "authenticity-scope",
-      },
+      routes: {},
       paths: ["bounded-contexts/public-presence/features/policies/", "bounded-contexts/commercial-terms/"],
     },
     {
@@ -116,11 +96,7 @@ export default {
         "privacy-data":
           "Compare the reported data categories against the privacy policy artifact text, not the participant's paraphrase.",
       },
-      routes: {
-        "bounded-contexts/public-presence/routes/marketplace/terms.tsx": "terms-agent-allowance",
-        "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx": "agent-rules",
-        "bounded-contexts/public-presence/routes/marketplace/privacy.tsx": "privacy-data",
-      },
+      routes: {},
       paths: ["bounded-contexts/public-presence/features/policies/"],
     },
     {
@@ -137,10 +113,7 @@ export default {
         "tcgplayer-comparison":
           "Recompute the kept amounts from the fee schedule the comparison page loads and the dated TCGplayer figures it cites; compare the participant's ranking of the two competitors.",
       },
-      routes: {
-        "bounded-contexts/public-presence/routes/marketplace/compare-ebay.tsx": "ebay-comparison",
-        "bounded-contexts/public-presence/routes/marketplace/compare-tcgplayer.tsx": "tcgplayer-comparison",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/public-presence/features/waitlist/ui/compare-page",
         "bounded-contexts/commercial-terms/",
@@ -161,15 +134,8 @@ export default {
           "Compare the reported facts against the published creator and press fact sheet, including its live fee values.",
         "contact-address": "Compare the reported address against the contact page content.",
       },
-      routes: {
-        "bounded-contexts/public-presence/routes/marketplace/founders.tsx": "founders-offer",
-        "bounded-contexts/public-presence/routes/marketplace/press.tsx": "press-facts",
-        "bounded-contexts/public-presence/routes/marketplace/contact.tsx": "contact-address",
-      },
-      paths: [
-        "bounded-contexts/public-presence/routes/marketplace/",
-        "bounded-contexts/public-presence/features/policies/",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/public-presence/features/policies/"],
     },
     {
       id: "item-market-history",
@@ -236,9 +202,7 @@ export default {
         "market-stats":
           "Compare every reported figure against the pricing public market page read model for the seeded Charizard; an unavailable figure reported as unavailable is correct.",
       },
-      routes: {
-        "bounded-contexts/pricing/routes/marketplace/market-price-history.tsx": "market-stats",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/pricing/features/public-market-pages/",
         "bounded-contexts/pricing/features/market-rollups/",
@@ -296,30 +260,5 @@ export default {
       permits: "You may sign out of the synthetic account you start in.",
     },
   ],
-  excludedRoutes: [
-    { path: "bounded-contexts/public-presence/routes/marketplace/faq.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/public-presence/routes/marketplace/order-protection.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/public-presence/routes/marketplace/refunds-and-returns.tsx", reason: "redirect-only" },
-    {
-      path: "bounded-contexts/public-presence/routes/developers/portal.tsx",
-      reason:
-        "fixture-gap: CHASE_SETS_M86_DEVELOPER_PORTAL_READY is unset in the bootstrap sandbox, so the route returns 404",
-    },
-    {
-      path: "bounded-contexts/public-presence/routes/developers/article.tsx",
-      reason:
-        "fixture-gap: CHASE_SETS_M86_DEVELOPER_PORTAL_READY is unset in the bootstrap sandbox, so the route returns 404",
-    },
-    {
-      path: "bounded-contexts/public-presence/routes/developers/llms.tsx",
-      reason:
-        "fixture-gap: CHASE_SETS_M86_DEVELOPER_PORTAL_READY is unset in the bootstrap sandbox, so the route returns 404",
-    },
-    {
-      path: "bounded-contexts/public-presence/routes/developers/manifest.tsx",
-      reason:
-        "fixture-gap: CHASE_SETS_M86_DEVELOPER_PORTAL_READY is unset in the bootstrap sandbox, so the route returns 404",
-    },
-    { path: "deployables/public-web/app/routes/not-found.tsx", reason: "error-page" },
-  ],
+  excludedRoutes: [],
 };

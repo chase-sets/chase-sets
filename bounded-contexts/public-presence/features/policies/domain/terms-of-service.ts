@@ -636,7 +636,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "State the contracting entity, governing law, forum, and mailing notice address per the ratified contracting decision and the legal-notice email per Todd's recorded selection.",
         decisionRefs: [5677, 5679, 8668, 10299],
         productTruthRefs: [
-          "bounded-contexts/public-presence/routes/marketplace/home.tsx:198-200",
+          "deployables/corten-pilot/public/src/home.rs:825",
           "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
           "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
         ],

@@ -48,11 +48,9 @@ export const adminWebSections = new Set(["access", "catalog", "commerce", "growt
 
 // The deployable composition roots that wire context-contributed routes.
 // Kept here (not derived from context.json) because these are fixed
-// per-deployable entry points, not context-owned data.
-export const iaRouteConfigFiles = [
-  { deployable: "admin-web", relativeFile: "deployables/admin-web/app/routes.ts" },
-  { deployable: "public-web", relativeFile: "deployables/public-web/app/routes.ts" },
-];
+// per-deployable entry points, not context-owned data. The Corten apps serve
+// the marketplace and public hosts, so admin-web is the only React root left.
+export const iaRouteConfigFiles = [{ deployable: "admin-web", relativeFile: "deployables/admin-web/app/routes.ts" }];
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
