@@ -4760,7 +4760,8 @@ async fn an_option_is_a_link_that_chooses_it_and_any_takes_it_away() {
 async fn a_dimension_with_many_options_is_a_get_form_that_keeps_the_others() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/items/charizard?market=sell&dimension.dim_form=chc_graded", None)).await;
-    let form = html.split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
+    let form =
+        main_content_of(&html).split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
     assert!(form.contains(r#"method="get""#), "{form}");
     assert!(form.contains(r#"action="/items/charizard""#), "{form}");
     assert!(form.contains(r#"autocomplete="off" data-keep-place"#), "{form}");
@@ -7200,7 +7201,8 @@ async fn the_search_terms_and_the_item_address_read_back_through_the_router_as_t
     let href = crate::app::url::Item { slug: "charizard", state, after: Default::default() }.href();
     assert_eq!(href, "/items/charizard?market=sell&dimension.dim_form=chc_graded");
     let (_, _, html) = pilot.send(get(&href, None)).await;
-    let form = html.split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
+    let form =
+        main_content_of(&html).split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
     assert!(form.contains(r#"<input type="hidden" name="market" value="sell">"#), "{form}");
     assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
     // The same listing twice is one the address chose; two different ones are none, so the page

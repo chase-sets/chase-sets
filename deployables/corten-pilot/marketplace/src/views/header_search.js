@@ -350,9 +350,11 @@ export function combobox(form, signal, source, searchFor, recentLabel, clearLabe
         active = active < 0 ? (step > 0 ? 0 : choices.length - 1) : (active + step + choices.length) % choices.length;
         draw();
         list.querySelector(`#${CSS.escape(optionId(active))}`)?.scrollIntoView({ block: "nearest" });
-      } else if (event.key === "Enter" && isOpen() && active >= 0 && choices[active]) {
+      } else if (event.key === "Enter" && isOpen()) {
+        const choice = choices[active];
+        if (!choice) return;
         event.preventDefault();
-        take(choices[active]);
+        take(choice);
       } else if (event.key === "Escape" && isOpen()) {
         event.preventDefault();
         close();
