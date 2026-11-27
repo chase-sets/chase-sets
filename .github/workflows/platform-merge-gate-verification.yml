@@ -615,8 +615,9 @@ jobs:
             --url "https://${GATE_SLUG}-admin.preview.chasesets.com/health/ready" \
             --url "https://${GATE_SLUG}-marketplace.preview.chasesets.com/api/health" \
             --attempts 24 --delay-ms 5000
+          # No public web app runs in a preview either: its landing host is API-only, routed wholly to platform-api.
           node ./scripts/platform-ingress-wait.mjs \
-            --url "https://${GATE_SLUG}.preview.chasesets.com/" \
+            --url "https://${GATE_SLUG}.preview.chasesets.com/api/health" \
             --attempts 6 --delay-ms 5000
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase ingress-ready
 
@@ -644,6 +645,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: "true"
+          SMOKE_LANDING_WEB: absent
           SMOKE_WAITLIST_EMAIL: ops+gate-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.com
           SMOKE_SOURCE: merge-gate-verification
           SMOKE_UTM_CAMPAIGN: gate-${{ steps.candidate.outputs.candidate_sha }}

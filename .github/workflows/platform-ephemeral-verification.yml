@@ -442,8 +442,9 @@ jobs:
             --url "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com/health/ready" \
             --url "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com/api/health" \
             --attempts 24 --delay-ms 5000
+          # No public web app runs in a preview either: its landing host is API-only, routed wholly to platform-api.
           node ./scripts/platform-ingress-wait.mjs \
-            --url "https://${VERIFICATION_SLUG}.preview.chasesets.com/" \
+            --url "https://${VERIFICATION_SLUG}.preview.chasesets.com/api/health" \
             --attempts 6 --delay-ms 5000
 
       - name: Run representative commerce state
@@ -469,6 +470,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: "true"
+          SMOKE_LANDING_WEB: absent
           SMOKE_WAITLIST_EMAIL: ops+verification-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.com
           SMOKE_SOURCE: ephemeral-verification
           SMOKE_UTM_CAMPAIGN: release-${{ steps.release.outputs.release_commit }}

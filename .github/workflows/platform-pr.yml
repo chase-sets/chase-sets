@@ -1158,14 +1158,6 @@ jobs:
 
             for _ in $(seq 1 30); do
               if curl --fail --silent --output /dev/null "http://localhost:${host_port}${health_path}"; then
-                if [ "$component" = "public-web" ] && ! pnpm run smoke:public-web-routes -- \
-                  --base-url "http://localhost:${host_port}" \
-                  --mode no-5xx; then
-                  echo "Boot smoke failed for public-web: the derived public route walk was not 5xx-free." >&2
-                  docker logs "$container_id" >&2 || true
-                  docker rm -f "$container_id" >/dev/null || true
-                  return 1
-                fi
                 echo "Boot smoke passed for ${component} (${health_path})."
                 docker rm -f "$container_id" >/dev/null
                 return 0
@@ -1182,7 +1174,10 @@ jobs:
             return 1
           }
 
-          boot_smoke public-web "@chase-sets/app-public-web" / 18081
+          # admin-web is the one web component left in the image (the Corten apps serve the public site and
+          # the marketplace from their own images), so it stands in for "the image starts". It boots without a
+          # database; platform-api's production config refuses to start without one.
+          boot_smoke admin-web "@chase-sets/app-admin-web" /health/live 18081
 
       - name: Push boot-smoked merge-group image
         id: push
@@ -2226,8 +2221,9 @@ jobs:
             --attempts 24 \
             --delay-ms 5000
 
+          # No public web app runs in a preview either: the landing host is API-only, routed wholly to platform-api.
           node ./scripts/platform-ingress-wait.mjs \
-            --url "https://${landing_domain}/" \
+            --url "https://${landing_domain}/api/health" \
             --attempts 6 \
             --delay-ms 5000 && landing_domain_ready=true || landing_domain_ready=false
 
@@ -2244,6 +2240,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready == 'true' && 'true' || 'false' }}
+          SMOKE_LANDING_WEB: absent
           SMOKE_WAITLIST_EMAIL: ops+preview-pr-${{ github.event.pull_request.number }}@chasesets.com
           SMOKE_SOURCE: preview-smoke
           SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
