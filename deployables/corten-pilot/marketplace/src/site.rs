@@ -329,9 +329,8 @@ mod tests {
 
     #[test]
     fn a_rail_event_is_counted_with_marketplace_web_s_labels() {
-        let event =
-            rail_event(br#"{"event":"workflow_selected","workflow":"sell","viewer":"guest","unrelated":"ignored"}"#)
-                .expect("taken");
+        let body = br#"{"event":"workflow_selected","workflow":"sell","viewer":"guest","unrelated":"ignored"}"#;
+        let event = rail_event(body).expect("taken");
         let labels: Vec<(String, String)> =
             rail_labels(&event).iter().map(|kv| (kv.key.to_string(), kv.value.to_string())).collect();
         let expected = [
@@ -353,13 +352,11 @@ mod tests {
     async fn a_rail_event_logs_only_the_existing_bounded_fields() {
         use std::collections::BTreeMap;
         use std::sync::{Arc, Mutex};
-        use tracing::{
-            field::{Field, Visit},
-            subscriber::NoSubscriber,
-            Event, Subscriber,
-        };
-        use tracing_subscriber::layer::{Context, SubscriberExt};
+        use tracing::field::{Field, Visit};
+        use tracing::subscriber::NoSubscriber;
+        use tracing::{Event, Subscriber};
         use tracing_subscriber::Layer;
+        use tracing_subscriber::layer::{Context, SubscriberExt};
 
         #[derive(Default)]
         struct Fields(BTreeMap<String, String>);
@@ -407,6 +404,7 @@ mod tests {
             ("viewer", "guest"),
             ("surface", "search_results"),
         ];
-        assert_eq!(fields, expected.into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())).collect::<BTreeMap<_, _>>());
+        let expected: BTreeMap<_, _> = expected.into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())).collect();
+        assert_eq!(fields, expected);
     }
 }
