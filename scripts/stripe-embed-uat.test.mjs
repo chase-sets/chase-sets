@@ -106,7 +106,7 @@ describe("manual Stripe embed UAT global setup", () => {
 describe("manual Stripe embed UAT selection", () => {
   it("does not select a browser, Catalog synthetic, or Corten check gate for a UAT-only change", () => {
     expect(e2eNoSuiteExclusionForChangedFile(spec)?.reason).toContain("Manual staging Stripe test-mode UAT");
-    for (const path of [spec, gates, manualConfig]) {
+    for (const path of [spec, gates, manualConfig, "scripts/stripe-embed-uat.test.mjs"]) {
       expect(classifyChanges({ changedFiles: [path], workspaces: [] }), path).toMatchObject({
         e2eSuiteIds: [],
         e2eTestsRequired: false,

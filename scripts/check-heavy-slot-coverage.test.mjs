@@ -518,6 +518,7 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
   "scripts/run-e2e-suite.test.mjs": "suite test does not spawn a guarded child",
   "scripts/run-workspaces.test.mjs": "workspace test owns its child admission",
+  "scripts/stripe-embed-uat.test.mjs": "global setup tests only exercise disabled or refused UAT before admission",
   "scripts/check-heavy-slot-coverage.test.mjs": "inventory owner; inert fixture controllers only",
 });
 
@@ -568,7 +569,8 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 31);
+  // stripe-embed-uat-gates.mjs adds its importing unit test to the census.
+  assert.equal(candidates.length, 32);
   assert.equal(inheritedOwnerScriptTests.length, 6);
   assert.deepEqual(classification, {
     unclassified: [],
