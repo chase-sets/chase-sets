@@ -4,7 +4,7 @@ The ordinary lane pre-push set is changed-file Prettier, `pnpm run format:check 
 
 ## Corten pilot
 
-`deployables/corten-pilot/` is owned by Todd and worked in its own Codex task, not by the delivery loop. Lanes do not take work there. Its CI check (`corten-pilot.yml`) is advisory: if a change elsewhere makes it fail, say so on the PR and leave the fix to the pilot task. See `deployables/corten-pilot/AGENTS.md`.
+`deployables/corten-pilot/` is owned by Todd and worked in its own Codex task, not by the delivery loop. Lanes do not take work there. Platform PR's Corten Pilot Check is required when selected; the separate `corten-pilot.yml` workflow is advisory. If a change elsewhere makes either check fail, say so on the PR and coordinate the fix with the pilot task. See `deployables/corten-pilot/AGENTS.md`.
 
 ## Secrets for agents
 
