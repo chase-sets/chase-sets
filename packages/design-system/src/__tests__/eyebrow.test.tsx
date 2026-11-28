@@ -112,7 +112,7 @@ describe("residual inline eyebrow inventory", () => {
     return sources;
   }
 
-  it("keeps exactly the eight enumerated survivors and no inline treatment at either adoption site", () => {
+  it("keeps exactly the six enumerated survivors and no inline treatment at either adoption site", () => {
     const sources = collectPatternFiles(patternsRoot);
     const counts = new Map<string, number>();
     for (const [relativePath, content] of sources) {
@@ -126,7 +126,7 @@ describe("residual inline eyebrow inventory", () => {
       "app-shells/marketing.tsx": 3,
       "dense-admin-workbench.tsx": 3,
     });
-    expect([...counts.values()].reduce((total, value) => total + value, 0)).toBe(8);
+    expect([...counts.values()].reduce((total, value) => total + value, 0)).toBe(6);
     expect(countOccurrences(sources.get("app-shells/page-layouts.tsx") ?? "", accentClasses)).toBe(0);
     expect(countOccurrences(sources.get("app-shells/marketing.tsx") ?? "", primaryClasses)).toBe(0);
   });
