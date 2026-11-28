@@ -11,6 +11,8 @@ export * from "./features/saved-lists/integrations/inventory-handoff";
 export * from "./features/saved-list-valuation/domain";
 export * from "./features/saved-list-valuation/api";
 export * from "./features/saved-lists/read-model";
+export { createSavedListAnalyticsRecorder } from "./features/saved-lists/api/analytics-telemetry";
+export type { CollectionsHostPorts } from "./support/runtime-support/services";
 export { createCollectionsRequestApiClient } from "./features/saved-lists/api/request-client";
 export {
   CollectionsApiError,

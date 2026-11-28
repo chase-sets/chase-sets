@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createCollectionsServices } from "./services";
 
 describe("Collections runtime-support composition", () => {
+  it("leaves the Saved List analytics recorder absent when the host does not supply one", () => {
+    expect(createCollectionsServices({} as never).savedListAnalyticsRecorder).toBeUndefined();
+  });
+
   it("preserves the Saved List analytics recorder identity", () => {
     const recorder = { record: vi.fn() };
     expect(

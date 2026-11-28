@@ -6,8 +6,6 @@ import {
   MeterProvider,
   PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   catalogControlPlaneEventAttributes,
   catalogIntegrationJobAttributes,
@@ -16,6 +14,7 @@ import {
   checkoutObservabilityEventAttributes,
   createLogger,
   itemDetailRailAnalyticsAttributes,
+  lazyCounter,
   loadObservabilityConfig,
   parseOtlpHeaders,
   postWriteConsistencyEventAttributes,
@@ -25,11 +24,6 @@ import {
   projectionInlineApplyOutcomeMetricRecord,
   projectionWakeIntentEnqueueOutcomeMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
-  recordSavedListAnalytics,
-  savedListAnalyticsAttributes,
-  savedListAnalyticsEvents,
-  savedListAnalyticsKeys,
-  savedListAnalyticsValues,
   recordCheckoutObservabilityEvent,
   recordEventStoreAppendAdvisoryLockHold,
   recordMcpAuditRecord,
@@ -1194,146 +1188,20 @@ describe("item detail rail analytics observability", () => {
   });
 });
 
-describe("Saved List analytics observability", () => {
-  const populated = {
-    list_created: { surface: "search", outcome: "added", coverage_band: "high", estimate_state: "current" },
-    product_added: { surface: "item-detail", outcome: "merged", coverage_band: "partial", estimate_state: "stale" },
-    first_five_lines: { surface: "search", outcome: "added", coverage_band: "full", estimate_state: "incomplete" },
-    valuation_coverage_band: {
-      surface: "item-detail",
-      outcome: "merged",
-      coverage_band: "partial",
-      estimate_state: "stale",
-    },
-  } as const;
-  const expectedAttributes = {
-    list_created: {
-      context: "collections",
-      event: "list_created",
-      surface: "search",
-      outcome: "none",
-      coverage_band: "none",
-      estimate_state: "none",
-    },
-    product_added: {
-      context: "collections",
-      event: "product_added",
-      surface: "item-detail",
-      outcome: "merged",
-      coverage_band: "none",
-      estimate_state: "none",
-    },
-    first_five_lines: {
-      context: "collections",
-      event: "first_five_lines",
-      surface: "search",
-      outcome: "none",
-      coverage_band: "none",
-      estimate_state: "none",
-    },
-    valuation_coverage_band: {
-      context: "collections",
-      event: "valuation_coverage_band",
-      surface: "none",
-      outcome: "none",
-      coverage_band: "partial",
-      estimate_state: "stale",
-    },
-  } as const;
-
-  it.each(savedListAnalyticsEvents)("maps %s through the closed event-specific allowlists", (event) => {
-    const attributes = savedListAnalyticsAttributes({ event, ...populated[event] });
-    expect(Object.keys(attributes).sort()).toEqual(
-      ["context", "event", "surface", "outcome", "coverage_band", "estimate_state"].sort(),
-    );
-    expect(attributes).toEqual(expectedAttributes[event]);
-  });
-
-  it("maps null, empty and unregistered values to bounded fallback tokens", () => {
-    const base = {
-      event: "product_added" as const,
-      surface: null,
-      outcome: "",
-      coverage_band: "synthetic_valid_but_unregistered_value_000001",
-      estimate_state: null,
-    };
-    expect(savedListAnalyticsAttributes(base)).toMatchObject({
-      surface: "invalid",
-      outcome: "invalid",
-      coverage_band: "none",
-      estimate_state: "none",
-    });
-    const unknownToken = savedListAnalyticsAttributes({
-      ...base,
-      event: "valuation_coverage_band",
-      coverage_band: "synthetic_valid_but_unregistered_value_000001",
-    });
-    expect(unknownToken.coverage_band).toBe("invalid");
-    expect(Object.values(unknownToken)).not.toContain("synthetic_valid_but_unregistered_value_000001");
-  });
-
-  it("maps an unknown event name to a fixed fallback without indexing an absent tuple", () => {
-    const attributes = savedListAnalyticsAttributes(
-      JSON.parse(
-        '{"event":"synthetic_unregistered_event","surface":"search","outcome":"added","coverage_band":"high","estimate_state":"current"}',
-      ),
-    );
-    expect(attributes).toEqual({
-      context: "collections",
-      event: "invalid",
-      surface: "none",
-      outcome: "none",
-      coverage_band: "none",
-      estimate_state: "none",
-    });
-  });
-
-  it("matches both event keys and all allowed values in the Collections privacy contract", () => {
-    const contract = readFileSync(
-      resolve(process.cwd(), "../../bounded-contexts/collections/docs/saved-list-analytics.md"),
-      "utf8",
-    );
-    const eventSection = contract.split("## Allowed values")[0] ?? "";
-    const eventRows = [...eventSection.matchAll(/^\| ([a-z_]+) \| ([a-z_, ]+) \|$/gm)];
-    const documentedKeys = Object.fromEntries(eventRows.map(([, event, keys]) => [event, keys.split(", ")]));
-    expect(Object.keys(documentedKeys).sort()).toEqual([...savedListAnalyticsEvents].sort());
-    for (const event of savedListAnalyticsEvents) {
-      expect([...savedListAnalyticsKeys[event]].sort()).toEqual(documentedKeys[event].sort());
-    }
-    const valueSection = contract.split("## Allowed values")[1]?.split("## Forbidden keys")[0] ?? "";
-    const valueRows = [
-      ...valueSection.matchAll(/^\| (surface|outcome|coverage_band|estimate_state) \| ([a-z_, -]+) \|$/gm),
-    ];
-    const documentedValues = Object.fromEntries(valueRows.map(([, key, values]) => [key, values.split(", ")]));
-    expect(Object.keys(documentedValues).sort()).toEqual(Object.keys(savedListAnalyticsValues).sort());
-    for (const key of Object.keys(savedListAnalyticsValues) as (keyof typeof savedListAnalyticsValues)[]) {
-      expect([...savedListAnalyticsValues[key]].sort()).toEqual(documentedValues[key].sort());
-    }
-    const forbiddenSection = contract.split("## Forbidden keys")[1]?.split("## Derivation")[0] ?? "";
-    const forbiddenKeys = [...forbiddenSection.matchAll(/`([A-Za-z][A-Za-z0-9]*)`/g)].map(([, key]) => key);
-    const emittedLabelKeys = ["event", ...Object.keys(savedListAnalyticsValues)];
-    expect(emittedLabelKeys.filter((key) => forbiddenKeys.includes(key))).toEqual([]);
-  });
-
-  it("lazily creates the exact counter with the stable six-label shape", () => {
-    const createCounter = vi.fn(() => ({ add: vi.fn() }));
+describe("lazy counter", () => {
+  it("acquires the meter on add and forwards the counter name, options and attributes", () => {
+    const add = vi.fn();
+    const createCounter = vi.fn(() => ({ add }));
     const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({ createCounter } as never);
     try {
+      const options = { description: "Synthetic counter" };
+      const counter = lazyCounter("synthetic_events_total", options);
+      expect(getMeter).not.toHaveBeenCalled();
       expect(createCounter).not.toHaveBeenCalled();
-      recordSavedListAnalytics({ event: "list_created", ...populated.list_created });
-      expect(createCounter).toHaveBeenCalledWith("chase_sets_collections_saved_list_events_total", undefined);
-      expect(createCounter.mock.results[0]?.value.add).toHaveBeenCalledWith(
-        1,
-        {
-          context: "collections",
-          event: "list_created",
-          surface: "search",
-          outcome: "none",
-          coverage_band: "none",
-          estimate_state: "none",
-        },
-        undefined,
-      );
+      counter.add(2, { kind: "synthetic" });
+      expect(getMeter).toHaveBeenCalledOnce();
+      expect(createCounter).toHaveBeenCalledExactlyOnceWith("synthetic_events_total", options);
+      expect(add).toHaveBeenCalledExactlyOnceWith(2, { kind: "synthetic" }, undefined);
     } finally {
       getMeter.mockRestore();
     }

@@ -9,6 +9,8 @@ import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { contextManifest as catalogContextManifest, module as catalogContextModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
+import type { module as collectionsModule } from "@chase-sets/collections";
+import type { SavedListId } from "@chase-sets/collections/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import {
@@ -39,7 +41,7 @@ import {
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
   UCP_VERSION,
 } from "@chase-sets/platform-runtime/ucp";
-import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
+import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/context-registry";
 
@@ -189,10 +191,13 @@ function createEmptyRuntime(
 
 async function withUninstrumentedPlatformApiRuntime(
   action: (runtime: ReturnType<typeof createPlatformApiHost>) => void | Promise<void>,
-  hostOptions: Pick<Parameters<typeof createPlatformApiHost>[0], "controlPlane" | "workSignalStore"> = {},
+  {
+    runtimeProfile = "public",
+    ...hostOptions
+  }: Pick<Parameters<typeof createPlatformApiHost>[0], "controlPlane" | "runtimeProfile" | "workSignalStore"> = {},
 ) {
   const pools = createPlatformApiPools({
-    runtimeProfile: "public",
+    runtimeProfile,
     sharedDatabaseUrl: "postgresql://localhost/shared",
     contextDatabaseUrls: {},
     port: 6182,
@@ -200,7 +205,7 @@ async function withUninstrumentedPlatformApiRuntime(
   try {
     await action(
       createPlatformApiHost({
-        runtimeProfile: "public",
+        runtimeProfile,
         pools,
         ...hostOptions,
         hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
@@ -385,15 +390,42 @@ function createIdentityRuntime(services: Record<string, unknown>) {
 }
 
 describe("platform api app wiring", () => {
-  it("supplies the real recorder to the built Collections host ports", async () => {
-    await withUninstrumentedPlatformApiRuntime((runtime) => {
-      expect(
-        (runtime.services.collections as { savedListAnalyticsRecorder?: unknown }).savedListAnalyticsRecorder,
-      ).toEqual(expect.objectContaining({ record: expect.any(Function) }));
+  it("passes the real Collections recorder through to mounted valuation without changing the response", async () => {
+    await withUninstrumentedPlatformApiRuntime(async (runtime) => {
+      const collections = runtime.services.collections as ReturnType<typeof collectionsModule.createServices>;
+      const recorder = collections.savedListAnalyticsRecorder;
+      if (!recorder) throw new Error("Expected a mounted Saved List analytics recorder.");
+      const record = vi.spyOn(recorder, "record").mockImplementationOnce(() => {
+        throw new Error("Synthetic Saved List recorder failure.");
+      });
+      const listId = "svl_one" as SavedListId;
+      const zero = { lines: 0, units: 0 };
+      const valuation = {
+        contractVersion: 1,
+        listId,
+        visibility: "private",
+        summary: {
+          estimatedTotalAmount: null,
+          estimatedTotalBand: null,
+          currencyCode: "usd",
+          coverage: { priced: zero, total: zero, missing: zero, stale: zero, lowConfidence: zero },
+          estimateAsOf: null,
+          valuedAt: "2026-07-13T12:00:00.000Z",
+        },
+        lines: [],
+      } as const;
+      vi.spyOn(collections.savedListValuation, "getOwnerValuation").mockResolvedValue(valuation);
+      const app = buildPlatformApiApp(runtime, {
+        resolveActor: vi.fn(async () => platformActor(["accounts.view"])),
+      });
+      const response = await app.request(`/api/collections/saved-lists/${listId}/valuation`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual(valuation);
+      expect(record).toHaveBeenCalledOnce();
     });
   });
 
-  it("starts and serves Collections routes without an observability runtime", async () => {
+  it("starts and enforces the actor fence on mounted Collections routes", async () => {
     await withUninstrumentedPlatformApiRuntime(async (runtime) => {
       const response = await buildPlatformApiApp(runtime).request("/api/collections/account/lists/recent");
       expect(response.status).toBe(401);
@@ -403,73 +435,15 @@ describe("platform api app wiring", () => {
     });
   });
 
-  it("supplies the real Saved List recorder in the host composition and keeps failures out of requests", () => {
-    const info = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
-    const recorder = createSavedListAnalyticsRecorder({ info, warn: vi.fn() });
-    recorder.record({
-      event: "product_added",
-      surface: "search",
-      outcome: "added",
-      coverage_band: "none",
-      estimate_state: "none",
-    });
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(Object.keys(info.mock.calls[0]?.[1] ?? {}).sort()).toEqual(
-      ["context", "event", "surface", "outcome", "coverage_band", "estimate_state", "type"].sort(),
+  it("leaves Collections services and routes unmounted in the landing profile", async () => {
+    await withUninstrumentedPlatformApiRuntime(
+      async (runtime) => {
+        expect(runtime.services.collections).toBeUndefined();
+        const app = buildPlatformApiApp(runtime, { runtimeProfile: "landing" });
+        expect((await app.request("/api/collections/saved-lists/svl_one/valuation")).status).toBe(404);
+      },
+      { runtimeProfile: "landing" },
     );
-    expect(info.mock.calls[0]?.[1]).toMatchObject({
-      context: "collections",
-      event: "product_added",
-      surface: "search",
-      outcome: "added",
-      type: "collections.saved_list.analytics_event",
-    });
-
-    const counterFailureLog = {
-      info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined),
-      warn: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined),
-    };
-    const counterFailure = vi.fn((_event: unknown) => {
-      throw new Error("SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER");
-    });
-    const counterFailureRecorder = createSavedListAnalyticsRecorder(counterFailureLog, counterFailure);
-    expect(() =>
-      counterFailureRecorder.record({
-        event: "list_created",
-        surface: "search",
-        outcome: "none",
-        coverage_band: "none",
-        estimate_state: "none",
-      }),
-    ).not.toThrow();
-    expect(counterFailure).toHaveBeenCalledTimes(1);
-    expect(counterFailureLog.warn).toHaveBeenCalledTimes(1);
-    expect(counterFailureLog.warn).toHaveBeenCalledWith("Collections Saved List analytics recorder failed.", {
-      failure: "counter",
-      type: "collections.saved_list.analytics_recorder_failure",
-    });
-    expect(counterFailureLog.info).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(counterFailureLog.warn.mock.calls[0]?.[1])).not.toContain(
-      "SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER",
-    );
-
-    const markerLogger = {
-      info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => {
-        throw new Error("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
-      }),
-      warn: vi.fn(),
-    };
-    expect(() =>
-      createSavedListAnalyticsRecorder(markerLogger).record({
-        event: "list_created",
-        surface: "search",
-        outcome: "none",
-        coverage_band: "none",
-        estimate_state: "none",
-      }),
-    ).not.toThrow();
-    expect(markerLogger.info).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(markerLogger.info.mock.calls[0]?.[1])).not.toContain("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
   });
 
   it("keeps every evidence-window route unmounted until dedicated admission is configured", async () => {

@@ -37,15 +37,68 @@ export function analyticsLabel<K extends LabelKey>(key: K, value: unknown): Labe
   return (savedListAnalyticsValues[key] as readonly unknown[]).includes(value) ? (value as LabelValue<K>) : "invalid";
 }
 
-function event(name: EventName, labels: Partial<Record<LabelKey, unknown>>): SavedListAnalyticsEvent {
+function eventLabels(name: EventName | undefined, labels: Partial<Record<LabelKey, unknown>>) {
+  const keys: readonly LabelKey[] = name === undefined ? [] : savedListAnalyticsKeys[name];
   const label = <K extends LabelKey>(key: K): LabelValue<K> =>
-    (savedListAnalyticsKeys[name] as readonly string[]).includes(key) ? analyticsLabel(key, labels[key]) : "none";
+    keys.includes(key) ? analyticsLabel(key, labels[key]) : "none";
   return {
-    event: name,
     surface: label("surface"),
     outcome: label("outcome"),
     coverage_band: label("coverage_band"),
     estimate_state: label("estimate_state"),
+  };
+}
+
+function event(name: EventName, labels: Partial<Record<LabelKey, unknown>>): SavedListAnalyticsEvent {
+  return { event: name, ...eventLabels(name, labels) };
+}
+
+function savedListAnalyticsAttributes(signal: SavedListAnalyticsEvent) {
+  const name = signal.event;
+  const knownEvent = savedListAnalyticsEvents.find((allowed) => allowed === name);
+  return { context: "collections", event: knownEvent ?? "invalid", ...eventLabels(knownEvent, signal) };
+}
+
+type SavedListAnalyticsSinks = Readonly<{
+  createCounter: (name: string) => {
+    add: (increment: number, attributes: Readonly<ReturnType<typeof savedListAnalyticsAttributes>>) => void;
+  };
+  logger: Readonly<Record<"info" | "warn", (message: string, fields: Readonly<Record<string, string>>) => void>>;
+}>;
+
+export function createSavedListAnalyticsRecorder({
+  createCounter,
+  logger,
+}: SavedListAnalyticsSinks): SavedListAnalyticsRecorder {
+  const counter = createCounter("chase_sets_collections_saved_list_events_total");
+  return {
+    record(signal) {
+      let attributes: ReturnType<typeof savedListAnalyticsAttributes>;
+      try {
+        attributes = savedListAnalyticsAttributes(signal);
+      } catch {
+        // Invalid event objects are ignored without exposing input or exception text.
+        return;
+      }
+      const fields = { ...attributes, type: "collections.saved_list.analytics_event" };
+      try {
+        counter.add(1, attributes);
+      } catch {
+        try {
+          logger.warn("Collections Saved List analytics recorder failed.", {
+            failure: "counter",
+            type: "collections.saved_list.analytics_recorder_failure",
+          });
+        } catch {
+          // Failure reporting is best-effort; still attempt the event log.
+        }
+      }
+      try {
+        logger.info("Collections Saved List analytics event captured.", fields);
+      } catch {
+        // Logging is best-effort and must not affect the Saved List response.
+      }
+    },
   };
 }
 
