@@ -432,6 +432,18 @@ jobs:
       - name: Run DB-profile tests
         run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }} --command-timeout-ms=${{ matrix.db-workspace-group == 'api' && 600000 || 900000 }}
 
+      - name: Test Discovery's Rust suggestion parity
+        if: matrix.db-workspace-group == 'other'
+        env:
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+        run: |
+          set -euo pipefail
+          selected="$(node ./scripts/lib/discovery-suggestion-parity-scope.mjs)"
+          if [[ "$selected" == "true" ]]; then
+            cd bounded-contexts/discovery/features/search/suggestion-backend
+            cargo test --locked
+          fi
+
       - name: Upload bootstrap DB evidence including failures
         if: always() && steps.platform-api-selected.outputs.selected == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

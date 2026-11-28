@@ -9,10 +9,13 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as discoveryModule } from "../../../index";
+import { discoveryItemSearchRoutes } from "../api/route";
 import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
+import { decodeQueryVocabulary, queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
 import { refreshAllSearchIndexMarketSignals } from "./market-signals";
 import { discoverySearchCursorState, searchDiscoveryItems, type DiscoverySearchParams } from "./queries";
-import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
+import suggestionParity from "./suggestion-parity.fixture.json";
+import { suggestDiscoveryItems } from "./suggestions";
 
 const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
@@ -98,6 +101,62 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
 
   afterAll(async () => {
     if (pool) await closeMultiContextTestPools({ discovery: pool });
+  });
+
+  it("matches the seeded suggestion HTTP contract across rank, vocabulary, and Unicode cases", async () => {
+    const fixtureVocabulary = decodeQueryVocabulary({ expansions: suggestionParity.expansions });
+    const unused = async (): Promise<never> => {
+      throw new Error("The suggestion route must not use another search operation.");
+    };
+    const app = discoveryItemSearchRoutes({
+      suggestItems: (query, limit) => suggestDiscoveryItems(pool, query, fixtureVocabulary, limit),
+      searchItems: unused,
+      previewBulkAdd: unused,
+      rebuildSearchIndex: unused,
+      projectors: [],
+    });
+
+    const fixtureIds = suggestionParity.rows.map(({ catalogItemId }) => catalogItemId);
+    const expectedItems = new Map(
+      suggestionParity.rows.map(({ catalogItemId, title, subtitle, slug, category }) => [
+        catalogItemId,
+        { catalogItemId, title, subtitle, slug, category },
+      ]),
+    );
+    try {
+      for (const row of suggestionParity.rows) {
+        await pool.query(
+          `INSERT INTO discovery_search_items
+             (catalog_item_id, title, subtitle, slug, category_names, set_code, status, search_text, search_text_simple)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, setweight(to_tsvector('english', $8), $10::"char"),
+                   setweight(to_tsvector('simple', $9), $10::"char"))`,
+          [
+            row.catalogItemId,
+            row.title,
+            row.subtitle,
+            row.slug,
+            JSON.stringify(row.category === null ? [] : [row.category]),
+            row.setCode,
+            row.status,
+            row.english,
+            row.simple,
+            row.weight,
+          ],
+        );
+      }
+      for (const { name, query, limit, ids } of suggestionParity.requests) {
+        const params = new URLSearchParams({ q: query });
+        if (limit !== null) params.set("limit", limit);
+        const response = await app.request(`/suggest?${params}`);
+        expect(response.status, name).toBe(200);
+        expect(await response.json(), name).toEqual({
+          items: ids.map((id) => expectedItems.get(id)!),
+          count: ids.length,
+        });
+      }
+    } finally {
+      await pool.query("DELETE FROM discovery_search_items WHERE catalog_item_id = ANY($1::text[])", [fixtureIds]);
+    }
   });
 
   const cases: readonly { sort: string; search?: string }[] = [
