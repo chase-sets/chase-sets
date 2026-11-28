@@ -13,8 +13,9 @@ marketplace-web drops no coverage without a recorded reason.
 3. **Dropped**: the spec tests marketplace-web's own machinery, or nothing the Corten marketplace has; the
    reason is given.
 
-Counts are test declarations (`test(`) in each file and the tests skipped by an
-`onCortenMarketplace` condition. A Corten-specific branch inside a test is not a skip.
+Both columns count test declarations (`test(`), not registered cases across projects or viewports.
+"Skipped on Corten" counts declarations skipped by an `onCortenMarketplace` condition. A
+Corten-specific branch inside a test is not a skip.
 
 ## Interaction boundaries
 

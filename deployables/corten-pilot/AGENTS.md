@@ -13,9 +13,10 @@ editing the pilot.
 
 Staging and production serve the `admin-corten`, `marketplace-corten` and `public-corten` workloads
 from separate `Dockerfile.corten-*` images. The root `.dockerignore` excludes the pilot from the
-platform image except for the sources read by the Privacy publication build; those sources do not
-ship in the runtime image. Do not add a `Dockerfile` here: these apps use the root Corten image
-definitions.
+platform build context except for the sources read by the Privacy publication build. The runtime
+stage copies those sources into an image layer and removes them in a later layer. They are absent
+from the running container's filesystem but remain in the earlier image layer. Do not add a
+`Dockerfile` here: these apps use the root Corten image definitions.
 
 Business rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
