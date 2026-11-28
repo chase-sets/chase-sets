@@ -213,26 +213,6 @@ export const contextManifest = {
       },
     },
     {
-      id: "notifications.notification-center-product-alert-controls",
-      owner: "notifications",
-      risk: "important",
-      strategy: "snapshot-return",
-      surfaces: [
-        "fetcher-submit:bounded-contexts/notifications/features/notification-center/ui/notification-center-page.tsx:H236bacc57616#1",
-      ],
-      visibleDestination: {
-        description:
-          "Notification settings Product Alert pause, resume, and delete controls submit the alert id and intent to Discovery's existing account Product Alert route action, which redirects back to the Product alerts settings view and its route loader rereads the summary.",
-      },
-      proof: {
-        authoritativeResponse:
-          "Discovery's account Product Alert action runs the Discovery pause, resume, or delete command, whose response carries the committed alert snapshot, before redirecting; Notifications adds no Product Alert command of its own.",
-        tests: [
-          "deployables/corten-pilot/marketplace/src/tests.rs marketplaces_product_alerts_action_changes_the_alert_it_names_then_shows_the_alerts proves each control's intent and alert id reach the Product Alert command and return to the Product alerts settings with the write's receipt.",
-        ],
-      },
-    },
-    {
       id: "notifications.provider-webhook-recording",
       owner: "notifications",
       risk: "internal",
