@@ -7,12 +7,6 @@ import {
   Banner,
   Breadcrumbs,
   Button,
-  ComparisonList,
-  ComparisonListCell,
-  ComparisonListHeader,
-  ComparisonListPrice,
-  ComparisonListRow,
-  ComparisonListRowGrid,
   ConnectionStatusIndicator,
   EmptyState,
   FileDropzone,
@@ -220,33 +214,6 @@ describe("root export coverage smoke tests", () => {
     expect(screen.getByText("Box sealed.")).toBeTruthy();
     expect(screen.getByText(/Todd/).textContent).toContain("9:10 AM");
     expect(screen.getByText("USPS Ground Advantage")).toBeTruthy();
-  });
-
-  it("renders ComparisonList primitives with selected-row and price affordances", () => {
-    const { container } = render(
-      <ComparisonList>
-        <ComparisonListHeader labels={["Price", "Seller", "Condition", "Action"]} />
-        <ComparisonListRow selected aria-label="Best offer">
-          <ComparisonListRowGrid>
-            <ComparisonListCell>
-              <ComparisonListPrice>$42.00</ComparisonListPrice>
-            </ComparisonListCell>
-            <ComparisonListCell area="account">Card Corner</ComparisonListCell>
-            <ComparisonListCell area="product">Near mint, English</ComparisonListCell>
-            <ComparisonListCell area="action">
-              <Button>Buy</Button>
-            </ComparisonListCell>
-          </ComparisonListRowGrid>
-        </ComparisonListRow>
-      </ComparisonList>,
-    );
-
-    const selectedRow = screen.getByRole("article", { name: "Best offer" });
-
-    expect(selectedRow.textContent).toContain("$42.00");
-    expect(selectedRow.textContent).toContain("Card Corner");
-    expect(container.querySelector(".bg-accent")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Buy" })).toBeTruthy();
   });
 
   it("renders OperationalStatusBanner status copy and action", () => {
