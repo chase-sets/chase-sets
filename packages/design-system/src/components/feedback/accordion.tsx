@@ -11,9 +11,7 @@ import {
 } from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
-import { Icon, type IconName } from "../../icons";
-import { Stack } from "../../primitives/layout";
-import { Text } from "../../primitives/typography";
+import { Icon } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { compactControlPaddingClasses, controlHeightClasses, controlPaddingClasses } from "../control-sizing";
@@ -49,40 +47,6 @@ export interface AccordionItem {
 }
 
 export type AccordionSectionEdge = "card" | "compact" | "panel";
-
-export interface AccordionOptionTriggerProps {
-  icon: IconName;
-  title: ReactNode;
-  description?: ReactNode;
-  active?: boolean;
-  disabled?: boolean;
-}
-
-export function AccordionOptionTrigger({
-  icon,
-  title,
-  description,
-  active = false,
-  disabled = false,
-}: AccordionOptionTriggerProps) {
-  return (
-    <span className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-3">
-      <span className="mt-0.5 flex h-5 items-start justify-center">
-        <Icon name={icon} size="sm" tone={disabled ? "secondary" : active ? "accent" : "secondary"} />
-      </span>
-      <Stack element="span" gap={1} minWidth="0">
-        <Text element="span" size="sm" weight="semibold" tone={active ? "accent" : "primary"}>
-          {title}
-        </Text>
-        {description ? (
-          <Text element="span" size="sm" tone="secondary">
-            {description}
-          </Text>
-        ) : null}
-      </Stack>
-    </span>
-  );
-}
 
 export interface AccordionProps extends Omit<
   HTMLAttributes<HTMLDivElement>,

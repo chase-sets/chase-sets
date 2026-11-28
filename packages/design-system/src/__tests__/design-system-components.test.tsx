@@ -37,7 +37,6 @@ import {
 import { CheckoutConfirmationPanel, CheckoutStateNotice, CheckoutSummaryPanel } from "../components/checkout";
 import {
   Accordion,
-  AccordionOptionTrigger,
   Badge,
   Banner,
   Dialog,
@@ -2176,26 +2175,6 @@ describe("design system components", () => {
     } finally {
       rect.mockRestore();
     }
-  });
-
-  it("aligns section-list option icons with the trigger title", () => {
-    const { container } = render(
-      <ChaseRoot>
-        <AccordionOptionTrigger
-          icon="cart"
-          title="Add to cart"
-          description="Save this exact selection and continue shopping."
-          active
-        />
-      </ChaseRoot>,
-    );
-
-    expect(screen.getByText("Add to cart")).toBeTruthy();
-    const classNames = Array.from(container.querySelectorAll("span"))
-      .map((element) => element.className)
-      .join(" ");
-    expect(classNames).toContain("grid-cols-[1rem_minmax(0,1fr)]");
-    expect(classNames).toContain("mt-0.5");
   });
 
   it("renders progressive disclosure with a visible summary and controlled state", async () => {
