@@ -124,7 +124,6 @@ describe("residual inline eyebrow inventory", () => {
 
     expect(Object.fromEntries([...counts.entries()].sort())).toEqual({
       "app-shells/marketing.tsx": 3,
-      "app-shells/product-detail.tsx": 2,
       "dense-admin-workbench.tsx": 3,
     });
     expect([...counts.values()].reduce((total, value) => total + value, 0)).toBe(8);
