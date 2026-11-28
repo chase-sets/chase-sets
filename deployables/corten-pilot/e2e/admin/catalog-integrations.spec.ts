@@ -1010,7 +1010,9 @@ test.describe.serial("catalog admin integrations", () => {
       "/catalog/integrations/governance?providerKey=scryfall&unitKey=scryfall%3Amtg%3Asingle-card%3Areference-data&section=controls",
     );
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*providerKey=scryfall/);
-    const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
+    const governanceControls = onCortenAdmin
+      ? page.getByRole("table", { name: "Rollout and worker controls", exact: true })
+      : page.locator("[data-catalog-governance-controls-workspace='true']");
     await expect(governanceControls).toBeVisible();
     await expect(governanceControls.getByRole("cell", { name: /imports-disabled/i }).first()).toBeVisible();
     await expect(
