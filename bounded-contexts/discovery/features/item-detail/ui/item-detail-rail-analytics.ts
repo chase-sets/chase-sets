@@ -1,12 +1,10 @@
-import type {
-  ItemDetailRailAnalyticsEventName,
-  ItemDetailRailAnalyticsLabelName,
-} from "../domain/rail-analytics-vocabulary";
+import vocabulary from "../domain/rail-analytics-vocabulary.json" with { type: "json" };
 
-export {
-  itemDetailRailAnalyticsEventNames,
-  type ItemDetailRailAnalyticsEventName,
-} from "../domain/rail-analytics-vocabulary";
+export type ItemDetailRailAnalyticsEventName = keyof typeof vocabulary.events;
+type ItemDetailRailAnalyticsLabelName = keyof typeof vocabulary.labels;
+export const itemDetailRailAnalyticsEventNames = Object.keys(
+  vocabulary.events,
+) as readonly ItemDetailRailAnalyticsEventName[];
 
 export type ItemDetailRailAnalyticsIntent = "buy" | "sell" | "watch" | "unknown";
 export type ItemDetailRailAnalyticsSelection = "explicit" | "implicit" | "none";

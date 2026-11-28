@@ -189,7 +189,7 @@ const cortenPilotCheckPaths = [
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,
   /^bounded-contexts\/[^/]+\/context\.json$/,
-  /^bounded-contexts\/discovery\/features\/item-detail\/domain\/rail-analytics-vocabulary\.ts$/,
+  /^bounded-contexts\/discovery\/features\/item-detail\/domain\/rail-analytics-vocabulary\.json$/,
 ];
 
 function expectedCortenPilotCheck(changedFiles) {
@@ -4746,8 +4746,8 @@ describe("change-scope", () => {
     const select = (file) =>
       classifyChanges({ changedFiles: [prefix + file], workspaces: [] }).cortenPilotCheckRequired;
 
-    expect(select("rail-analytics-vocabulary.ts")).toBe(true);
-    expect(select("rail-analytics-vocabulary.test.ts")).toBe(false);
+    expect(select("rail-analytics-vocabulary.json")).toBe(true);
+    expect(select("rail-analytics-vocabulary-example.json")).toBe(false);
   });
 
   it("routes Helm chart changes through ordinary staged deployment without a docker image", () => {

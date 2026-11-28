@@ -258,10 +258,6 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFi
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  itemDetailRailAnalyticsEventNames,
-  itemDetailRailAnalyticsLabelNames,
-} from "../../../bounded-contexts/discovery/features/item-detail/domain/rail-analytics-vocabulary.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pilot = path.resolve(here, "..");
@@ -891,18 +887,26 @@ async function policies() {
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
 function railAnalyticsVocabulary() {
+  const source = "bounded-contexts/discovery/features/item-detail/domain/rail-analytics-vocabulary.json";
+  const { events, labels } = JSON.parse(readFileSync(path.join(repo, source), "utf8"));
   const rustNames = (names) => {
-    if (names.some((name) => !/^[a-zA-Z0-9_.-]{1,80}$/.test(name)) || new Set(names).size !== names.length) {
-      throw new Error("Discovery rail analytics vocabulary must contain unique bounded names");
+    const entries = names && typeof names === "object" && !Array.isArray(names) ? Object.entries(names) : [];
+    if (
+      entries.length === 0 ||
+      entries.some(
+        ([name, enabled]) => enabled !== true || name.length < 1 || name.length > 80 || /[^a-zA-Z0-9_.-]/.test(name),
+      )
+    ) {
+      throw new Error("Discovery rail analytics vocabulary must contain bounded names set to true");
     }
-    return names.map((name) => JSON.stringify(name));
+    return entries.map(([name]) => JSON.stringify(name));
   };
   return [
     "// Generated from Discovery by deployables/corten-pilot/scripts/export.mjs.",
     "const RAIL_EVENTS: &[&str] = &[",
-    ...rustNames(itemDetailRailAnalyticsEventNames).map((name) => `    ${name},`),
+    ...rustNames(events).map((name) => `    ${name},`),
     "];",
-    `const RAIL_LABELS: &[&str] = &[${rustNames(itemDetailRailAnalyticsLabelNames).join(", ")}];`,
+    `const RAIL_LABELS: &[&str] = &[${rustNames(labels).join(", ")}];`,
     "",
   ].join("\n");
 }

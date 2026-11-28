@@ -194,7 +194,7 @@ const cortenPilotCheckPatterns = [
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,
   boundedContextManifest,
-  /^bounded-contexts\/discovery\/features\/item-detail\/domain\/rail-analytics-vocabulary\.ts$/,
+  /^bounded-contexts\/discovery\/features\/item-detail\/domain\/rail-analytics-vocabulary\.json$/,
 ];
 // The source-context wake registry is a static aggregate over per-context
 // shard modules plus a shared entry builder. Every member of that file
