@@ -9,6 +9,11 @@ import type { FieldIds } from "../../fields/api/seed";
 import type { CatalogReferenceIds } from "../../reference-data/api/seed";
 import type { CatalogValue, LocalizedTextMap } from "../../../support/runtime-support/common";
 
+export const browsePaginationItemIds: readonly CatalogItemId[] = Array.from(
+  { length: 32 },
+  (_, index) => `cat_seed_wayfarer_${String(index + 1).padStart(2, "0")}` as CatalogItemId,
+);
+
 export async function seedCatalogItems(
   services: CatalogServices,
   blueprints: BlueprintIds,
@@ -17,6 +22,7 @@ export async function seedCatalogItems(
   references: CatalogReferenceIds,
   options: Readonly<{
     catalogItemIds?: readonly CatalogItemId[];
+    includeBrowsePagination?: boolean;
     beforePublication?: () => Promise<void>;
   }> = {},
 ): Promise<void> {
@@ -64,6 +70,25 @@ export async function seedCatalogItems(
   });
 
   const items: ItemDef[] = [
+    ...(options.includeBrowsePagination
+      ? browsePaginationItemIds.map(
+          (itemId, index): ItemDef => ({
+            itemId,
+            languageCode: "en",
+            title: l10n(`Wayfarer ${String(index + 1).padStart(2, "0")}`),
+            subtitle: l10n("Sample sealed display"),
+            description: l10n("A catalog-only fixture for browsing more than one page of search results."),
+            blueprintKey: "lorcana-sealed-product",
+            fieldValues: [
+              ["set", lorcanaSetReference("the-first-chapter")],
+              ["sealed-product-form", "booster-box-display"],
+              ["pack-count", 24],
+            ],
+            categoryKeys: ["lorcana", "lorcana-sealed-products", "lorcana-booster-boxes"],
+            tags: [],
+          }),
+        )
+      : []),
     {
       itemId: catalogSeedIds.items.charizardBaseSet as CatalogItemId,
       languageCode: "en",

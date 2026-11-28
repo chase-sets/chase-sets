@@ -105,7 +105,7 @@ test.describe("marketplace search scroll restoration", () => {
   test("replaces restored pages when a former hybrid cursor restarts @marketplace-browse", async ({ page }) => {
     test.skip(
       onCortenMarketplace,
-      "seeds marketplace-web's session-storage result snapshot and waits for its cursor request; the Corten marketplace keeps no such snapshot",
+      "injects a stale cursor into marketplace-web's session-storage snapshot and intercepts its browser API request; Corten stores no cursor in browser history and reads the API on the server",
     );
     const firstPageUrl = `/api/marketplace/items?search=${encodeURIComponent(searchQuery)}&sort=relevance&limit=24&includeTotal=true`;
     const firstResponse = await page.request.get(firstPageUrl);
@@ -162,10 +162,42 @@ test.describe("marketplace search scroll restoration", () => {
   });
 
   test("restores loaded Result Set context after an item-detail roundtrip @marketplace-browse", async ({ page }) => {
-    test.skip(
-      onCortenMarketplace,
-      "seeds marketplace-web's session-storage result snapshot and routes /api/marketplace/items; the Corten marketplace keeps Load more's rows in the address (more=) and reads the API on the server",
-    );
+    if (onCortenMarketplace) {
+      const { searchQuery, pageSize, resultCount } = marketplaceBrowserE2eSeedContract.browsePagination;
+      const searchPath = `/search?q=${encodeURIComponent(searchQuery)}`;
+      await page.goto(searchPath);
+      const details = page.locator("#results").getByRole("link", { name: /^View details for / });
+      const orderedHrefs = () => details.evaluateAll((links) => links.map((link) => (link as HTMLAnchorElement).href));
+      const loadMore = page.getByRole("button", { name: "Load more results" });
+      await expect(details).toHaveCount(pageSize);
+      await expect(loadMore).toBeVisible();
+      const firstPage = await orderedHrefs();
+      const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+
+      // Playwright clicks scroll to the footer, racing Corten's near-viewport autoload.
+      await loadMore.evaluate((button) => button.focus({ preventScroll: true }));
+      await page.keyboard.press("Enter");
+      const keptUrl = new URL(searchPath, page.url());
+      keptUrl.searchParams.set("more", String(pageSize));
+      await expect(page).toHaveURL(keptUrl.href, { timeout: RESTORATION_HARD_TIMEOUT_MS });
+      await expect(details).toHaveCount(resultCount);
+      expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+      const loadedRows = await orderedHrefs();
+      expect(loadedRows.slice(0, pageSize)).toEqual(firstPage);
+      expect(new Set(loadedRows).size).toBe(resultCount);
+
+      await details.nth(pageSize).click();
+      await expect(page).toHaveURL(loadedRows[pageSize]!);
+      await page.goBack({ waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(keptUrl.href);
+      await expect.poll(orderedHrefs, { timeout: RESTORATION_HARD_TIMEOUT_MS }).toEqual(loadedRows);
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(keptUrl.href);
+      await expect.poll(orderedHrefs, { timeout: RESTORATION_HARD_TIMEOUT_MS }).toEqual(loadedRows);
+      return;
+    }
+
     await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
     const basePage = await page.evaluate(async (query) => {
       const response = await fetch(
