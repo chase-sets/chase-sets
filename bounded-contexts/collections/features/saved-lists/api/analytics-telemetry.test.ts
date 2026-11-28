@@ -5,11 +5,13 @@ import type { SavedListValuationCoverage } from "../../saved-list-valuation/doma
 import {
   additionAnalytics,
   analyticsLabel,
+  createSavedListAnalyticsRecorder,
   recordSavedListAnalytics,
   savedListAnalyticsEvents,
   savedListAnalyticsKeys,
   savedListAnalyticsValues,
   valuationAnalytics,
+  type SavedListAnalyticsEvent,
 } from "./analytics-telemetry";
 
 const forbidden = [
@@ -33,6 +35,150 @@ const forbidden = [
   "highAmount",
 ];
 const marker = "synthetic_private_marker_7137";
+
+function recorderWithSinks() {
+  const add = vi.fn();
+  const createCounter = vi.fn(() => ({ add }));
+  const logger = { info: vi.fn(), warn: vi.fn() };
+  return { recorder: createSavedListAnalyticsRecorder({ createCounter, logger }), createCounter, add, logger };
+}
+
+describe("Saved List analytics recorder", () => {
+  it("emits the exact metric and log fields for every event, ignoring labels outside its tuple", () => {
+    const { recorder, createCounter, add, logger } = recorderWithSinks();
+    expect(createCounter).toHaveBeenCalledExactlyOnceWith("chase_sets_collections_saved_list_events_total");
+    expect(add).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+
+    const populated = {
+      surface: "item-detail",
+      outcome: "merged",
+      coverage_band: "partial",
+      estimate_state: "stale",
+    } as const;
+    const expected = [
+      { event: "list_created", surface: "item-detail", outcome: "none", coverage_band: "none", estimate_state: "none" },
+      {
+        event: "product_added",
+        surface: "item-detail",
+        outcome: "merged",
+        coverage_band: "none",
+        estimate_state: "none",
+      },
+      {
+        event: "first_five_lines",
+        surface: "item-detail",
+        outcome: "none",
+        coverage_band: "none",
+        estimate_state: "none",
+      },
+      {
+        event: "valuation_coverage_band",
+        surface: "none",
+        outcome: "none",
+        coverage_band: "partial",
+        estimate_state: "stale",
+      },
+    ] as const;
+    for (const { event } of expected) recorder.record({ event, ...populated });
+    const attributes = expected.map((fields) => ({ context: "collections", ...fields }));
+    expect(add.mock.calls).toEqual(attributes.map((fields) => [1, fields]));
+    expect(logger.info.mock.calls).toEqual(
+      attributes.map((fields) => [
+        "Collections Saved List analytics event captured.",
+        { ...fields, type: "collections.saved_list.analytics_event" },
+      ]),
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes malformed labels and unknown events without forwarding sensitive input", () => {
+    const { recorder, add, logger } = recorderWithSinks();
+    const sensitive = Object.fromEntries(forbidden.map((key) => [key, marker]));
+    const inputs = [
+      { event: "product_added", surface: null, outcome: "", coverage_band: marker, estimate_state: marker },
+      {
+        event: "valuation_coverage_band",
+        surface: marker,
+        outcome: marker,
+        coverage_band: marker,
+        estimate_state: "current",
+      },
+      { event: marker, surface: "search", outcome: "added", coverage_band: "high", estimate_state: "current" },
+    ];
+    for (const input of inputs) recorder.record({ ...input, ...sensitive } as unknown as SavedListAnalyticsEvent);
+
+    const expected = [
+      {
+        context: "collections",
+        event: "product_added",
+        surface: "invalid",
+        outcome: "invalid",
+        coverage_band: "none",
+        estimate_state: "none",
+      },
+      {
+        context: "collections",
+        event: "valuation_coverage_band",
+        surface: "none",
+        outcome: "none",
+        coverage_band: "invalid",
+        estimate_state: "current",
+      },
+      {
+        context: "collections",
+        event: "invalid",
+        surface: "none",
+        outcome: "none",
+        coverage_band: "none",
+        estimate_state: "none",
+      },
+    ];
+    expect(add.mock.calls).toEqual(expected.map((fields) => [1, fields]));
+    expect(logger.info.mock.calls).toEqual(
+      expected.map((fields) => [
+        "Collections Saved List analytics event captured.",
+        { ...fields, type: "collections.saved_list.analytics_event" },
+      ]),
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("isolates counter and log failures (warning throws: %s)", (warningThrows) => {
+    const { recorder, add, logger } = recorderWithSinks();
+    const fail = () => {
+      throw new Error(marker);
+    };
+    add.mockImplementation((_increment, fields) => {
+      fields.note = marker;
+      fail();
+    });
+    if (warningThrows) logger.warn.mockImplementation(fail);
+    logger.info.mockImplementation(fail);
+    expect(() => recorder.record(valuationAnalytics(coverage(0, 0)))).not.toThrow();
+    expect(add).toHaveBeenCalledOnce();
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("Collections Saved List analytics recorder failed.", {
+      failure: "counter",
+      type: "collections.saved_list.analytics_recorder_failure",
+    });
+    expect(logger.info).toHaveBeenCalledOnce();
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(marker);
+  });
+
+  it("ignores unreadable event objects without calling any sink", () => {
+    const { recorder, add, logger } = recorderWithSinks();
+    const signal = {
+      ...valuationAnalytics(coverage(0, 0)),
+      get event(): never {
+        throw new Error(marker);
+      },
+    };
+    expect(() => recorder.record(signal)).not.toThrow();
+    expect(add).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
 
 function addition(
   count: number,
@@ -195,5 +341,8 @@ describe("Saved List analytics closed privacy contract", () => {
     expect(values.map(([key]) => key).sort()).toEqual(Object.keys(savedListAnalyticsValues).sort());
     for (const [key, tokens] of values)
       expect(tokens!.split(", ")).toEqual([...savedListAnalyticsValues[key as keyof typeof savedListAnalyticsValues]]);
+    const forbiddenSection = doc.split("## Forbidden keys")[1]!.split("## Derivation")[0]!;
+    const forbiddenKeys = [...forbiddenSection.matchAll(/`([A-Za-z][A-Za-z0-9]*)`/g)].map(([, key]) => key);
+    expect(forbiddenKeys).toEqual(forbidden);
   });
 });
