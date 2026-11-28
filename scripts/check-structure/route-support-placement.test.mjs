@@ -230,7 +230,7 @@ describe("route support placement guard", () => {
   it("allows canonical route-support modules", () => {
     expect(
       violationFor(
-        "bounded-contexts/pricing/support/route-support/bulk-reprice/action.ts",
+        "bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.ts",
         "export async function action() {}",
       ),
     ).toBeNull();
