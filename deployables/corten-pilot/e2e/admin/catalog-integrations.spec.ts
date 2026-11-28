@@ -956,10 +956,6 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect governance controls and health triage deep links @catalog-admin-integrations", async ({
     page,
   }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten section nav does not yet mark the nested Settings entry current, here at its older /catalog/integrations/governance address",
-    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -1014,7 +1010,9 @@ test.describe.serial("catalog admin integrations", () => {
       "/catalog/integrations/governance?providerKey=scryfall&unitKey=scryfall%3Amtg%3Asingle-card%3Areference-data&section=controls",
     );
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*providerKey=scryfall/);
-    const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
+    const governanceControls = onCortenAdmin
+      ? page.getByRole("table", { name: "Rollout and worker controls", exact: true })
+      : page.locator("[data-catalog-governance-controls-workspace='true']");
     await expect(governanceControls).toBeVisible();
     await expect(governanceControls.getByRole("cell", { name: /imports-disabled/i }).first()).toBeVisible();
     await expect(
