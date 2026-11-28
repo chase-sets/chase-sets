@@ -187,13 +187,14 @@ const cortenPublicBrowserPatterns = [
 ];
 const boundedContextManifest = /^bounded-contexts\/[^/]+\/context\.json$/;
 // The Corten pilot check is required for the apps, their build and export files, the action,
-// and the manifests that feed the marketplace link-route export. Other changes can still run it advisory.
+// and the sources that feed the marketplace route and analytics exports.
 const cortenPilotCheckPatterns = [
   /^deployables\/corten-pilot\/(?:admin|marketplace|platform|public)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,
   boundedContextManifest,
+  /^bounded-contexts\/discovery\/features\/item-detail\/domain\/rail-analytics-vocabulary\.ts$/,
 ];
 // The source-context wake registry is a static aggregate over per-context
 // shard modules plus a shared entry builder. Every member of that file

@@ -241,6 +241,7 @@
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
 // - marketplace/link-routes.json: the retired marketplace-web host's route records for the parity test.
+// - marketplace/rail-analytics-vocabulary.rs: Discovery's rail and search analytics event and label names.
 // - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
 //   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
 //   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
@@ -257,6 +258,10 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFi
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  itemDetailRailAnalyticsEventNames,
+  itemDetailRailAnalyticsLabelNames,
+} from "../../../bounded-contexts/discovery/features/item-detail/domain/rail-analytics-vocabulary.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pilot = path.resolve(here, "..");
@@ -884,6 +889,23 @@ async function policies() {
 }
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+
+function railAnalyticsVocabulary() {
+  const rustNames = (names) => {
+    if (names.some((name) => !/^[a-zA-Z0-9_.-]{1,80}$/.test(name)) || new Set(names).size !== names.length) {
+      throw new Error("Discovery rail analytics vocabulary must contain unique bounded names");
+    }
+    return names.map((name) => JSON.stringify(name));
+  };
+  return [
+    "// Generated from Discovery by deployables/corten-pilot/scripts/export.mjs.",
+    "const RAIL_EVENTS: &[&str] = &[",
+    ...rustNames(itemDetailRailAnalyticsEventNames).map((name) => `    ${name},`),
+    "];",
+    `const RAIL_LABELS: &[&str] = &[${rustNames(itemDetailRailAnalyticsLabelNames).join(", ")}];`,
+    "",
+  ].join("\n");
+}
 const { catalogScopeProductDomains } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
 );
@@ -2076,6 +2098,7 @@ const outputs = [
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["marketplace/link-routes.json", json(marketplaceLinkRoutes())],
+  ["marketplace/rail-analytics-vocabulary.rs", railAnalyticsVocabulary()],
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
   [

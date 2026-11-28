@@ -17,14 +17,10 @@
 //! does (marketplace's `robots.txt` closes the site then, but its sitemaps still list it).
 //!
 //! `POST /analytics/item-detail-rail` takes the item page's and search's analytics events
-//! (`views/rail_analytics.js`, marketplace's `trackItemDetailRailEvent` and its root's bridge): it
-//! refuses what marketplace's refuses, a name it does not know or a label that is not one, with a
-//! 400, and logs the rest with marketplace's fields (`marketplace.item_detail_rail.analytics_event`,
-//! leaving out the position and the keys, as its log does), and counts them in marketplace-web's
-//! metric, `chase_sets_marketplace_item_detail_rail_events_total`, with its labels
-//! (`platform::telemetry`). The endpoint and its vocabulary are Discovery's to own, not a
-//! web host's (chase-sets/chase-sets#12149); the pilot keeps marketplace's copy until Discovery
-//! contributes it.
+//! (`views/rail_analytics.js`). Discovery supplies the accepted event and label names. An unknown
+//! event or an invalid value for a declared label returns 400. Unrelated keys are ignored. The
+//! `marketplace.item_detail_rail.analytics_event` log and
+//! `chase_sets_marketplace_item_detail_rail_events_total` metric omit search correlation fields.
 use std::{sync::OnceLock, time::Duration};
 
 use corten::{
@@ -176,27 +172,7 @@ pub(crate) async fn devtools() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-/// The rail and search events marketplace takes (`itemDetailRailAnalyticsEventNames`).
-const RAIL_EVENTS: [&str; 15] = [
-    "rail_intent_selected",
-    "workflow_selected",
-    "similar_item_selected",
-    "search_result_selected",
-    "reference_info_opened",
-    "payout_preview_shown",
-    "standard_preview_unavailable",
-    "registration_gate_shown",
-    "registration_started",
-    "registration_return_completed",
-    "term_delta_reviewed",
-    "intent_persisted",
-    "commit_gate_reached",
-    "intent_submit_started",
-    "validation_failed",
-];
-
-/// The labels an event may carry, each a bounded name or nothing.
-const RAIL_LABELS: [&str; 8] = ["intent", "workflow", "selection", "topic", "outcome", "gate", "viewer", "surface"];
+include!("../rail-analytics-vocabulary.rs");
 
 /// An analytics event marketplace's endpoint takes: its name and labels, the search result's
 /// position and keys.
@@ -353,7 +329,9 @@ mod tests {
 
     #[test]
     fn a_rail_event_is_counted_with_marketplace_web_s_labels() {
-        let event = rail_event(br#"{"event":"workflow_selected","workflow":"sell","viewer":"guest"}"#).expect("taken");
+        let event =
+            rail_event(br#"{"event":"workflow_selected","workflow":"sell","viewer":"guest","unrelated":"ignored"}"#)
+                .expect("taken");
         let labels: Vec<(String, String)> =
             rail_labels(&event).iter().map(|kv| (kv.key.to_string(), kv.value.to_string())).collect();
         let expected = [
@@ -369,5 +347,66 @@ mod tests {
             ("surface", "none"),
         ];
         assert_eq!(labels, expected.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    }
+
+    #[tokio::test]
+    async fn a_rail_event_logs_only_the_existing_bounded_fields() {
+        use std::collections::BTreeMap;
+        use std::sync::{Arc, Mutex};
+        use tracing::{
+            field::{Field, Visit},
+            subscriber::NoSubscriber,
+            Event, Subscriber,
+        };
+        use tracing_subscriber::layer::{Context, SubscriberExt};
+        use tracing_subscriber::Layer;
+
+        #[derive(Default)]
+        struct Fields(BTreeMap<String, String>);
+        impl Visit for Fields {
+            fn record_str(&mut self, field: &Field, value: &str) {
+                self.0.insert(field.name().trim_start_matches("r#").to_owned(), value.to_owned());
+            }
+
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                self.record_str(field, &format!("{value:?}"));
+            }
+        }
+        #[derive(Clone, Default)]
+        struct Captured(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+        impl<S: Subscriber> Layer<S> for Captured {
+            fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+                let mut fields = Fields::default();
+                event.record(&mut fields);
+                if fields.0.contains_key("type") {
+                    self.0.lock().unwrap().push(fields.0);
+                }
+            }
+        }
+
+        let captured = Captured::default();
+        // Keep the callsite from caching another test thread's no-subscriber answer.
+        let _other = tracing::Dispatch::new(NoSubscriber::default());
+        let _sub = tracing::subscriber::set_default(tracing_subscriber::registry().with(captured.clone()));
+        tracing::callsite::rebuild_interest_cache();
+        let body = bytes::Bytes::from_static(br#"{"event":"search_result_selected","intent":"buy","workflow":"selected_listing","selection":"explicit","topic":"listing_checkout","outcome":"opened","gate":"buyer_registration","viewer":"guest","surface":"search_results","position":1,"unrelated":"ignored"}"#);
+        assert_eq!(super::rail_analytics(body).await.ok(), Some(super::StatusCode::NO_CONTENT));
+        let mut events = captured.0.lock().unwrap();
+        assert_eq!(events.len(), 1, "{events:?}");
+        let mut fields = events.pop().unwrap();
+        assert!(fields.remove("message").is_some());
+        let expected = [
+            ("type", "marketplace.item_detail_rail.analytics_event"),
+            ("event", "search_result_selected"),
+            ("intent", "buy"),
+            ("workflow", "selected_listing"),
+            ("selection", "explicit"),
+            ("topic", "listing_checkout"),
+            ("outcome", "opened"),
+            ("gate", "buyer_registration"),
+            ("viewer", "guest"),
+            ("surface", "search_results"),
+        ];
+        assert_eq!(fields, expected.into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())).collect::<BTreeMap<_, _>>());
     }
 }
