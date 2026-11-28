@@ -920,11 +920,15 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByRole("heading", { name: "Sales", level: 1, exact: true })).toBeVisible();
   });
 
-  test("listing inventory redraw keeps the same live status region @marketplace-seller", async ({ page }) => {
+  test("listing inventory redraw keeps the same live status region @marketplace-seller @mobile", async ({ page }) => {
     test.skip(!onCortenMarketplace, "This checks the Corten listing form's patch targets.");
     const path = "/account/listings/new";
     await page.goto("/sign-in?returnTo=%2Faccount%2Flistings%2Fnew");
     await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
+    await page.route(
+      (url) => url.pathname === path,
+      (route) => (route.request().method() === "GET" ? route.continue() : route.abort()),
+    );
     await expectAccountRouteReady(page, { path, heading: /^Create listing$/i, flow: "create listing" });
 
     const advanced = page.getByText("Advanced inventory and limits", { exact: true });
