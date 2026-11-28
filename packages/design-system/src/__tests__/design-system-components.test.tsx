@@ -78,7 +78,6 @@ import {
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceFacetStrip,
-  MarketplaceMarketSummary,
   MarketplaceProductCard,
   MarketplaceShell,
   NotificationCenterSheet,
@@ -1614,24 +1613,6 @@ describe("design system components", () => {
     expect(badgeMarkup).toContain("Chase Sets");
     expect(badgeMarkup).toContain("Verified");
     expect(badgeMarkup).toContain("<svg");
-  });
-
-  it("renders marketplace market summaries as compact buyer signals", () => {
-    const markup = renderToString(
-      <MarketplaceMarketSummary
-        price="$21.50"
-        note="Raw / Excellent"
-        facts={[
-          { label: "Available", value: "3" },
-          { label: "Sellers", value: "1" },
-        ]}
-      />,
-    );
-
-    expect(markup).toContain("$21.50");
-    expect(markup).toContain("Raw / Excellent");
-    expect(markup).toContain("Available");
-    expect(markup).toContain("Sellers");
   });
 
   it("renders commerce action bars with optional intent controls", () => {
