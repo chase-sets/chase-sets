@@ -241,6 +241,7 @@
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
 // - marketplace/link-routes.json: the retired marketplace-web host's route records for the parity test.
+// - marketplace/rail-analytics-vocabulary.rs: Discovery's rail and search analytics event and label names.
 // - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
 //   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
 //   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
@@ -884,6 +885,31 @@ async function policies() {
 }
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+
+function railAnalyticsVocabulary() {
+  const source = "bounded-contexts/discovery/features/item-detail/domain/rail-analytics-vocabulary.json";
+  const { events, labels } = JSON.parse(readFileSync(path.join(repo, source), "utf8"));
+  const rustNames = (names) => {
+    const entries = names && typeof names === "object" && !Array.isArray(names) ? Object.entries(names) : [];
+    if (
+      entries.length === 0 ||
+      entries.some(
+        ([name, enabled]) => enabled !== true || name.length < 1 || name.length > 80 || /[^a-zA-Z0-9_.-]/.test(name),
+      )
+    ) {
+      throw new Error("Discovery rail analytics vocabulary must contain bounded names set to true");
+    }
+    return entries.map(([name]) => JSON.stringify(name));
+  };
+  return [
+    "// Generated from Discovery by deployables/corten-pilot/scripts/export.mjs.",
+    "const RAIL_EVENTS: &[&str] = &[",
+    ...rustNames(events).map((name) => `    ${name},`),
+    "];",
+    `const RAIL_LABELS: &[&str] = &[${rustNames(labels).join(", ")}];`,
+    "",
+  ].join("\n");
+}
 const { catalogScopeProductDomains } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/catalog/features/scope-registry/domain/contract.ts")).href
 );
@@ -2076,6 +2102,7 @@ const outputs = [
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
   ["marketplace/link-routes.json", json(marketplaceLinkRoutes())],
+  ["marketplace/rail-analytics-vocabulary.rs", railAnalyticsVocabulary()],
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
   [

@@ -1,10 +1,10 @@
 # Item Detail Rail Analytics
 
-The simplified item-detail rail emits provider-neutral analytics for the Buy, Sell, and Watch workflows. Discovery owns the browser event contract and ingestion route because it owns the item-detail selection surface. Its marketplace-web root-placement contribution serves `/analytics/item-detail-rail`. The marketplace deployable registers the observability adapter at server startup through the platform-runtime analytics recorder port; an unregistered recorder is a no-op and valid events still return 204.
+The item-detail rail emits provider-neutral analytics for the Buy, Sell, and Watch workflows. Discovery owns the browser event contract because it owns the item-detail selection surface. The Corten marketplace serves `/analytics/item-detail-rail` using the vocabulary exported from Discovery's item-detail feature. It records accepted events through the pilot's platform telemetry and returns 204, even when no collector is configured.
 
 ## Browser Event
 
-Rails dispatch a `CustomEvent` named `chase-sets:item-detail-rail-analytics`. The marketplace root configures the shared platform-runtime bridge builder with Discovery's event vocabulary and existing field readers, posting allowlisted labels to `/analytics/item-detail-rail`.
+The Corten item-detail and search views post event payloads to `/analytics/item-detail-rail`.
 
 The event detail must contain `event` plus optional bounded labels:
 
@@ -52,4 +52,4 @@ Search Result analytics must not include raw query text, Filter values, item ide
 
 ## Observability
 
-`/analytics/item-detail-rail` records accepted events to `chase_sets_marketplace_item_detail_rail_events_total` with bounded labels. Unsupported event names and invalid labels are rejected before logging.
+`/analytics/item-detail-rail` records accepted events to `chase_sets_marketplace_item_detail_rail_events_total` with bounded labels. Unsupported event names and invalid values for declared labels are rejected before logging. Unrelated JSON fields are ignored and do not become log fields or metric labels.
