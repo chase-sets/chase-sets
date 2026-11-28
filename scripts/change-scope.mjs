@@ -13,6 +13,7 @@ import {
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 import { resolveRequiredProofPaths, unavailableChangeSetSelectionMode } from "./lib/context-proof-sets.mjs";
+import { touchesDiscoverySuggestionParity } from "./lib/discovery-suggestion-parity-scope.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
@@ -448,6 +449,7 @@ export function classifyChanges({
   let cortenAdminBrowserChanged = false;
   let cortenPublicBrowserChanged = false;
   let cortenPilotCheckChanged = false;
+  const discoverySuggestionParityRequired = touchesDiscoverySuggestionParity(normalizedFiles);
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
   const integrationRisk = classifyIntegrationRisk({ changedFiles: normalizedFiles });
@@ -546,6 +548,13 @@ export function classifyChanges({
     }
   }
 
+  if (discoverySuggestionParityRequired && !normalizedFiles.includes(".github/workflows/platform-pr.yml")) {
+    const discovery = workspaces.find(({ name }) => name === "@chase-sets/discovery");
+    if (discovery) {
+      directlyTestOnlyAffectedWorkspaces.add(discovery.name);
+    }
+  }
+
   if (rootRuntimeChanged) {
     for (const workspace of workspaces) {
       directlyRuntimeAffectedWorkspaces.add(workspace.name);
@@ -636,7 +645,7 @@ export function classifyChanges({
     schedulerOwnedArtifactChanged &&
     [...affectedWorkspaceSet].some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
-    normalizedFiles.includes(".github/workflows/platform-pr.yml") ||
+    discoverySuggestionParityRequired ||
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return dbTestScripts(workspace).length > 0;

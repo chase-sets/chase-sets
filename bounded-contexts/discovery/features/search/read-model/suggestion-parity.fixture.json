@@ -1,0 +1,130 @@
+{
+  "expansions": {
+    "ember": "emberdrake",
+    "zard": "charizard"
+  },
+  "rows": [
+    {
+      "catalogItemId": "cat_parity_rank",
+      "title": "Zeta Emberdrake",
+      "subtitle": "First edition",
+      "slug": "zeta-emberdrake",
+      "category": "Singles",
+      "english": "emberdrake",
+      "simple": "emberdrake",
+      "weight": "A",
+      "status": "active",
+      "setCode": null
+    },
+    {
+      "catalogItemId": "cat_parity_b",
+      "title": "Alpha Emberdrake",
+      "subtitle": null,
+      "slug": "alpha-emberdrake-two",
+      "category": null,
+      "english": "emberdrake",
+      "simple": "emberdrake",
+      "weight": "D",
+      "status": "active",
+      "setCode": null
+    },
+    {
+      "catalogItemId": "cat_parity_a",
+      "title": "Alpha Emberdrake",
+      "subtitle": null,
+      "slug": "alpha-emberdrake-one",
+      "category": "Singles",
+      "english": "emberdrake",
+      "simple": "emberdrake",
+      "weight": "D",
+      "status": "active",
+      "setCode": null
+    },
+    {
+      "catalogItemId": "cat_parity_draft",
+      "title": "Draft Emberdrake",
+      "subtitle": null,
+      "slug": "draft-emberdrake",
+      "category": null,
+      "english": "emberdrake",
+      "simple": "emberdrake",
+      "weight": "A",
+      "status": "draft",
+      "setCode": null
+    },
+    {
+      "catalogItemId": "cat_parity_set_code",
+      "title": "Literal set code",
+      "subtitle": "ZARD 4/102",
+      "slug": "literal-set-code",
+      "category": null,
+      "english": "zard 4/102",
+      "simple": "zard 4 102",
+      "weight": "D",
+      "status": "active",
+      "setCode": "zard"
+    },
+    {
+      "catalogItemId": "cat_parity_synonym_decoy",
+      "title": "Charizard numbered decoy",
+      "subtitle": "4/102",
+      "slug": "charizard-numbered-decoy",
+      "category": null,
+      "english": "charizard 4/102",
+      "simple": "charizard 4 102",
+      "weight": "D",
+      "status": "active",
+      "setCode": null
+    },
+    {
+      "catalogItemId": "cat_parity_latin",
+      "title": "Évoli",
+      "subtitle": null,
+      "slug": "evoli",
+      "category": null,
+      "english": "evoli",
+      "simple": "evoli",
+      "weight": "D",
+      "status": "active",
+      "setCode": null
+    },
+    {
+      "catalogItemId": "cat_parity_cjk",
+      "title": "リザードン",
+      "subtitle": null,
+      "slug": "lizardon",
+      "category": null,
+      "english": "リザードン",
+      "simple": "リザードン リザ ザー ード ドン",
+      "weight": "D",
+      "status": "active",
+      "setCode": null
+    }
+  ],
+  "requests": [
+    {
+      "name": "configured shorthand preserves rank, title and ID order and excludes a draft",
+      "query": "ember",
+      "limit": null,
+      "ids": ["cat_parity_rank", "cat_parity_a", "cat_parity_b"]
+    },
+    {
+      "name": "limit uses the leading integer",
+      "query": "emberd",
+      "limit": "2.9",
+      "ids": ["cat_parity_rank", "cat_parity_a"]
+    },
+    { "name": "limit clamps to one", "query": "emberd", "limit": "-9", "ids": ["cat_parity_rank"] },
+    {
+      "name": "set code blocks synonym expansion",
+      "query": "zard 4/102",
+      "limit": null,
+      "ids": ["cat_parity_set_code"]
+    },
+    { "name": "Latin diacritic folding", "query": "Évo", "limit": null, "ids": ["cat_parity_latin"] },
+    { "name": "CJK substring matches indexed bigrams", "query": "リザード", "limit": null, "ids": ["cat_parity_cjk"] },
+    { "name": "blank query", "query": "   ", "limit": null, "ids": [] },
+    { "name": "syntax without a searchable token", "query": "' | ! :*", "limit": null, "ids": [] },
+    { "name": "no match", "query": "galacticmissingproduct", "limit": null, "ids": [] }
+  ]
+}
