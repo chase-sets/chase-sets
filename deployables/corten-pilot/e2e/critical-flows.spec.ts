@@ -920,6 +920,40 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByRole("heading", { name: "Sales", level: 1, exact: true })).toBeVisible();
   });
 
+  test("listing inventory redraw keeps the same live status region @marketplace-seller", async ({ page }) => {
+    test.skip(!onCortenMarketplace, "This checks the Corten listing form's patch targets.");
+    const path = "/account/listings/new";
+    await page.goto("/sign-in?returnTo=%2Faccount%2Flistings%2Fnew");
+    await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
+    await expectAccountRouteReady(page, { path, heading: /^Create listing$/i, flow: "create listing" });
+
+    const advanced = page.getByText("Advanced inventory and limits", { exact: true });
+    const form = page.locator("main form[data-patch]").filter({
+      has: advanced,
+    });
+    const notice = form.getByRole("status");
+    await expect(notice).toHaveAttribute("aria-live", "polite");
+    await expect(notice).toHaveText("");
+    const before = await notice.elementHandle();
+    await advanced.click();
+    const inventory = form.getByRole("combobox", { name: /^Use existing inventory/ });
+    const item = await inventory.locator('option:not([value=""])').first().getAttribute("value");
+    if (!item) throw new Error("The seeded seller needs an inventory item to redraw the listing form.");
+    const redrawn = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname === path &&
+        url.searchParams.get("inventoryItemId") === item &&
+        url.searchParams.get("redraw") === "1"
+      );
+    });
+    await inventory.selectOption(item);
+    expect((await redrawn).headers()["corten-patch"]).toBe("1");
+    await expect(notice.getByText("Advanced inventory selected", { exact: true })).toBeVisible();
+    expect(await notice.evaluate((current, initial) => current === initial, before)).toBe(true);
+  });
+
   test("seeded seller can reach critical marketplace commerce surfaces including repricing @marketplace-seller", async ({
     page,
   }) => {

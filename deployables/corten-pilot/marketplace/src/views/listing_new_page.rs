@@ -25,9 +25,12 @@ corten::script::script!(pub mod handlers = "listing_new.js");
 /// The form.
 #[derive(Id, Clone, Copy)]
 pub struct ListingFormId;
-/// What the form says about itself: a refusal, a draft saved, a notice.
+/// The error summary, separate from the polite status region.
 #[derive(Id)]
-pub struct NoticeId;
+struct ListingFormRefusalId;
+/// The message patched inside the persistent status region.
+#[derive(Id)]
+struct NoticeMessageId;
 
 /// The photo input's hint, which describes the input ahead of its error.
 #[derive(Id)]
@@ -113,7 +116,12 @@ pub fn NewListingPage<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScre
                 {p.listing_new_update_options()}
             </button>
             {SubmitKey::field(f.attempt)}
-            <NoticePart t={t} p={p} screen={screen} />
+            <div class={Notices}>
+                <FormRefusalPart t={t} p={p} screen={screen} />
+                <div class={NoticeRegion} role="status" aria-live="polite">
+                    <NoticePart t={t} screen={screen} />
+                </div>
+            </div>
             <div class={Banner} data-tone="info">
                 <p class={Strong}>{t.page_list_without_managing_inventory()}</p>
                 <p>{t.page_choose_a_product_price_and_quantity()}</p>
@@ -144,7 +152,8 @@ pub fn NewListingPage<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScre
 #[component(css = NewListingPage)]
 pub fn NewListingParts<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> impl Patch {
     html! {
-        <NoticePart t={t} p={p} screen={screen} />
+        <FormRefusalPart t={t} p={p} screen={screen} />
+        <NoticePart t={t} screen={screen} />
         <ProductPart t={t} p={p} screen={screen} />
         <PhotosPart t={t} screen={screen} />
         <ReadinessPart t={t} screen={screen} />
@@ -177,14 +186,12 @@ fn PhotosPart<'a>(t: ListingNewMsg, screen: &'a NewListingScreen) -> impl Patch 
     }
 }
 
-/// A refusal, a draft saved, why the page started without what its address asked, and the
-/// selected inventory's own notices.
+/// A refusal and the recovery steps. The form error supplies its own alert.
 #[component(css = NewListingPage)]
-fn NoticePart<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> impl Patch {
-    let selected = screen.selected();
+fn FormRefusalPart<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> impl Patch {
     let draft = screen.draft_saved.as_deref().map(|id| crate::seller_listing::at(id, None, None).href());
     html! {
-        <div id={NoticeId} class={Notices} role="status" aria-live="polite">
+        <div id={ListingFormRefusalId} class={FormRefusal}>
             if !screen.errors.is_empty() {
                 <div class={Banner} data-tone="danger" tabindex="-1">
                     <p class={Strong}>{t.page_create_listing()}</p>
@@ -197,6 +204,17 @@ fn NoticePart<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> i
                     }
                 </div>
             }
+        </div>
+    }
+}
+
+/// Why the page started without what its address asked, and the selected inventory's notices.
+/// Only the message is a patch target; the status region must already be present.
+#[component(css = NewListingPage)]
+fn NoticePart<'a>(t: ListingNewMsg, screen: &'a NewListingScreen) -> impl Patch {
+    let selected = screen.selected();
+    html! {
+        <div id={NoticeMessageId} class={NoticeMessage}>
             if let Some(notice) = &screen.notice {
                 <div class={Banner} data-tone="danger">
                     <p class={Strong}>{t.page_create_listing()}</p>
