@@ -44,7 +44,7 @@ function recorderWithSinks() {
 }
 
 describe("Saved List analytics recorder", () => {
-  it("emits the exact metric and log fields for every event, ignoring labels outside its tuple", () => {
+  it("emits the exact metric and log fields for every event, ignoring labels outside its tuple", async () => {
     const { recorder, createCounter, add, logger } = recorderWithSinks();
     expect(createCounter).toHaveBeenCalledExactlyOnceWith("chase_sets_collections_saved_list_events_total");
     expect(add).not.toHaveBeenCalled();
@@ -80,7 +80,7 @@ describe("Saved List analytics recorder", () => {
         estimate_state: "stale",
       },
     ] as const;
-    for (const { event } of expected) recorder.record({ event, ...populated });
+    for (const { event } of expected) await recorder.record({ event, ...populated });
     const attributes = expected.map((fields) => ({ context: "collections", ...fields }));
     expect(add.mock.calls).toEqual(attributes.map((fields) => [1, fields]));
     expect(logger.info.mock.calls).toEqual(
@@ -92,7 +92,7 @@ describe("Saved List analytics recorder", () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it("sanitizes malformed labels and unknown events without forwarding sensitive input", () => {
+  it("sanitizes malformed labels and unknown events without forwarding sensitive input", async () => {
     const { recorder, add, logger } = recorderWithSinks();
     const sensitive = Object.fromEntries(forbidden.map((key) => [key, marker]));
     const inputs = [
@@ -106,7 +106,7 @@ describe("Saved List analytics recorder", () => {
       },
       { event: marker, surface: "search", outcome: "added", coverage_band: "high", estimate_state: "current" },
     ];
-    for (const input of inputs) recorder.record({ ...input, ...sensitive } as unknown as SavedListAnalyticsEvent);
+    for (const input of inputs) await recorder.record({ ...input, ...sensitive } as unknown as SavedListAnalyticsEvent);
 
     const expected = [
       {
