@@ -110,6 +110,7 @@ const projects = [
 
 export default defineConfig({
   testDir: ".",
+  testIgnore: "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts",
   metadata: {
     platformApiUrl: sandbox.urls.platformApi,
     catalogDatabaseUrl: sandbox.contextDatabaseUrls.catalog,

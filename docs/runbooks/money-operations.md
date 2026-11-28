@@ -366,7 +366,24 @@ Stripe Dashboard checks:
 
 ## Stripe Embed Confirmation UAT
 
-The money smoke test above proves routing, auth, embedded payout setup, and payment creation, but it runs in Node and never mounts a real Stripe element or submits a card. marketplace-web's opt-in Playwright UAT that did (`account-payment-stripe-embed.uat.spec.ts`) was removed with that deployable, and the Corten marketplace has no replacement yet: [#12100 [corten-pilot] Replace marketplace-web's Stripe embed confirmation UAT with one for the Corten marketplace](https://github.com/chase-sets/chase-sets/issues/12100) tracks it. Until it lands, prove the card step by hand on staging in Stripe test mode (a 4242 card, a 3-D Secure pass and a failed challenge) and record the payment and order ids.
+The Node money smoke never mounts Stripe's Payment Element or submits a card. The manual Corten marketplace UAT signs in, starts payment with no wallet credit, fills the real Stripe Payment Element with the 4242 test card, confirms, and polls the buyer's payment until it reaches `captured`. It does not cover 3-D Secure.
+
+Run this **only against staging in Stripe test mode**. Prepare a fresh, unclaimed, pending-payment order through the normal staging checkout for one non-canary raw single with letter shipping. Use a dedicated staging buyer authorized to pay that order. The operator attests that the order is for a non-canary raw single with letter shipping; the spec's buyer-facing order read checks only pending-payment status and a single unit. The run consumes that order; use a new one for a repeat.
+
+Set the following in the operator's environment (do not put credentials on the command line):
+
+- `STRIPE_EMBED_UAT=true` opts in; the spec skips otherwise.
+- `MARKETPLACE_WEB_URL`: the staging marketplace HTTPS origin, for example `https://marketplace.staging.chasesets.com`.
+- `MARKETPLACE_E2E_EMAIL` and `MARKETPLACE_E2E_PASSWORD`: the staging buyer's credentials.
+- `STRIPE_PUBLISHABLE_KEY`: the staging marketplace's matching Stripe test publishable key (`pk_test_`). No Stripe secret key is needed.
+- `STRIPE_EMBED_UAT_ORDER_ID`: the one prepared pending-payment order.
+
+```sh
+STRIPE_EMBED_UAT=true pnpm exec playwright test \
+  --config=playwright.stripe-embed-uat.config.ts --project=stripe-embed-uat
+```
+
+Before any browser launches, the manual config's global setup refuses a non-test publishable key, any production hostname in the environment host registry, or an unknown or non-staging origin. Before sign-in or payment creation, the application must report a real Stripe processor in staging test mode. Before Continue, the submitting form must name exactly the authorized order. Before card entry or confirmation, the buyer's payment must cover exactly that same order and report the same publishable key. The manual config has no web server, retries, traces, screenshots, or video; the shared projects and PR browser jobs do not run this spec.
 
 If a card confirms client-side but the payment never reaches `captured`, that is a webhook delivery or ingestion problem, not a UI problem: triage it with the Stripe Webhook Ingestion section below.
 

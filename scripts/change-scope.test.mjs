@@ -1207,14 +1207,17 @@ describe("shared E2E setup selection", () => {
     );
     // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
     const nonRouteCasesAdded = 6;
-    // marketplace-web's retirement removed the cases for its own paths and added one for the Corten buyer
-    // purchase journey spec, which no longer shares a family with marketplace-web specs.
+    // marketplace-web's retirement removed cases for its own paths. The Corten buyer journey has its
+    // own family, and the replacement manual Stripe UAT has a no-suite case.
     const retiredCases = captured.cases.filter(
       ({ changedFiles }) =>
         changedFiles.length > 0 &&
         changedFiles.every((file) => isRetiredMarketplaceWebPath(movedSpecs.get(file)?.path ?? file)),
     );
-    const retirementCasesAdded = ["deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts"];
+    const retirementCasesAdded = [
+      "deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts",
+      "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts",
+    ];
     const routeCasesAdded = routeMoves.reduce(
       (total, { addedCaseCount, movedRoutes }) => total + (addedCaseCount ?? movedRoutes.files.length),
       0,
@@ -1324,6 +1327,19 @@ describe("shared E2E setup selection", () => {
       expect(existsSync(path.join(repoRoot, family.path)), family.path).toBe(false);
       return { ...family, synthetic: true, trackedCandidates: deletedRouteModuleFamilies.get(family.family) };
     });
+    // The replacement Stripe UAT is only runnable through its manual config, not a browser suite.
+    expectedFamiliesAfterRouteDeletion.splice(
+      expectedFamiliesAfterRouteDeletion.findIndex(({ family }) => family === "e2eNoSuiteExclusions:1") + 1,
+      0,
+      {
+        family: "e2eNoSuiteExclusions:2",
+        pattern: String(/^deployables\/corten-pilot\/e2e\/account-payment-stripe-embed\.uat\.spec\.ts$/),
+        suites: null,
+        path: "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts",
+        trackedCandidates: 1,
+        synthetic: false,
+      },
+    );
     expect(candidate.families).toEqual(expectedFamiliesAfterRouteDeletion);
     for (const { movedRoutes, selectorCases = [] } of routeMoves) {
       for (const { file, suites, batches, cortenMarketplaceBrowser } of selectorCases) {
