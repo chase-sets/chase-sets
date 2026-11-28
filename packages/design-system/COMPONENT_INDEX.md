@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 356
-- Source modules covered: 130
+- Runtime exports indexed: 352
+- Source modules covered: 129
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -168,13 +168,9 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MarketplaceFacetRail` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Facet Rail. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `MarketplaceFacetStrip` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Facet Strip. | `No production consumer yet.` |
 | `MarketplaceFilterBottomSheet` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Filter Bottom Sheet. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
-| `MarketplaceMarketSummary` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Market Summary. | `No production consumer yet.` |
 | `MarketplaceMobileFilterBar` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Mobile Filter Bar. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `MarketplaceNotice` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Marketplace Notice. | `bounded-contexts/channels/features/connection-attention/ui/health-panel.tsx` |
 | `MarketplaceProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Card. | `bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx` |
-| `MarketplaceProductCommerceRail` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Commerce Rail. | `No production consumer yet.` |
-| `MarketplaceProductDetailLayout` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Detail Layout. | `No production consumer yet.` |
-| `MarketplaceProductMobileActionDock` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Mobile Action Dock. | `No production consumer yet.` |
 | `MarketplaceShell` | `packages/design-system/src/patterns/app-shells/shells.tsx` | Purpose not documented; symbol name suggests: Marketplace Shell. | `bounded-contexts/discovery/support/shell-support/layout.tsx` |
 | `MarketplaceStatusTimeline` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Status Timeline. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx` |
 | `MarketplaceTemplateGallery` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Template Gallery. | `No production consumer yet.` |

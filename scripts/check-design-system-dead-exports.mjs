@@ -73,8 +73,6 @@ const canonicalReserveZeroConsumerExports = [
   "layoutWidthClasses",
   "MarketplaceActionSheet",
   "MarketplaceFacetStrip",
-  "MarketplaceProductCommerceRail",
-  "MarketplaceProductMobileActionDock",
   "Menu",
   "MessageThreadPreview",
   "NavigationDrawer",
@@ -155,8 +153,6 @@ const retiredConsumerZeroConsumerExports = [
   "CommerceActionBar",
   "CommerceBottomSheet",
   "FormPanel",
-  "MarketplaceMarketSummary",
-  "MarketplaceProductDetailLayout",
   "OrderProtectionBadge",
   "TrustBadge",
 ].map((symbol) => ({

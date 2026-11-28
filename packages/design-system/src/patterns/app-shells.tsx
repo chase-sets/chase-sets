@@ -10,6 +10,5 @@ export * from "./app-shells/product-cards";
 export * from "./app-shells/facets";
 export * from "./app-shells/marketing";
 export * from "./app-shells/checkout-panels";
-export * from "./app-shells/product-detail";
 
 export * from "./commerce-overlays";
