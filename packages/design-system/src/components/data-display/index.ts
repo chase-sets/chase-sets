@@ -10,20 +10,6 @@ export {
 export { LocalDateTime, type LocalDateTimeProps } from "./local-date-time";
 export { Stat, type StatProps, StatGrid, type StatGridProps } from "./stat";
 export {
-  ComparisonList,
-  ComparisonListCell,
-  ComparisonListHeader,
-  ComparisonListPrice,
-  ComparisonListRow,
-  ComparisonListRowGrid,
-  type ComparisonListCellProps,
-  type ComparisonListHeaderProps,
-  type ComparisonListPriceProps,
-  type ComparisonListProps,
-  type ComparisonListRowGridProps,
-  type ComparisonListRowProps,
-} from "./comparison-list";
-export {
   Timeline,
   type TimelineItem,
   type TimelineProps,

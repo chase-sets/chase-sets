@@ -9,10 +9,10 @@
     "exempt": ["packages/design-system/src/primitives/**", "leading @ds-leaf marker comment"]
   },
   "summary": {
-    "governedFileCount": 118,
+    "governedFileCount": 117,
     "exemptFileCount": 8,
     "exemptByReason": { "ds-leaf-marker": 3, "primitive": 5 },
-    "totalRawClassNameCount": 650,
+    "totalRawClassNameCount": 643,
     "topBudgets": [
       { "file": "packages/design-system/src/components/checkout/marketplace.tsx", "budget": 41 },
       { "file": "packages/design-system/src/components/checkout/summary.tsx", "budget": 39 },
@@ -65,7 +65,6 @@
     "packages/design-system/src/components/data-display/actor-identity-cue.tsx": 9,
     "packages/design-system/src/components/data-display/card.tsx": 10,
     "packages/design-system/src/components/data-display/chart.tsx": 22,
-    "packages/design-system/src/components/data-display/comparison-list.tsx": 7,
     "packages/design-system/src/components/data-display/data-table.tsx": 21,
     "packages/design-system/src/components/data-display/filter.tsx": 17,
     "packages/design-system/src/components/data-display/image-gallery.tsx": 7,
