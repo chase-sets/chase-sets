@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 362
-- Source modules covered: 131
+- Runtime exports indexed: 356
+- Source modules covered: 130
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -84,12 +84,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CommerceActionBar` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Commerce Action Bar. | `No production consumer yet.` |
 | `CommerceBottomSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Commerce Bottom Sheet. | `No production consumer yet.` |
 | `CommerceSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Commerce Sheet. | `bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.tsx` |
-| `ComparisonList` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List. | `No production consumer yet.` |
-| `ComparisonListCell` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List Cell. | `No production consumer yet.` |
-| `ComparisonListHeader` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List Header. | `No production consumer yet.` |
-| `ComparisonListPrice` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List Price. | `No production consumer yet.` |
-| `ComparisonListRow` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List Row. | `No production consumer yet.` |
-| `ComparisonListRowGrid` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List Row Grid. | `No production consumer yet.` |
 | `ComparisonModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Comparison Module. | `bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx` |
 | `ConditionBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Condition Badge. | `No production consumer yet.` |
 | `ConnectionStatusIndicator` | `packages/design-system/src/components/data-display/operational-workflow/connection-status-indicator.tsx` | Connection live/stale indicator: a compact "live" badge with a reduced- motion-aware pulse while a realtime stream or poll is actually advancing, escalating to an `OperationalStatusBanner` once the connection has gone quiet past the caller's staleness threshold. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module.tsx` |
