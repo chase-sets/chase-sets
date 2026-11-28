@@ -63,12 +63,22 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.notices {
+.notices,
+.notice-message {
   display: grid;
   gap: var(--space-3);
 }
-.notices:empty {
+.form-refusal:empty {
   display: none;
+}
+.notices:not(:has(.banner)),
+.notice-region:not(:has(.banner)) {
+  /* Keep an empty status in the accessibility tree without a gap in the form. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 .banner {
   display: grid;

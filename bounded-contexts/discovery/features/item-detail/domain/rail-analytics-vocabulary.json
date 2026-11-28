@@ -1,0 +1,29 @@
+{
+  "events": {
+    "rail_intent_selected": true,
+    "workflow_selected": true,
+    "similar_item_selected": true,
+    "search_result_selected": true,
+    "reference_info_opened": true,
+    "payout_preview_shown": true,
+    "standard_preview_unavailable": true,
+    "registration_gate_shown": true,
+    "registration_started": true,
+    "registration_return_completed": true,
+    "term_delta_reviewed": true,
+    "intent_persisted": true,
+    "commit_gate_reached": true,
+    "intent_submit_started": true,
+    "validation_failed": true
+  },
+  "labels": {
+    "intent": true,
+    "workflow": true,
+    "selection": true,
+    "topic": true,
+    "outcome": true,
+    "gate": true,
+    "viewer": true,
+    "surface": true
+  }
+}
