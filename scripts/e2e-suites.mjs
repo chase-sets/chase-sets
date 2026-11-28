@@ -279,6 +279,10 @@ export const e2eNoSuiteExclusions = Object.freeze([
     reason:
       "Kept public spec: the public-web-chromium Playwright project only exists when PUBLIC_WEB_URL names a running public host, so no named suite runs it. The required Corten Public Browser Tests job runs it by path against the Corten public app.",
   },
+  {
+    pattern: /^deployables\/corten-pilot\/e2e\/account-payment-stripe-embed\.uat\.spec\.ts$/,
+    reason: "Manual staging Stripe test-mode UAT; only the dedicated opt-in Playwright config runs it.",
+  },
 ]);
 
 const boundedContextRouteSuiteOwnership = [
