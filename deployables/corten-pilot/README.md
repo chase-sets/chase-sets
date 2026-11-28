@@ -1,23 +1,28 @@
 # Corten pilot
 
-Chase Sets screens ported to [Corten](https://github.com/todd-skelton/corten), the Rust and plain
+Chase Sets screens ported to [Corten](https://github.com/corten-run/corten), the Rust and plain
 JavaScript framework, to find what Corten lacks for real screens with real data and auth. Each app
 is a standalone server in front of the existing platform API: every call forwards the signed-in
 user's cookies, as the React apps do, and business rules stay in the API. The pilot owns only the
 screens.
 
-Only the admin app is deployed: to staging, at `admin-corten.staging.chasesets.com` next to admin-web, since [#11330 [infrastructure] Deploy Corten admin alongside staging admin-web](https://github.com/chase-sets/chase-sets/pull/11330). The marketplace and public apps are not deployed. The pilot is not part of the platform gates or the delivery loop. Its own CI job,
-[corten-pilot.yml](../../.github/workflows/corten-pilot.yml), is advisory.
+The Corten admin, marketplace and public apps serve their respective hosts in staging and
+production. Platform Deploy builds each app's image separately from the platform release image.
+`admin-web` still holds the Catalog staging UAT; it no longer serves the admin host.
+
+[Platform PR](../../.github/workflows/platform-pr.yml) requires Corten Pilot Check and the Corten
+browser suites when selected by change scope. The separate
+[corten-pilot.yml](../../.github/workflows/corten-pilot.yml) workflow is advisory.
 
 ## Owner
 
 Todd Skelton owns the pilot. Its work runs in a dedicated Codex task (the "Corten pilot" thread)
 alongside the Corten framework's own task, not through the delivery loop. Lanes do not pick up
-pilot work, and a delivery change that makes the advisory pilot check fail is not blocked by it:
-note it on the PR and the pilot task fixes the pilot. Where a problem goes:
+pilot work. If a delivery change makes a pilot check fail, note it on the PR and coordinate the
+fix with the pilot task. Where a problem goes:
 
 1. Corten lacks something another app would also hit: an issue in
-   [todd-skelton/corten](https://github.com/todd-skelton/corten/issues), one gap per issue, with the
+   [corten-run/corten](https://github.com/corten-run/corten/issues), one gap per issue, with the
    pilot's workaround linked.
 2. A Chase Sets bug, or a business rule that lives in a web loader instead of its API: an issue in
    this repo, with the pilot's workaround linked (below).

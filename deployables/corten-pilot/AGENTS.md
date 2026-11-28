@@ -6,14 +6,19 @@ with its own stylesheet and the caller its routes module names) and `platform/`,
 share.
 
 Owner: Todd Skelton. The pilot is worked in its own Codex task (the "Corten pilot" thread), not by
-the delivery loop: a lane does not take pilot work, and a lane whose change makes the advisory
-`corten-pilot.yml` check fail notes it on its PR instead of fixing the pilot. Keep it isolated: it is
-not part of the platform gates. Only the admin app is deployed, to staging, by the delivery loop's
-`Dockerfile.corten-admin` and Helm component `admin-corten`; the marketplace and public apps are not
-deployed. The root `.dockerignore` keeps the pilot out of the platform image; do not add a
-`Dockerfile` here, since `deployables/*/Dockerfile` makes every pilot PR build and preview the
-platform. Business
-rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
+the delivery loop. Platform PR's Corten Pilot Check is required when selected by
+`scripts/change-scope.mjs`; the separate `corten-pilot.yml` workflow is advisory. A lane whose
+change makes either check fail notes it on its PR and coordinates with the pilot task rather than
+editing the pilot.
+
+Staging and production serve the `admin-corten`, `marketplace-corten` and `public-corten` workloads
+from separate `Dockerfile.corten-*` images. The root `.dockerignore` excludes the pilot from the
+platform build context except for the sources read by the Privacy publication build. The runtime
+stage copies those sources into an image layer and removes them in a later layer. They are absent
+from the running container's filesystem but remain in the earlier image layer. Do not add a
+`Dockerfile` here: these apps use the root Corten image definitions.
+
+Business rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
 apps); a workaround here links to it, and each workaround the pilot keeps is one file in
 `workarounds/open/` or `workarounds/cited/` (README.md, "Open workarounds"), deleted when it is

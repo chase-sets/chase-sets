@@ -13,7 +13,9 @@ marketplace-web drops no coverage without a recorded reason.
 3. **Dropped**: the spec tests marketplace-web's own machinery, or nothing the Corten marketplace has; the
    reason is given.
 
-Counts are test declarations (`test(`) in each file and the tests skipped on the Corten marketplace.
+Both columns count test declarations (`test(`), not registered cases across projects or viewports.
+"Skipped on Corten" counts declarations skipped by an `onCortenMarketplace` condition. A
+Corten-specific branch inside a test is not a skip.
 
 ## Interaction boundaries
 
@@ -30,12 +32,12 @@ The interaction cases registered by `critical-flows.spec.ts` exercise the item a
 
 | Spec | Tests | Skipped on Corten |
 | --- | --- | --- |
-| `critical-flows.spec.ts` | 19 | 10 |
-| `buyer-purchase-journey.spec.ts` | 3 | 3 |
+| `critical-flows.spec.ts` | 19 | 9 |
+| `buyer-purchase-journey.spec.ts` | 3 | 2 |
 | `marketplace-navigation.spec.ts` | 3 | 3 |
-| `marketplace-shell-header.spec.ts` | 13 | 12 |
+| `marketplace-shell-header.spec.ts` | 13 | 1 |
 | `responsive-evidence-contract.spec.ts` | 13 | 0 |
-| `search-scroll-restoration.spec.ts` | 4 | 3 |
+| `search-scroll-restoration.spec.ts` | 4 | 2 |
 
 ## Covered or dropped
 
