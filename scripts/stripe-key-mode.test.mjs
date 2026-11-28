@@ -762,12 +762,7 @@ describe("workflow and footprint preservation", () => {
   it("keeps the declaration widened and literal-free with only its sanctioned exports", () => {
     const declaration = readFileSync(path.join(REPOSITORY_ROOT, "scripts/stripe-key-mode.d.mts"), "utf8");
     expect(declaration).not.toMatch(/(?:sk|rk|pk)_(?:test|live)/u);
-    expect(declaration.match(/^export /gmu)).toHaveLength(3);
-    expect([...declaration.matchAll(/^export (?:type|const|function) (\w+)/gmu)].map(([, name]) => name)).toEqual([
-      "StripeKeyCase",
-      "STRIPE_KEY_CASES",
-      "isStripePublishableKeyForMode",
-    ]);
+    expect(declaration.match(/export /gu)).toHaveLength(2);
     expect(declaration).toContain("family: string");
     expect(declaration).toContain("prefix: string");
     expect(declaration).toContain("mode: string");

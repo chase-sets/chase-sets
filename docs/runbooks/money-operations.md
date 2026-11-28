@@ -383,7 +383,7 @@ STRIPE_EMBED_UAT=true pnpm exec playwright test \
   --config=playwright.stripe-embed-uat.config.ts --project=stripe-embed-uat
 ```
 
-Before any browser page action, the spec refuses a non-test publishable key or any production hostname in the environment host registry. It also refuses unknown or non-staging origins. Before sign-in or payment creation, the application must report a real Stripe processor in staging test mode. Before confirming, the buyer's payment must report the same publishable key. The manual config has no web server, retries, traces, screenshots, or video; the shared projects and PR browser jobs do not run this spec.
+Before any browser launches, the manual config's global setup refuses a non-test publishable key, any production hostname in the environment host registry, or an unknown or non-staging origin. Before sign-in or payment creation, the application must report a real Stripe processor in staging test mode. Before confirming, the buyer's payment must report the same publishable key. The manual config has no web server, retries, traces, screenshots, or video; the shared projects and PR browser jobs do not run this spec.
 
 If a card confirms client-side but the payment never reaches `captured`, that is a webhook delivery or ingestion problem, not a UI problem: triage it with the Stripe Webhook Ingestion section below.
 

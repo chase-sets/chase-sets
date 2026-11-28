@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { assertStripeEmbedUatTarget } from "../deployables/corten-pilot/e2e/support/stripe-embed-uat-gates.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyChanges } from "./change-scope.mjs";
 import { e2eNoSuiteExclusionForChangedFile } from "./e2e-suites.mjs";
+import stripeEmbedUatGlobalSetup, { assertStripeEmbedUatTarget } from "./stripe-embed-uat-gates.mjs";
 
 const repo = new URL("../", import.meta.url);
 const read = (file) => readFileSync(new URL(file, repo), "utf8");
 const spec = "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts";
 const manualConfig = "playwright.stripe-embed-uat.config.ts";
+const gates = "scripts/stripe-embed-uat-gates.mjs";
 const staging = "https://marketplace.staging.chasesets.com";
 const key = (mode) => ["pk", mode, "synthetic"].join("_");
 const testKey = key("test");
@@ -44,6 +45,11 @@ describe("manual Stripe embed UAT money gates", () => {
       "https://marketplace.staging.chasesets.com.evil.test",
       "http://marketplace.staging.chasesets.com",
       `${staging}/account`,
+      `${staging}:443`,
+      `${staging}/account/..`,
+      `${staging}?`,
+      `${staging}#`,
+      "https://user:pass@marketplace.staging.chasesets.com",
     ]) {
       expect(() => assertStripeEmbedUatTarget(url, testKey)).toThrow(
         "MARKETPLACE_WEB_URL must be a staging marketplace HTTPS origin.",
@@ -55,10 +61,52 @@ describe("manual Stripe embed UAT money gates", () => {
   });
 });
 
+describe("manual Stripe embed UAT global setup", () => {
+  beforeEach(() => {
+    vi.stubEnv("STRIPE_EMBED_UAT", "true");
+    vi.stubEnv("STRIPE_PUBLISHABLE_KEY", testKey);
+    vi.stubEnv("MARKETPLACE_WEB_URL", staging);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("does nothing without the opt-in, even with the required variables missing", () => {
+    vi.stubEnv("STRIPE_EMBED_UAT", undefined);
+    vi.stubEnv("STRIPE_PUBLISHABLE_KEY", undefined);
+    vi.stubEnv("MARKETPLACE_WEB_URL", undefined);
+    expect(stripeEmbedUatGlobalSetup()).toBeUndefined();
+  });
+
+  it("refuses a live-mode key", () => {
+    vi.stubEnv("STRIPE_PUBLISHABLE_KEY", key("live"));
+    expect(stripeEmbedUatGlobalSetup).toThrow(
+      "Stripe embed UAT refused: STRIPE_PUBLISHABLE_KEY must be a Stripe test-mode publishable key.",
+    );
+  });
+
+  it("refuses a production host", () => {
+    vi.stubEnv("MARKETPLACE_WEB_URL", "https://marketplace.chasesets.com");
+    expect(stripeEmbedUatGlobalSetup).toThrow("Stripe embed UAT refused: MARKETPLACE_WEB_URL names a production host.");
+  });
+
+  it.each(["STRIPE_PUBLISHABLE_KEY", "MARKETPLACE_WEB_URL"])("names missing variable %s", (name) => {
+    vi.stubEnv(name, undefined);
+    expect(stripeEmbedUatGlobalSetup).toThrow(`Stripe embed UAT requires ${name}.`);
+  });
+
+  it("wires the manual config by path and keeps both config and spec free of scripts imports", () => {
+    expect(read(manualConfig)).toContain(`globalSetup: "./${gates}"`);
+    for (const file of [manualConfig, spec]) {
+      expect(read(file), file).not.toMatch(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'][^"']*\bscripts\//);
+    }
+    expect(read(spec)).toContain('testInfo.project.name !== "stripe-embed-uat"');
+  });
+});
+
 describe("manual Stripe embed UAT selection", () => {
   it("does not select a browser, Catalog synthetic, or Corten check gate for a UAT-only change", () => {
     expect(e2eNoSuiteExclusionForChangedFile(spec)?.reason).toContain("Manual staging Stripe test-mode UAT");
-    for (const path of [spec, "deployables/corten-pilot/e2e/support/stripe-embed-uat-gates.ts", manualConfig]) {
+    for (const path of [spec, gates, manualConfig]) {
       expect(classifyChanges({ changedFiles: [path], workspaces: [] }), path).toMatchObject({
         e2eSuiteIds: [],
         e2eTestsRequired: false,

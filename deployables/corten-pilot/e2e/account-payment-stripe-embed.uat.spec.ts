@@ -1,6 +1,5 @@
 import { expect, test, type APIRequestContext, type Frame, type Page } from "@playwright/test";
 import { addSessionCookie } from "./support/auth";
-import { assertStripeEmbedUatTarget } from "./support/stripe-embed-uat-gates";
 
 const embedTimeout = 60_000;
 const captureTimeout = 180_000;
@@ -64,15 +63,16 @@ test.skip(process.env.STRIPE_EMBED_UAT !== "true", "Set STRIPE_EMBED_UAT=true fo
 
 test("confirms the embedded test card and waits for capture @stripe-embed-uat", async ({ browser }, testInfo) => {
   test.setTimeout(360_000);
+  if (testInfo.project.name !== "stripe-embed-uat") {
+    throw new Error("Use playwright.stripe-embed-uat.config.ts for the manual Stripe embed UAT.");
+  }
+  // The manual config's globalSetup refuses non-test keys and production or non-staging hosts before any browser launches.
   const publishableKey = requiredEnv("STRIPE_PUBLISHABLE_KEY").trim();
-  const origin = assertStripeEmbedUatTarget(requiredEnv("MARKETPLACE_WEB_URL").trim(), publishableKey);
+  const origin = new URL(requiredEnv("MARKETPLACE_WEB_URL").trim()).origin;
   const email = requiredEnv("MARKETPLACE_E2E_EMAIL").trim();
   const password = requiredEnv("MARKETPLACE_E2E_PASSWORD");
   const orderId = requiredEnv("STRIPE_EMBED_UAT_ORDER_ID").trim();
   if (!/^[A-Za-z0-9_-]+$/.test(orderId)) throw new Error("STRIPE_EMBED_UAT_ORDER_ID must name one pending order.");
-  if (testInfo.project.name !== "stripe-embed-uat") {
-    throw new Error("Use playwright.stripe-embed-uat.config.ts for the manual Stripe embed UAT.");
-  }
   const url = (path: string) => new URL(path, origin);
   // Own the context so it is closed before failure reporting, without a
   // retained browser trace, screenshot, video, or automatic retry.
