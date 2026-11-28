@@ -182,12 +182,13 @@ function expectedCortenPublicBrowser(changedFiles) {
   return changedFiles.some((file) => cortenPublicBrowserPaths.some((pattern) => pattern.test(file)));
 }
 
-// Nor the Corten pilot check flag.
+// The pilot check follows its own source and export inputs.
 const cortenPilotCheckPaths = [
   /^deployables\/corten-pilot\/(?:admin|marketplace|platform|public)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,
+  /^bounded-contexts\/[^/]+\/context\.json$/,
 ];
 
 function expectedCortenPilotCheck(changedFiles) {

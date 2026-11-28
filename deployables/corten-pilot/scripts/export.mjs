@@ -240,6 +240,7 @@
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
+// - marketplace/link-routes.json: the retired marketplace-web host's route records for the parity test.
 // - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
 //   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
 //   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
@@ -319,19 +320,36 @@ async function channelsMarketplaceCatalog() {
   ]);
 }
 
-/** Every bounded context's shell contributions to `deployable`'s `slot`. */
-function contributions(deployable, slot) {
+function* contextManifests() {
   const contexts = path.join(repo, "bounded-contexts");
-  const items = [];
   for (const name of readdirSync(contexts).sort()) {
     const file = path.join(contexts, name, "context.json");
-    if (!existsSync(file)) continue;
-    const manifest = JSON.parse(readFileSync(file, "utf8"));
+    if (existsSync(file)) yield { context: name, manifest: JSON.parse(readFileSync(file, "utf8")) };
+  }
+}
+
+/** Every bounded context's shell contributions to `deployable`'s `slot`. */
+function contributions(deployable, slot) {
+  const items = [];
+  for (const { context, manifest } of contextManifests()) {
     for (const item of manifest.shellContributions ?? []) {
-      if (item.deployable === deployable && item.slot === slot) items.push({ context: name, item });
+      if (item.deployable === deployable && item.slot === slot) items.push({ context, item });
     }
   }
   return items;
+}
+
+function marketplaceLinkRoutes() {
+  const routes = [];
+  for (const { manifest } of contextManifests()) {
+    for (const contribution of manifest.deployableContributions ?? []) {
+      if (contribution.deployable !== "marketplace-web") continue;
+      for (const { routeId, routePath, authorization } of contribution.routes ?? []) {
+        routes.push({ routeId, routePath, authorization });
+      }
+    }
+  }
+  return routes.sort((a, b) => (a.routeId < b.routeId ? -1 : a.routeId > b.routeId ? 1 : 0));
 }
 
 const keep = (item) => ({
@@ -2057,6 +2075,7 @@ const outputs = [
     ),
   ],
   ["marketplace/nav.json", json(marketplaceNav())],
+  ["marketplace/link-routes.json", json(marketplaceLinkRoutes())],
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
   [

@@ -132,8 +132,10 @@ What each screen covers and leaves out, screen by screen, is in the
 
 ### Not ported
 
-Every page route marketplace-web, admin-web and public-web declare is served here (compared with
-each host's route records on 2026-11-01). admin-web's
+The required Corten Pilot Check compares the retired marketplace-web host's link catalog route
+records against the marketplace router. The retired client-only market-history resource is the
+documented exception; the item page renders that history itself. The admin-web and public-web
+page routes were compared with their pilot counterparts on 2026-11-01. admin-web's
 `/catalog/integrations/observation-evidence/{id}` is a JSON resource for its evidence sheet; the
 pilot draws that sheet on the server at `/catalog/integrations/evidence/{id}` from the Catalog API's
 evidence read, a review row's Evidence opening it in place with JavaScript and as the page with the
