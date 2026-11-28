@@ -10425,6 +10425,27 @@ async fn a_nested_section_nav_entry_is_current_on_its_own_pages() {
     }
 }
 #[tokio::test]
+async fn the_section_nav_marks_settings_current_at_its_governance_alias() {
+    let pilot = Pilot::new().await;
+    let settings = "/catalog/integrations/settings";
+    let governance = "/catalog/integrations/governance";
+    for path in [governance, settings] {
+        let (status, _, html) = pilot.send(get(path, Some("catalog-reader"))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        let side = &html[html.find(r#"aria-label="Catalog pages""#).expect("the section's pages")..];
+        let side = &side[..side.find("</nav>").unwrap()];
+        assert!(marks_current(side, settings), "{path}: Settings should be current: {side}");
+        assert!(!marks_current(side, "/catalog/integrations"), "{path}: Import should not be current: {side}");
+        let settings_link = side
+            .split("<a ")
+            .skip(1)
+            .filter_map(|link| link.split_once('>').map(|(attrs, _)| attrs))
+            .find(|attrs| attrs.contains(&format!(r#"href="{settings}""#)))
+            .expect("the Settings link");
+        assert!(settings_link.contains(&format!(r#"data-nav-also="{governance}""#)), "{path}: {settings_link}");
+    }
+}
+#[tokio::test]
 async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
     let pilot = Pilot::new().await;
     for path in ["/catalog/integrations/settings", "/catalog/integrations/governance"] {

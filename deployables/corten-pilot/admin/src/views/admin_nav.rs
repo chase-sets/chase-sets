@@ -11,6 +11,7 @@ use platform::ui::{
 use super::{admin_web, link_to};
 use crate::{
     auth::{self, NavItem, Viewer},
+    catalog::integrations::url::{Governance, Settings},
     sign_in,
     text::{Pilot, SignInMsg},
 };
@@ -194,8 +195,11 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
         .collect();
     let (shown, more) = phone_bar(&pages, now);
     let label = p.shell_section_navigation(section_label(p, here)).to_string();
+    let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| {
+        let target = if to.path() == Settings::PATH { NavTo::section(&Settings).also(&Governance) } else { NavTo::section(to) };
+        (target, *key)
+    }));
     html! {
-        let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
         let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         if !home {
             <nav class={Side} aria-label={&label}>

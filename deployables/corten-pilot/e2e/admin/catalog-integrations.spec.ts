@@ -956,10 +956,6 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect governance controls and health triage deep links @catalog-admin-integrations", async ({
     page,
   }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten section nav does not yet mark the nested Settings entry current, here at its older /catalog/integrations/governance address",
-    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
