@@ -763,6 +763,14 @@
       "synthetic": false
     },
     {
+      "family": "e2eNoSuiteExclusions:2",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/account-payment-stripe-embed\\.uat\\.spec\\.ts$/",
+      "suites": null,
+      "path": "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
       "family": "boundedContextRouteSuiteOwnership:0",
       "pattern": "/^bounded-contexts\\/channels\\/routes\\/marketplace\\/account-channels-connection\\./",
       "suites": ["corten-marketplace-browser"],

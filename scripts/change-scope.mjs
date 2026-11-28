@@ -160,7 +160,7 @@ const cortenMarketplaceBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/corten-pilot\/e2e\/(?!admin\/|public\/)/,
+  /^deployables\/corten-pilot\/e2e\/(?!admin\/|public\/|account-payment-stripe-embed\.uat\.spec\.ts$|support\/stripe-embed-uat-gates\.ts$)/,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
 // The Corten admin browser tests run the kept admin browser specs in deployables/corten-pilot/e2e/admin

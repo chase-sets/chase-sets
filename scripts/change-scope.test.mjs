@@ -1324,6 +1324,19 @@ describe("shared E2E setup selection", () => {
       expect(existsSync(path.join(repoRoot, family.path)), family.path).toBe(false);
       return { ...family, synthetic: true, trackedCandidates: deletedRouteModuleFamilies.get(family.family) };
     });
+    // The replacement Stripe UAT is only runnable through its manual config, not a browser suite.
+    expectedFamiliesAfterRouteDeletion.splice(
+      expectedFamiliesAfterRouteDeletion.findIndex(({ family }) => family === "e2eNoSuiteExclusions:1") + 1,
+      0,
+      {
+        family: "e2eNoSuiteExclusions:2",
+        pattern: String(/^deployables\/corten-pilot\/e2e\/account-payment-stripe-embed\.uat\.spec\.ts$/),
+        suites: null,
+        path: "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts",
+        trackedCandidates: 1,
+        synthetic: false,
+      },
+    );
     expect(candidate.families).toEqual(expectedFamiliesAfterRouteDeletion);
     for (const { movedRoutes, selectorCases = [] } of routeMoves) {
       for (const { file, suites, batches, cortenMarketplaceBrowser } of selectorCases) {
