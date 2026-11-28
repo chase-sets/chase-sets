@@ -722,16 +722,18 @@
         "api-route:bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts:POST /",
         "api-route:bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts:POST /jobs/:jobId/cancel",
         "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H5572ea7ef0df#1",
-        "route-action:bounded-contexts/pricing/support/route-support/bulk-reprice/action.ts"
+        "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H5572ea7ef0df#1"
       ],
       "visibleDestination": {
         "routeId": "account-bulk-reprice",
-        "description": "Create-job and cancel-job responses (both the API route and the account/bulk-reprice route action that fronts it) return the durable job public snapshot that owns queued/running/completed state for the submitted bulk reprice upload; the upload/cancel forms on the page are disabled while that snapshot is queued or running."
+        "description": "The Corten bulk reprice page follows the job ID returned by an upload or named in the cancel request URL. It reads fresh job status from Pricing and disables upload while the job is running."
       },
       "proof": {
-        "authoritativeResponse": "enqueueJob and cancelJob both return the durable job store's own record (via toBulkRepriceJobStatus), never a lagging read-model row; the route action redirects with jobId and the loader reloads that same snapshot.",
-        "tests": ["bounded-contexts/pricing/features/bulk-reprice-ingestion/tests/bulk-reprice-ingestion.db.test.ts"]
+        "authoritativeResponse": "The Pricing API serializes the records returned by enqueueJob and cancelJob with toBulkRepriceJobStatus. On success Corten redirects using the upload response's job_id or the job ID from the cancel request URL. The destination reads fresh status from Pricing.",
+        "tests": [
+          "bounded-contexts/pricing/features/bulk-reprice-ingestion/tests/bulk-reprice-ingestion.db.test.ts",
+          "deployables/corten-pilot/marketplace/src/tests.rs"
+        ]
       }
     },
     {

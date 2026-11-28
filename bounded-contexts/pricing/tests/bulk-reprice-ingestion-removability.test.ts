@@ -28,8 +28,6 @@ const allowedReferencingFiles = new Set(
     "bounded-contexts/pricing/support/runtime-support/schema.ts",
     "bounded-contexts/pricing/support/request-support/inventory-sku-gateway.ts",
     "bounded-contexts/pricing/support/request-support/api-client.ts",
-    "bounded-contexts/pricing/support/route-support/bulk-reprice/loader.ts",
-    "bounded-contexts/pricing/support/route-support/bulk-reprice/action.ts",
   ].map((relativePath) => path.normalize(relativePath)),
 );
 
