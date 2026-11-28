@@ -168,6 +168,17 @@ test.describe("admin tablet navigation", () => {
       await expect(tabletSettings).toHaveAttribute("aria-current", "page");
     }
 
+    await sectionsTrigger(page).click();
+    const drawer = sectionsDrawer(page);
+    await drawer.getByRole("link", { name: "Import", exact: true }).click();
+    await expect(page).toHaveURL(/\/catalog\/integrations$/);
+    await expect(drawer).toBeHidden();
+    await expect(sectionTrail(page).getByText("Import", { exact: true })).toHaveAttribute("aria-current", "page");
+
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/catalog\/integrations\/governance$/);
+    await expect(sectionTrail(page).getByText("Settings", { exact: true })).toHaveAttribute("aria-current", "page");
+
     await page.setViewportSize({ width: 390, height: 844 });
     const phone = phoneBottomNav(page);
     const phoneSettings = phone.getByRole("link", { name: "Settings", exact: true });
