@@ -11486,6 +11486,24 @@ async fn the_catalog_search_finds_chooses_and_asks_for_each_option_that_applies(
 }
 
 #[tokio::test]
+async fn a_listing_redraw_patches_the_status_message_without_patching_the_live_region() {
+    let pilot = Pilot::new().await;
+    let path = format!("{LISTING_NEW}?inventoryItemId=inv_etb&redraw=1");
+    let (status, _, page) = pilot.send(get(&path, Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains(r#"role="status" aria-live="polite""#), "{page}");
+    assert!(page.contains(r#"id="notice-message""#) && page.contains("Advanced inventory selected"), "{page}");
+
+    let mut req = get(&path, Some("lister"));
+    req.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, _, patch) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(patch.contains(r#"id="notice-message""#) && patch.contains("Advanced inventory selected"), "{patch}");
+    assert!(!patch.contains(r#"role="status""#), "{patch}");
+    assert_eq!(create_calls(&pilot), 0);
+}
+
+#[tokio::test]
 async fn a_draft_from_inventory_sends_its_photos_and_limits_and_goes_to_its_listing() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_etb"), Some("lister"))).await;
