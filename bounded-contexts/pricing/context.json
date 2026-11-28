@@ -726,10 +726,10 @@
       ],
       "visibleDestination": {
         "routeId": "account-bulk-reprice",
-        "description": "The Pricing API returns the job snapshot from upload and cancel. The Corten bulk reprice page follows the returned job ID and disables new uploads while the job is active."
+        "description": "The Corten bulk reprice page follows the job ID returned by an upload or named in the cancel request URL. It reads fresh job status from Pricing and disables upload while the job is running."
       },
       "proof": {
-        "authoritativeResponse": "The API serializes the records returned by enqueueJob and cancelJob with toBulkRepriceJobStatus. Corten redirects to the job identified in each response and reads its status from Pricing.",
+        "authoritativeResponse": "The Pricing API serializes the records returned by enqueueJob and cancelJob with toBulkRepriceJobStatus. On success Corten redirects using the upload response's job_id or the job ID from the cancel request URL. The destination reads fresh status from Pricing.",
         "tests": [
           "bounded-contexts/pricing/features/bulk-reprice-ingestion/tests/bulk-reprice-ingestion.db.test.ts",
           "deployables/corten-pilot/marketplace/src/tests.rs"
