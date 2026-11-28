@@ -10425,12 +10425,12 @@ async fn a_nested_section_nav_entry_is_current_on_its_own_pages() {
     }
 }
 #[tokio::test]
-async fn the_section_nav_marks_settings_current_at_its_governance_alias() {
+async fn the_rail_trail_and_phone_bar_mark_settings_current_at_its_governance_alias() {
     let pilot = Pilot::new().await;
     let settings = "/catalog/integrations/settings";
     let governance = "/catalog/integrations/governance";
     for path in [governance, settings] {
-        let (status, _, html) = pilot.send(get(path, Some("catalog-reader"))).await;
+        let (status, _, html) = pilot.send(get(path, Some("staff"))).await;
         assert_eq!(status, StatusCode::OK, "{path}: {html}");
         let side = &html[html.find(r#"aria-label="Catalog pages""#).expect("the section's pages")..];
         let side = &side[..side.find("</nav>").unwrap()];
@@ -10443,6 +10443,15 @@ async fn the_section_nav_marks_settings_current_at_its_governance_alias() {
             .find(|attrs| attrs.contains(&format!(r#"href="{settings}""#)))
             .expect("the Settings link");
         assert!(settings_link.contains(&format!(r#"data-nav-also="{governance}""#)), "{path}: {settings_link}");
+
+        let (_, trail) = html.split_once(r#"aria-label="Current section""#).expect("the section trail");
+        let (trail, _) = trail.split_once("</nav>").unwrap();
+        assert!(trail.contains(r#"<span aria-current="page">Settings</span>"#), "{path}: {trail}");
+
+        let (_, bottom) = html.split_once("data-admin-bottom-nav").expect("the phone bar");
+        let (shown, _) = bottom.split_once(r#"popovertarget="admin-more""#).expect("the phone bar overflows");
+        assert!(marks_current(shown, settings), "{path}: Settings belongs outside More: {shown}");
+        assert!(!shown.contains(r#"href="/catalog/integrations""#), "{path}: Import belongs inside More: {shown}");
     }
 }
 #[tokio::test]

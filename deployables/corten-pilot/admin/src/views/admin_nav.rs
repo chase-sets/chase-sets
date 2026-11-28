@@ -124,17 +124,6 @@ struct AdminSectionsTitleId;
 #[derive(Id)]
 struct AdminMoreId;
 
-/// The entry the page is in: the deepest served entry holding it, the rule `req.nav_of` marks its
-/// current links by. `NavLinks` does not say which entry it marked, so the trail and the phone
-/// bar ask `req.is_current` for each.
-fn current<'k>(req: &Req, entries: &[(Local, &'k str)]) -> Option<&'k str> {
-    entries
-        .iter()
-        .filter(|(to, _)| req.is_current(to, true))
-        .max_by_key(|(to, _)| to.path().trim_end_matches('/').len())
-        .map(|(_, key)| *key)
-}
-
 /// admin-web's phone bar (`compactAdminMobileNavItems`): four entries or fewer as they are, else
 /// the first three (or the first two and the current one) with the rest under More.
 fn phone_bar<'a>(entries: &[&'a NavItem], current: Option<&str>) -> (Vec<&'a NavItem>, Vec<&'a NavItem>) {
@@ -174,7 +163,11 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
         .flat_map(|(item, children)| std::iter::once(*item).chain(children.iter().copied()))
         .filter_map(|item| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
         .collect();
-    let now = current(req, &side_entries);
+    let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| {
+        let target = if to.path() == Settings::PATH { NavTo::section(&Settings).also(&Governance) } else { NavTo::section(to) };
+        (target, *key)
+    }));
+    let now = side_marks.links().find_map(|(link, key)| link.is_current().then_some(*key));
     // The trail: the current page, after the entry that holds it when it is a child.
     let trail: Vec<(&NavItem, bool)> = items
         .iter()
@@ -195,10 +188,6 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
         .collect();
     let (shown, more) = phone_bar(&pages, now);
     let label = p.shell_section_navigation(section_label(p, here)).to_string();
-    let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| {
-        let target = if to.path() == Settings::PATH { NavTo::section(&Settings).also(&Governance) } else { NavTo::section(to) };
-        (target, *key)
-    }));
     html! {
         let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         if !home {

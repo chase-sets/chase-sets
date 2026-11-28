@@ -144,6 +144,50 @@ test.describe("admin tablet navigation", () => {
     await expect(sectionTrail(page).getByText("Platform Feedback")).toHaveAttribute("aria-current", "page");
   });
 
+  test("Corten marks Settings at the Governance address at every nav width @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(!onCortenAdmin, "This checks the Corten admin's typed Governance alias.");
+    test.skip(skipDeployedAdminE2e, "Deployed admin e2e requires Catalog admin test credentials.");
+
+    const path = "/catalog/integrations/governance";
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await authenticatePlatformAdmin(page, path, "/access/sign-in");
+    await expectPageOk(page, path);
+
+    const rail = page.getByRole("navigation", { name: "Catalog pages", exact: true });
+    const desktopSettings = rail.getByRole("link", { name: "Settings", exact: true });
+    await expect(desktopSettings).toBeVisible();
+    await expect(desktopSettings).toHaveAttribute("aria-current", "page");
+
+    for (const viewport of tabletViewports) {
+      await page.setViewportSize(viewport);
+      const tabletSettings = sectionTrail(page).getByText("Settings", { exact: true });
+      await expect(tabletSettings).toBeVisible();
+      await expect(tabletSettings).toHaveAttribute("aria-current", "page");
+    }
+
+    await sectionsTrigger(page).click();
+    const drawer = sectionsDrawer(page);
+    await drawer.getByRole("link", { name: "Import", exact: true }).click();
+    await expect(page).toHaveURL(/\/catalog\/integrations$/);
+    await expect(drawer).toBeHidden();
+    await expect(sectionTrail(page).getByText("Import", { exact: true })).toHaveAttribute("aria-current", "page");
+
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/catalog\/integrations\/governance$/);
+    await expect(sectionTrail(page).getByText("Settings", { exact: true })).toHaveAttribute("aria-current", "page");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const phone = phoneBottomNav(page);
+    const phoneSettings = phone.getByRole("link", { name: "Settings", exact: true });
+    await expect(phone.getByRole("button", { name: "More", exact: true })).toBeVisible();
+    await expect(phoneSettings).toBeVisible();
+    await expect(phoneSettings).toHaveAttribute("aria-current", "page");
+    await expect(phone.getByRole("link", { name: "Import", exact: true })).toBeHidden();
+  });
+
   test("phone and desktop admin navigation stay unchanged @catalog-admin-integrations", async ({ page }) => {
     test.setTimeout(180_000);
     test.skip(
