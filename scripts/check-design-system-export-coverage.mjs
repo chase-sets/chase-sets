@@ -6,7 +6,6 @@ import { tsImport } from "tsx/esm/api";
 
 export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "Accordion",
-  "AccordionOptionTrigger",
   "AccountMenu",
   "AccountProfileHeader",
   "AccountReputationSummary",

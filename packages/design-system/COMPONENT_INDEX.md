@@ -4,14 +4,13 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 352
+- Runtime exports indexed: 351
 - Source modules covered: 129
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
 | --- | --- | --- | --- |
 | `Accordion` | `packages/design-system/src/components/feedback/accordion.tsx` | Purpose not documented; symbol name suggests: Accordion. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-to-promotion-workspace.tsx` |
-| `AccordionOptionTrigger` | `packages/design-system/src/components/feedback/accordion.tsx` | Purpose not documented; symbol name suggests: Accordion Option Trigger. | `No production consumer yet.` |
 | `AccountMenu` | `packages/design-system/src/components/actions/account-menu.tsx` | Purpose not documented; symbol name suggests: Account Menu. | `deployables/admin-web/app/admin-account-menu.tsx` |
 | `AccountProfileHeader` | `packages/design-system/src/components/commerce/account.tsx` | Purpose not documented; symbol name suggests: Account Profile Header. | `No production consumer yet.` |
 | `AccountReputationSummary` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Reputation Summary. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |

@@ -2094,8 +2094,6 @@
 ["candidate","edges",{"from":"packages/design-system/src/components/data-display/table.tsx","specifier":"react","resolved":"repo:/node_modules/.pnpm/react%4019.2.6/node_modules/react/index.js"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/data-display/timeline.tsx","specifier":"react","resolved":"repo:/node_modules/.pnpm/react%4019.2.6/node_modules/react/index.js"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/feedback/accordion.tsx","specifier":"../../icons","resolved":"repo:/packages/design-system/src/icons/index.tsx"}]
-["candidate","edges",{"from":"packages/design-system/src/components/feedback/accordion.tsx","specifier":"../../primitives/layout","resolved":"repo:/packages/design-system/src/primitives/layout.tsx"}]
-["candidate","edges",{"from":"packages/design-system/src/components/feedback/accordion.tsx","specifier":"../../primitives/typography","resolved":"repo:/packages/design-system/src/primitives/typography.tsx"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/feedback/accordion.tsx","specifier":"../../theme/provider","resolved":"repo:/packages/design-system/src/theme/provider.tsx"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/feedback/accordion.tsx","specifier":"../../utils/cx","resolved":"repo:/packages/design-system/src/utils/cx.ts"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/feedback/accordion.tsx","specifier":"../control-sizing","resolved":"repo:/packages/design-system/src/components/control-sizing.ts"}]

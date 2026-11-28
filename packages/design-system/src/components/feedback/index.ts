@@ -67,14 +67,8 @@ export type { EmptyStateProps } from "./empty-state";
 export { Rating } from "./rating";
 export type { RatingSize, RatingProps } from "./rating";
 
-export { Accordion, AccordionOptionTrigger, PanelSectionAccordion } from "./accordion";
-export type {
-  AccordionItem,
-  AccordionOptionTriggerProps,
-  AccordionProps,
-  AccordionSectionEdge,
-  PanelSectionAccordionProps,
-} from "./accordion";
+export { Accordion, PanelSectionAccordion } from "./accordion";
+export type { AccordionItem, AccordionProps, AccordionSectionEdge, PanelSectionAccordionProps } from "./accordion";
 
 export { ProgressiveDisclosure, ProgressiveDisclosureGroup } from "./disclosure";
 export type {

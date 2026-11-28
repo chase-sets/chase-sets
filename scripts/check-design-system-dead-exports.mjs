@@ -149,7 +149,6 @@ const canonicalReserveZeroConsumerExports = [
 // Corten marketplace draws its own markup. They are queued for deletion with the
 // other React code only marketplace-web reached.
 const retiredConsumerZeroConsumerExports = [
-  "AccordionOptionTrigger",
   "CommerceActionBar",
   "CommerceBottomSheet",
   "FormPanel",
