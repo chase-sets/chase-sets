@@ -24858,7 +24858,8 @@ async fn the_rail_analytics_endpoint_takes_what_marketplace_takes_and_refuses_th
     let (status, headers, text) = pilot.send(beacon(&body)).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
     assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
-    let (status, _, _) = pilot.send(beacon(r#"{"event":"rail_intent_selected","intent":"buy","viewer":"guest"}"#)).await;
+    let (status, _, _) =
+        pilot.send(beacon(r#"{"event":"rail_intent_selected","intent":"buy","viewer":"guest","unrelated":"ignored"}"#)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     for refused in ["{", r#"{"event":"page_view"}"#, r#"{"event":"workflow_selected","intent":"buy now"}"#] {
         let (status, _, _) = pilot.send(beacon(refused)).await;

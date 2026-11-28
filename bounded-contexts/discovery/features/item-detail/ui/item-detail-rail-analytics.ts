@@ -1,41 +1,26 @@
-export const itemDetailRailAnalyticsEventNames = [
-  "rail_intent_selected",
-  "workflow_selected",
-  "similar_item_selected",
-  "search_result_selected",
-  "reference_info_opened",
-  "payout_preview_shown",
-  "standard_preview_unavailable",
-  "registration_gate_shown",
-  "registration_started",
-  "registration_return_completed",
-  "term_delta_reviewed",
-  "intent_persisted",
-  "commit_gate_reached",
-  "intent_submit_started",
-  "validation_failed",
-] as const;
+import vocabulary from "../domain/rail-analytics-vocabulary.json" with { type: "json" };
 
-export type ItemDetailRailAnalyticsEventName = (typeof itemDetailRailAnalyticsEventNames)[number];
+export type ItemDetailRailAnalyticsEventName = keyof typeof vocabulary.events;
+type ItemDetailRailAnalyticsLabelName = keyof typeof vocabulary.labels;
+export const itemDetailRailAnalyticsEventNames = Object.keys(
+  vocabulary.events,
+) as readonly ItemDetailRailAnalyticsEventName[];
 
 export type ItemDetailRailAnalyticsIntent = "buy" | "sell" | "watch" | "unknown";
 export type ItemDetailRailAnalyticsSelection = "explicit" | "implicit" | "none";
 export type ItemDetailRailAnalyticsViewer = "guest" | "signed_in" | "unknown";
 
 export type ItemDetailRailAnalyticsProperties = Readonly<
-  Partial<{
-    intent: ItemDetailRailAnalyticsIntent;
-    workflow: string;
-    selection: ItemDetailRailAnalyticsSelection;
-    topic: string;
-    outcome: string;
-    gate: string;
-    viewer: ItemDetailRailAnalyticsViewer;
-    surface: string;
-    position: number;
-    queryHash: string;
-    resultSetKey: string;
-  }>
+  Partial<
+    Record<ItemDetailRailAnalyticsLabelName, string> & {
+      intent: ItemDetailRailAnalyticsIntent;
+      selection: ItemDetailRailAnalyticsSelection;
+      viewer: ItemDetailRailAnalyticsViewer;
+      position: number;
+      queryHash: string;
+      resultSetKey: string;
+    }
+  >
 >;
 
 declare global {
