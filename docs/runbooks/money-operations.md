@@ -368,7 +368,7 @@ Stripe Dashboard checks:
 
 The Node money smoke never mounts Stripe's Payment Element or submits a card. The manual Corten marketplace UAT signs in, starts payment with no wallet credit, fills the real Stripe Payment Element with the 4242 test card, confirms, and polls the buyer's payment until it reaches `captured`. It does not cover 3-D Secure.
 
-Run this **only against staging in Stripe test mode**. Prepare a fresh, unclaimed, pending-payment order through the normal staging checkout for one non-canary raw single with letter shipping. Use a dedicated staging buyer authorized to pay that order. The buyer-facing order read verifies pending status and one unit; the operator verifies the listing and postage fixture. The run consumes that order; use a new one for a repeat.
+Run this **only against staging in Stripe test mode**. Prepare a fresh, unclaimed, pending-payment order through the normal staging checkout for one non-canary raw single with letter shipping. Use a dedicated staging buyer authorized to pay that order. The operator attests that the order is for a non-canary raw single with letter shipping; the spec's buyer-facing order read checks only pending-payment status and a single unit. The run consumes that order; use a new one for a repeat.
 
 Set the following in the operator's environment (do not put credentials on the command line):
 
@@ -383,7 +383,7 @@ STRIPE_EMBED_UAT=true pnpm exec playwright test \
   --config=playwright.stripe-embed-uat.config.ts --project=stripe-embed-uat
 ```
 
-Before any browser launches, the manual config's global setup refuses a non-test publishable key, any production hostname in the environment host registry, or an unknown or non-staging origin. Before sign-in or payment creation, the application must report a real Stripe processor in staging test mode. Before confirming, the buyer's payment must report the same publishable key. The manual config has no web server, retries, traces, screenshots, or video; the shared projects and PR browser jobs do not run this spec.
+Before any browser launches, the manual config's global setup refuses a non-test publishable key, any production hostname in the environment host registry, or an unknown or non-staging origin. Before sign-in or payment creation, the application must report a real Stripe processor in staging test mode. Before Continue, the submitting form must name exactly the authorized order. Before card entry or confirmation, the buyer's payment must cover exactly that same order and report the same publishable key. The manual config has no web server, retries, traces, screenshots, or video; the shared projects and PR browser jobs do not run this spec.
 
 If a card confirms client-side but the payment never reaches `captured`, that is a webhook delivery or ingestion problem, not a UI problem: triage it with the Stripe Webhook Ingestion section below.
 

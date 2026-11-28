@@ -1,5 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  assertPaymentOrderIds,
+  assertSubmittingOrderIds,
+} from "../deployables/corten-pilot/e2e/support/stripe-embed-uat-identity.ts";
 import { classifyChanges } from "./change-scope.mjs";
 import { e2eNoSuiteExclusionForChangedFile } from "./e2e-suites.mjs";
 import stripeEmbedUatGlobalSetup, { assertStripeEmbedUatTarget } from "./stripe-embed-uat-gates.mjs";
@@ -7,6 +11,7 @@ import stripeEmbedUatGlobalSetup, { assertStripeEmbedUatTarget } from "./stripe-
 const repo = new URL("../", import.meta.url);
 const read = (file) => readFileSync(new URL(file, repo), "utf8");
 const spec = "deployables/corten-pilot/e2e/account-payment-stripe-embed.uat.spec.ts";
+const identity = "deployables/corten-pilot/e2e/support/stripe-embed-uat-identity.ts";
 const manualConfig = "playwright.stripe-embed-uat.config.ts";
 const gates = "scripts/stripe-embed-uat-gates.mjs";
 const staging = "https://marketplace.staging.chasesets.com";
@@ -106,7 +111,7 @@ describe("manual Stripe embed UAT global setup", () => {
 describe("manual Stripe embed UAT selection", () => {
   it("does not select a browser, Catalog synthetic, or Corten check gate for a UAT-only change", () => {
     expect(e2eNoSuiteExclusionForChangedFile(spec)?.reason).toContain("Manual staging Stripe test-mode UAT");
-    for (const path of [spec, gates, manualConfig, "scripts/stripe-embed-uat.test.mjs"]) {
+    for (const path of [spec, identity, gates, manualConfig, "scripts/stripe-embed-uat.test.mjs"]) {
       expect(classifyChanges({ changedFiles: [path], workspaces: [] }), path).toMatchObject({
         e2eSuiteIds: [],
         e2eTestsRequired: false,
@@ -117,12 +122,14 @@ describe("manual Stripe embed UAT selection", () => {
         cortenPilotCheckRequired: false,
       });
     }
-    expect(
-      classifyChanges({
-        changedFiles: ["deployables/corten-pilot/e2e/critical-flows.spec.ts"],
-        workspaces: [],
-      }).cortenMarketplaceBrowserRequired,
-    ).toBe(true);
+    for (const path of [
+      "deployables/corten-pilot/e2e/critical-flows.spec.ts",
+      "deployables/corten-pilot/e2e/support/auth.ts",
+    ]) {
+      expect(classifyChanges({ changedFiles: [path], workspaces: [] }).cortenMarketplaceBrowserRequired, path).toBe(
+        true,
+      );
+    }
   });
 
   it("excludes the spec from shared Playwright discovery and keeps the manual config out of every workflow and local CI plan", () => {
@@ -136,5 +143,31 @@ describe("manual Stripe embed UAT selection", () => {
       expect(source, file).not.toContain("stripe-embed-uat");
       expect(source, file).not.toContain("STRIPE_EMBED_UAT");
     }
+  });
+});
+
+describe.each([
+  ["submitting form", assertSubmittingOrderIds, "payment creation refused: the submitting form"],
+  ["payment record", assertPaymentOrderIds, "card entry and confirmation refused: the payment"],
+])("manual Stripe embed UAT %s order identity", (_, assertOrderIds, refusal) => {
+  const authorized = "order_authorized";
+  const other = "order_other";
+
+  it("accepts exactly the authorized order", () => {
+    expect(() => assertOrderIds([authorized], authorized)).not.toThrow();
+  });
+
+  it.each([
+    ["a different order", [other]],
+    ["two orders", [authorized, other]],
+    ["an empty list", []],
+    ["a comma-joined value", [`${authorized},${other}`]],
+    ["extra whitespace", [` ${authorized} `]],
+    ["a missing field", undefined],
+    ["a non-array field", authorized],
+  ])("refuses %s without echoing either order ID", (_, values) => {
+    expect(() => assertOrderIds(values, authorized)).toThrow(
+      new Error(`Stripe embed UAT ${refusal} does not match the authorized order.`),
+    );
   });
 });

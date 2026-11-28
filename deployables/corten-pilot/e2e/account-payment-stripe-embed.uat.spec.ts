@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Frame, type Page } from "@playwright/test";
 import { addSessionCookie } from "./support/auth";
+import { assertPaymentOrderIds, assertSubmittingOrderIds } from "./support/stripe-embed-uat-identity";
 
 const embedTimeout = 60_000;
 const captureTimeout = 180_000;
@@ -107,9 +108,11 @@ test("confirms the embedded test card and waits for capture @stripe-embed-uat", 
       }
     });
 
-    const { paymentPath, paymentRead } = await leg(
-      "Stripe embed UAT payment creation failed: use a fresh pending-payment single for this buyer and check Start payment.",
+    const { continueToPayment, formValues } = await leg(
+      "Stripe embed UAT payment setup failed: use a fresh pending-payment single for this buyer and check Start payment.",
       async () => {
+        // The operator attests the non-canary listing and letter shipping.
+        // The buyer-facing read checks only pending status and a single unit.
         const order = await readJson<{ status: string; lines: { quantity: number }[] }>(
           page.request,
           url(`/api/marketplace/account/purchases/${encodeURIComponent(orderId)}`),
@@ -125,6 +128,22 @@ test("confirms the embedded test card and waits for capture @stripe-embed-uat", 
         const main = page.getByRole("main");
         await main.getByLabel(/^Payment method\b/).selectOption("card");
         await main.getByLabel(/^Wallet balance\b/).selectOption("none");
+        const continueToPayment = main.getByRole("button", { name: "Continue to payment", exact: true });
+        const formValues = await continueToPayment.evaluate((button) => {
+          // The phone button owns its form via the form attribute, not ancestry.
+          if (!(button instanceof HTMLButtonElement) || !button.form) return [];
+          return new FormData(button.form, button)
+            .getAll("orderIds")
+            .map((value) => (typeof value === "string" ? value : ""));
+        });
+        return { continueToPayment, formValues };
+      },
+    );
+    assertSubmittingOrderIds(formValues, orderId);
+
+    const { paymentPath, paymentRead } = await leg(
+      "Stripe embed UAT payment creation failed: check the Continue to payment submission and buyer payment read.",
+      async () => {
         const [payment] = await Promise.all([
           page
             .waitForURL(
@@ -132,7 +151,7 @@ test("confirms the embedded test card and waits for capture @stripe-embed-uat", 
               { timeout: 30_000 },
             )
             .then(() => new URL(page.url())),
-          main.getByRole("button", { name: "Continue to payment", exact: true }).click(),
+          continueToPayment.click(),
         ]);
         const paymentRead = url(`/api/marketplace${payment.pathname}`);
         await expect
@@ -152,11 +171,22 @@ test("confirms the embedded test card and waits for capture @stripe-embed-uat", 
       },
     );
 
-    await leg("Stripe embed UAT mount failed: check the deployed test key and the secure card iframe.", async () => {
-      const payment = await readJson<{ status: string; processor_publishable_key?: string }>(page.request, paymentRead);
-      expect(payment.status === "pending-confirmation" && payment.processor_publishable_key === publishableKey).toBe(
-        true,
-      );
+    const payment = await leg(
+      "Stripe embed UAT payment read failed: check the pending-confirmation status and deployed test key.",
+      async () => {
+        const payment = await readJson<{ status: string; processor_publishable_key?: string; order_ids?: unknown }>(
+          page.request,
+          paymentRead,
+        );
+        expect(payment.status === "pending-confirmation" && payment.processor_publishable_key === publishableKey).toBe(
+          true,
+        );
+        return payment;
+      },
+    );
+    assertPaymentOrderIds(payment.order_ids, orderId);
+
+    await leg("Stripe embed UAT mount failed: check the secure card iframe.", async () => {
       const card = await cardFrame(page);
       await card.locator('input[name="number"]').fill("4242 4242 4242 4242");
       const expiry = new Date().getUTCFullYear() + 2;
