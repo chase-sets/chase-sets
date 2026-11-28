@@ -16,6 +16,11 @@ export const marketplaceBrowserE2eSeedContract = {
       "cat_seed_twilight_masquerade_elite_trainer_box",
     ],
   },
+  browsePagination: {
+    searchQuery: "wayfarer",
+    pageSize: 24,
+    resultCount: 32,
+  },
   marketFollowing: {
     offerId: "off_seed_surging_sparks_restock",
     heldOfferId: "off_seed_pikachu_jungle_collector_lot",

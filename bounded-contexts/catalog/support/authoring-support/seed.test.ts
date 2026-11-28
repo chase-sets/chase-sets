@@ -14,7 +14,10 @@ vi.mock("@chase-sets/bounded-context-runtime", async (importOriginal) => ({
   drainLocalProjectionHandlerSets: vi.fn(),
 }));
 vi.mock("../../features/blueprints/api/seed", () => ({ seedBlueprints: vi.fn() }));
-vi.mock("../../features/catalog-items/api/seed", () => ({ seedCatalogItems: vi.fn() }));
+vi.mock("../../features/catalog-items/api/seed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../features/catalog-items/api/seed")>()),
+  seedCatalogItems: vi.fn(),
+}));
 vi.mock("../../features/categories/api/seed", () => ({ seedCategories: vi.fn() }));
 vi.mock("../../features/components/api/seed", () => ({ seedComponents: vi.fn() }));
 vi.mock("../../features/dimensions/api/seed", () => ({ seedDimensions: vi.fn() }));
@@ -48,12 +51,14 @@ describe("Catalog scenario seed caller", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it.each([
-    ["staging", 0],
-    ["production", 0],
-    ["test", 1],
+    ["local", 1, true],
+    ["dev", 1, true],
+    ["staging", 0, false],
+    ["production", 0, false],
+    ["test", 1, false],
   ])(
     "with scenario-seed in %s, runs the promoted writer and invokes the changed writer %i times",
-    async (environmentName, changedCalls) => {
+    async (environmentName, changedCalls, includeBrowsePagination) => {
       const pool: PgTransactionalPool = {
         query: vi.fn(async (sql: string) => ({
           rows: sql.includes("AS dependency_kind")
@@ -71,6 +76,8 @@ describe("Catalog scenario seed caller", () => {
 
       await seedCatalogDatabase(pool, services, { enabledDataProfiles: ["scenario-seed"], environmentName });
 
+      expect(seedCatalogItems).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(seedCatalogItems).mock.calls[0]?.[5]?.includeBrowsePagination).toBe(includeBrowsePagination);
       expect(seedPromotedSourceObservationScenario).toHaveBeenCalledExactlyOnceWith(services);
       expect(seedChangedSourceObservationScenario).toHaveBeenCalledTimes(changedCalls);
     },

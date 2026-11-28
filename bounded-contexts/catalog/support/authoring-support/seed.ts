@@ -10,7 +10,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices, type CatalogServices } from "./services";
 import { seedBlueprints } from "../../features/blueprints/api/seed";
 import type { BlueprintIds } from "../../features/blueprints/api/seed";
-import { seedCatalogItems } from "../../features/catalog-items/api/seed";
+import { browsePaginationItemIds, seedCatalogItems } from "../../features/catalog-items/api/seed";
 import { seedCategories } from "../../features/categories/api/seed";
 import type { CategoryIds } from "../../features/categories/api/seed";
 import { seedComponents } from "../../features/components/api/seed";
@@ -368,11 +368,20 @@ async function seedCatalogScenarioData(
   environmentName: BcSeedOptions["environmentName"],
 ): Promise<void> {
   const targetCatalogItemId = catalogSeedIds.items.pikachuJungle as CatalogItemId;
-  const { hasAnyCatalogItem, retainedScenarioItemIds } = await loadCatalogScenarioSeedState(services.db);
+  // Browser sandboxes bootstrap the local scenario seed. Keep pagination fixtures out of deployed catalogs.
+  const includeBrowsePagination = environmentName === "local" || environmentName === "dev";
+  const itemIds = includeBrowsePagination
+    ? [...scenarioCatalogItemIds, ...browsePaginationItemIds]
+    : scenarioCatalogItemIds;
+  const { hasAnyCatalogItem, retainedScenarioItemIds } = await loadCatalogScenarioSeedState(services.db, itemIds);
 
   if (hasAnyCatalogItem) {
     console.log("Catalog scenario items already exist. Reconciling exact integration prerequisites.");
-    if (!retainedScenarioItemIds.has(targetCatalogItemId)) {
+    const requiredItemIds = includeBrowsePagination
+      ? [targetCatalogItemId, ...browsePaginationItemIds]
+      : [targetCatalogItemId];
+    const missingItemIds = requiredItemIds.filter((itemId) => !retainedScenarioItemIds.has(itemId));
+    if (missingItemIds.length > 0) {
       await seedCatalogItems(
         services,
         authoring.blueprints,
@@ -380,7 +389,8 @@ async function seedCatalogScenarioData(
         authoring.categories,
         authoring.references,
         {
-          catalogItemIds: [targetCatalogItemId],
+          catalogItemIds: missingItemIds,
+          includeBrowsePagination,
           beforePublication: () => drainCatalogItemPublicationInputs(pool, services),
         },
       );
@@ -393,7 +403,7 @@ async function seedCatalogScenarioData(
       authoring.fields,
       authoring.categories,
       authoring.references,
-      { beforePublication: () => drainCatalogItemPublicationInputs(pool, services) },
+      { includeBrowsePagination, beforePublication: () => drainCatalogItemPublicationInputs(pool, services) },
     );
   }
 
@@ -401,7 +411,7 @@ async function seedCatalogScenarioData(
   // Drain Catalog Item projections after either a full or targeted reconciliation;
   // a partial/terminal target stream then fails deterministically in the observation seed.
   await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
-  await recoverScenarioCatalogItemProjections(pool, services);
+  await recoverScenarioCatalogItemProjections(pool, services, itemIds);
   await seedProductContentScenario(services);
   await seedPromotedSourceObservationScenario(services);
   // Staging also enables scenario-seed, but the changed observation is only a browser test fixture.
@@ -418,8 +428,9 @@ function catalogItemStreamId(catalogItemId: CatalogItemId): string {
 
 async function loadCatalogScenarioSeedState(
   db: CatalogServices["db"],
+  itemIds: readonly CatalogItemId[],
 ): Promise<Readonly<{ hasAnyCatalogItem: boolean; retainedScenarioItemIds: Set<CatalogItemId> }>> {
-  const streamIds = scenarioCatalogItemIds.map(catalogItemStreamId);
+  const streamIds = itemIds.map(catalogItemStreamId);
   const result = await db.query<Readonly<{ has_any_catalog_item: boolean; retained_stream_ids: string[] }>>(
     `SELECT EXISTS (
        SELECT 1
@@ -443,8 +454,11 @@ async function loadCatalogScenarioSeedState(
   };
 }
 
-async function loadRetainedScenarioCatalogItemIds(db: CatalogServices["db"]): Promise<Set<CatalogItemId>> {
-  const streamIds = scenarioCatalogItemIds.map(catalogItemStreamId);
+async function loadRetainedScenarioCatalogItemIds(
+  db: CatalogServices["db"],
+  itemIds: readonly CatalogItemId[],
+): Promise<Set<CatalogItemId>> {
+  const streamIds = itemIds.map(catalogItemStreamId);
   const result = await db.query<Readonly<{ stream_id: string }>>(
     `SELECT DISTINCT stream_id
      FROM event_store_events
@@ -458,8 +472,9 @@ async function loadRetainedScenarioCatalogItemIds(db: CatalogServices["db"]): Pr
 async function recoverScenarioCatalogItemProjections(
   pool: PgTransactionalPool,
   services: CatalogServices,
+  itemIds: readonly CatalogItemId[],
 ): Promise<void> {
-  const retainedScenarioItemIds = await loadRetainedScenarioCatalogItemIds(services.db);
+  const retainedScenarioItemIds = await loadRetainedScenarioCatalogItemIds(services.db, itemIds);
   if (retainedScenarioItemIds.size === 0) {
     return;
   }
